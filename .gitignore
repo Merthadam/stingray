@@ -1,0 +1,18 @@
+node_modules/
+dist/
+dist-electron/
+release/
+artifacts/
+.package-work-*/
+.test-data/
+*.log
+.DS_Store
+
+# Local credentials and runtime state must never be committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+workspaces.json
+workspaces.json.tmp

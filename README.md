@@ -1,0 +1,137 @@
+# Stingray
+
+Source repository: https://github.com/Merthadam/stingray. Dependencies, generated builds/app bundles, local app data, credentials and test artifacts are not committed. Build locally using the instructions below; local delivery paths and verification records describe the maintainer's development checkout, not files included in a fresh clone.
+
+A macOS-first desktop workspace for coding-agent terminals, Git worktrees, and browser previews. Built with Electron, React, TypeScript, node-pty, and xterm. Uses Superset's warm dark palette and a similar workspace layout, with an independent Stingray identity. See [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Runtime screenshots and detailed test evidence are retained locally under `artifacts/testing/` and are intentionally excluded from this source repository.
+
+**Delivery status:** One **Add project** action with **Local folder / Repository URL** is now delivered at **`release/Stingray.app`** and was reopened normally after approved promotion. The original build is preserved at `release/backups/2026-11-06-before-add-project/Stingray.app`; both candidate bundles remain intact. See the live promotion report (local evidence: `artifacts/testing/2026-11-06-live-promotion/verification.md`) for fresh final-path checks and the Add project implementation report (local evidence: `artifacts/testing/2026-11-06-add-project/verification.md`) for prior implementation evidence.
+
+## Open the desktop app
+
+To open the **current Add project build**, double-click **`~/Projects/stingray/release/Stingray.app`** in Finder, or run:
+
+```sh
+open "$HOME/Projects/stingray/release/Stingray.app"
+```
+
+This local **Apple Silicon** build bundles Electron and the app runtime: you do not need npm, a separate Node.js installation, or a dev server to open it. Git and your shell/agent CLIs remain external tools; agents are not bundled. Bundle metadata requires macOS 13 or newer; only the current Mac was tested.
+
+The app is **ad-hoc signed, not Apple-notarized**. Local LaunchServices launch passed; this is not a public distribution or Gatekeeper compatibility guarantee. No installation into `/Applications` was performed. Do not disable macOS security protections if a copied/downloaded build is blocked.
+
+The Add project candidate, previous Design A navigation candidate and original-build backup are retained separately. Promotion to the standard path is complete. Do not replace or move a running app, or launch a different build against the same app data while it is running. Any future replacement or rollback still requires approval, confirmed app exit, preservation of the current bundle and final-path verification.
+
+### Run from source
+
+This checkout also has dependencies and a verified production build:
+
+```sh
+cd ~/Projects/stingray
+npm start
+```
+
+For a fresh installation, use a compatible Node.js version (verified locally with Node 24.21.0), npm, and Git:
+
+```sh
+npm ci
+npm run setup
+npm run build
+npm start
+```
+
+`setup` installs the project-local Electron runtime and fixes the macOS PTY helper's executable permission. It does not install agents or change global tools. Dependency installation/setup needs network access and can run package lifecycle scripts. Rebuild after source changes. If Electron starts as Node instead of opening a window, check that `ELECTRON_RUN_AS_NODE` is unset in the launching shell.
+
+### Development and browser demo
+
+- `npm run dev`: builds the Electron main/preload files, starts Vite on `127.0.0.1:5178`, then launches Electron. Renderer changes hot-reload; main/preload changes require restarting this command.
+- `npm run dev:ui`: starts **only a simulated browser demo**, at `http://127.0.0.1:5178/`. It cannot access real repositories or execute shell commands. Its preview uses a restricted iframe, not the native browser engine's workspace sessions.
+- Port 5178 is strict: stop your own existing demo/dev server before starting another. Neither command automatically finds a different port.
+
+## Use
+
+1. **Projects home**: each card is one registered Git repository, with counts of Stingray-managed worktrees and running terminals. Search by repository name or path. The single **Add project** button opens two choices: **Local folder** registers an existing trusted Git repository via an absolute path or folder picker; **Repository URL** clones an HTTPS/SSH Git address into a new absolute folder you choose. A parent-folder picker suggests a destination; only **Clone project** starts the operation. Existing destinations (even empty folders) are refused. Progress is indeterminate, with a five-minute clone timeout; registration happens only after success. Both flows return to Projects. Click its card to enter; registration alone does not open a workspace or launch a shell. Linked-worktree paths resolve to their primary checkout rather than creating a new project card; existing historical duplicates are not migrated.
+2. **New worktree**: inside a project, choose a new branch name. Only that repository's workspaces are shown, and creation targets that repository. The branch starts at the registered repository's current HEAD, not necessarily the selected worktree's HEAD. The separate directory still lives in Stingray's app-data folder: “inside a project” means ownership/navigation, not physical nesting in the repository. **All projects** returns home without stopping existing terminals.
+3. **Open terminal**: starts your login shell in that workspace. Run an already-installed agent CLI or dev server yourself. Nothing is bundled, installed, or launched automatically. Use terminal tabs or the split button for two visible terminals.
+4. **Browser preview**: enter your development server's HTTP(S) address. Back, forward, reload, and close are available in the desktop app. Workspace switching recreates the preview document; it does not preserve its in-memory page state.
+5. **Changes**: inspect read-only Git status; refresh after editing. This version does not stage, commit, push, merge, or show file diffs.
+6. **Remove worktree**: close all its terminals and type the exact branch name. Only Stingray-managed worktrees can be removed. Modified, untracked, or ignored files prevent removal. The branch and commits remain in Git.
+
+Shortcuts: **Cmd/Ctrl K** focuses project search at home or workspace search inside a project. **Cmd/Ctrl T** opens a terminal and **Cmd/Ctrl B** toggles the preview only when a workspace is open; neither launches a shell from home. At compact desktop sizes, Projects scrolls vertically and the terminal/preview stack vertically; scroll the relevant pane to reach lower content.
+
+### Repository URL access and recovery
+
+Use `https://host/owner/project.git`, `ssh://git@host/owner/project.git`, or `git@host:owner/project.git`. Passwords/HTTPS usernames, query strings, fragments, percent escapes, unsafe protocols and shell syntax are rejected. Use the final canonical repository URL: HTTP redirects are disabled. Do not put secrets anywhere in a URL, including its path.
+
+Private repositories use existing trusted Git credential helpers or SSH access; Stingray does not provide a login flow. Default SSH is non-interactive with strict host-key checking; configure known hosts/agent access outside the app first. A preconfigured `GIT_SSH_COMMAND` is honored. No dependencies, setup, hooks, templates, recursive submodules or agents are automatically run. Trusted local credential helpers, SSH configuration and checkout filters can still execute local configuration.
+
+Keep the window open during cloning. Cancel/Escape/window-close are blocked while it runs; there is no user cancellation/resume UI. Failures display sanitized guidance rather than raw Git stderr. Remaining destination files are not deleted by Stingray. Inspect them before retrying into a **new** folder; if cloning completed but saving failed, use **Local folder** to register that checkout. A forced app exit or renderer reload during cloning is not resumable UI: revisit/reload after completion and reconcile the destination if needed. Git/JSON are not one transaction.
+
+## State and safety boundaries
+
+- Repositories, worktree registrations, and preview addresses are stored in `workspaces.json` inside Electron's per-user `userData` directory. `STINGRAY_DATA_DIR=/absolute/path` selects a separate data directory for testing. Managed worktrees live below that directory; **do not delete it as a casual reset**, because it can contain project files.
+- Workspace JSON uses schema validation and a temporary-file rename. Corrupt files fail closed rather than being silently replaced. It is not a transactional database covering both Git and JSON; interrupted/failed operations may need manual reconciliation with `git worktree list`. Preserve files and branches before recovery.
+- Terminal sessions and bounded output replay survive returning to Projects, project/workspace switching, and renderer reload, **not application exit**. Up to 24 terminals, 100 repositories, and 200 workspaces are allowed.
+- Full application launch starts at Projects with no automatically launched terminals. Renderer reload restores the selected project/worktree using IDs in `sessionStorage`; no repository paths are stored there. A removed worktree falls back only within its own repository. Missing repositories return home. Loading failures show a retry state, not a fabricated empty library.
+- Closing a terminal requests a PTY hangup and removes it from Stingray's registry. **Detached processes or processes ignoring hangup may survive.** This is not a process-tree supervisor; independently stop/check such jobs before removing worktrees or quitting.
+- Shell startup files and repository-configured Git filters can execute local code. Only open trusted repositories. Stingray's Git service disables Git hooks, but commands you type in its terminals use your normal tools and configuration.
+- Native preview guests have no Node integration or Stingray bridge, use sandbox/context isolation, and deny popups, permissions, and downloads. Each workspace has a separate persistent browser session. This is not a VM, network firewall, or isolation boundary for terminal commands. Preview pages and terminal commands can make network requests.
+- Preview URLs accept HTTP(S), reject embedded username/password credentials, and are saved locally. Do not paste secret-bearing query strings; arbitrary URL query values are not automatically redacted. Preview cookies/cache can persist in the app-data directory.
+- No accounts, telemetry, cloud sync, or bundled agents are implemented. No real agent run was part of verification.
+
+## Verification
+
+```sh
+npm run build
+npm test
+npm run test:desktop
+npm run test:add-project
+STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/source-launch" node tests/launch.mjs
+```
+
+Native tests use temporary app data, repositories, fixture-only Git commits, PTYs, and a loopback preview server, then clean up their own fixtures. They do not operate on your repositories. The launch smoke test opens `npm start` with an ephemeral local debugging endpoint for inspection, then closes it.
+
+Delivered packaged-app verification (use a new evidence directory for each rerun):
+
+```sh
+STINGRAY_TEST_APP="$PWD/release/Stingray.app/Contents/MacOS/Stingray" \
+  STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/regression" npm run test:desktop
+STINGRAY_TEST_APP="$PWD/release/Stingray.app/Contents/MacOS/Stingray" \
+  STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/clone" npm run test:add-project
+STINGRAY_TEST_BUNDLE="$PWD/release/Stingray.app" \
+  STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/launch" node tests/package-launch.mjs
+codesign --verify --deep --strict release/Stingray.app
+```
+
+Fresh final-path promotion checks: **22/22 clone-flow checks**, **31/31 desktop regressions**, isolated LaunchServices smoke and deep/strict signature passed at `release/Stingray.app`. Hash/symlink/mode comparisons confirmed the promoted bundle matches the candidate and the backup matches the original. A subsequent normal launch was confirmed without test/debug flags. No application-source changes or rebuild were needed. See the promotion report (local evidence: `artifacts/testing/2026-11-06-live-promotion/verification.md`).
+
+Latest Add project verification: **23/23 unit/integration tests**, **22/22 clone-flow native checks** and **31/31 desktop regressions** on both source build and packaged candidate, TypeScript/build, source launch and packaged LaunchServices, signature and build-output equality checks passed. Chrome DevTools exercised demo validation, honest desktop-required errors, mode switching, cancel, single-entry/empty states and wide/compact layouts; no console warnings/errors or failed requests in the inspected runs. Real clone tests use an isolated transport shim invoking local Git upload-pack; they verify actual pack transfer/checkout/persistence, **not live HTTPS/SSH authentication or provider access**. Native folder chooser responses are stubbed in automation. See report and screenshots (local evidence: `artifacts/testing/2026-11-06-add-project/verification.md`).
+
+Historical navigation review: **15/15 unit/integration tests**, TypeScript checking, candidate signature verification, packaged/local build-output comparison, icon inspection, and a supplemental Chrome DevTools simulated-browser check passed freshly. The prior implementation session recorded **31/31 development and 31/31 candidate packaged native checks**, plus an isolated LaunchServices smoke test with restricted PATH and bundled-only resources. Those native suites were reviewed, not rerun during the documentation pass. They cover real PTYs, two-repository worktree isolation, navigation/reload/restart behavior, and preview interaction/persistence. An initial compact-layout failure and its successful rerun remain preserved. See the navigation verification report (local evidence: `artifacts/testing/2026-11-06-project-navigation/verification.md`).
+
+The earlier standard-bundle packaging report (local evidence: `artifacts/testing/2026-11-06-stingray-app/verification.md`) records 9/9 unit tests and 20/20 native checks for the older build now retained in the backup; current standard-path delivery is established by the promotion report above.
+
+Earlier development-build/browser results are preserved separately in the development verification report (local evidence: `artifacts/testing/2026-11-06-stingray/verification.md`); they are not substituted for packaged-app tests.
+
+**Known limits:** no Apple notarization, installer, auto-updates, Intel/Windows/Linux testing, real-agent compatibility run, exhaustive accessibility/security audit, or exhaustive failure-injection recovery suite (clone timeout and registration-save failure are now covered). The earlier packaging `npm audit` recorded **5 moderate findings** in packaging development dependencies (0 high/critical); the audit was not rerun for this task. Packaging tools are excluded from the runtime bundle. No forced dependency changes were made. The renderer bundle still produces Vite's >500 kB warning. The combined `npm run dev` launcher remains unverified; production `npm start` was tested for this Add project candidate (see the source-launch evidence in the report).
+
+### Rebuild the local app
+
+On Apple Silicon macOS with project dependencies installed:
+
+```sh
+npm run package:mac
+```
+
+The recipe builds and packages a self-contained `.app`, generates the existing Stingray icon, and applies/verifies a local ad-hoc signature. **It refuses to overwrite an existing target.** To retain the standard build, choose a fresh directory beneath `release`, for example `STINGRAY_PACKAGE_OUTPUT=release/new-candidate npm run package:mac`. Never move/replace a running build; confirm it has quit and preserve the original before an approved replacement. Rerun packaged checks for the chosen path afterward. There is no upload, notarization, or global installation step.
+
+## Structure
+
+- `electron/main.ts` / `preload.ts`: window lifecycle, restricted IPC, preview guest policy.
+- `electron/git.ts`, `clone.ts`, `store.ts`, `terminals.ts`: Git registration/worktrees, bounded clone process, JSON state, PTY ownership.
+- `src/App.tsx`, `ProjectHome.tsx`, `project-home.css`, `project-navigation.ts`: repository cards, scoped navigation, reload selection.
+- `src/AddProjectForm.tsx`, `add-project.css`: local/URL dialog, validation and busy/error states.
+- `src/TerminalPane.tsx`, `BrowserPane.tsx`: terminals and preview.
+- `src/shared.ts`: shared types and schemas; `src/demo.ts`: explicitly simulated browser adapter.
+- `tests/`: filesystem/Git regression tests and native/launch tests.
+- `artifacts/testing/`: plan, screenshots, logs, and verification record.

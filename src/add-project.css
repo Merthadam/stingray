@@ -1,0 +1,6 @@
+.add-project-modes{display:flex;gap:4px;padding:4px;border:1px solid var(--border);border-radius:7px;background:#181310;margin-bottom:20px}
+.add-project-modes button{flex:1;padding:9px 12px;color:var(--muted);font-size:12px}
+.add-project-modes button[aria-pressed=true]{background:#3a2c24;color:#f0c8ad;border-color:#594033}
+.clone-progress{margin-top:16px}
+.modal{max-height:calc(100dvh - 32px);overflow-y:auto}
+.modal .fine-print{overflow-wrap:anywhere}

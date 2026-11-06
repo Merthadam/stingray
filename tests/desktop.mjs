@@ -1,0 +1,220 @@
+import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync, spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+
+const root = await mkdtemp(path.join(tmpdir(), 'stingray-desktop-'));
+const repo = path.join(root, 'fixture-project');
+const data = path.join(root, 'data');
+const otherRepo = path.join(root, 'other-project');
+const executablePath = process.env.STINGRAY_TEST_APP ? path.resolve(process.env.STINGRAY_TEST_APP) : undefined;
+const launchArgs = executablePath ? [] : ['.'];
+const evidence = path.resolve(process.env.STINGRAY_TEST_EVIDENCE || (executablePath ? 'artifacts/testing/2026-11-06-stingray-app/implementation' : 'artifacts/testing/2026-11-06-stingray/implementation'));
+await mkdir(evidence, { recursive: true }); await mkdir(repo); await mkdir(path.join(root, 'shell'));
+await writeFile(path.join(root, 'shell', '.zshrc'), "PROMPT='stingray % '\n");
+const git = (...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+git('init', '-b', 'main'); await writeFile(path.join(repo, 'README.md'), '# Desktop verification fixture\n'); git('add', '.');
+git('-c', 'user.name=Stingray Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture');
+await mkdir(otherRepo);
+const otherGit = (...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: otherRepo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+otherGit('init', '-b', 'main'); await writeFile(path.join(otherRepo, 'README.md'), '# Other project fixture\n'); otherGit('add', '.');
+otherGit('-c', 'user.name=Stingray Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture');
+const html = await readFile('public/preview.html', 'utf8');
+const server = createServer((_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end(html); });
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const url = 'http://127.0.0.1:' + server.address().port;
+const env = { ...process.env, STINGRAY_DATA_DIR: data, ZDOTDIR: path.join(root, 'shell') };
+delete env.ELECTRON_RUN_AS_NODE; delete env.STINGRAY_DEV_URL;
+let app;
+const checks = [];
+const errors = [];
+const check = (name, value) => { assert.ok(value, name); checks.push(name); console.log('PASS', name); };
+async function waitFor(fn, label) {
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) { const result = await fn(); if (result) return result; await new Promise(r => setTimeout(r, 75)); }
+  throw new Error('Timed out: ' + label);
+}
+async function launch() {
+  app = await electron.launch({ executablePath, args: launchArgs, env, timeout: 30000 });
+  const page = await app.firstWindow();
+  page.on('pageerror', e => errors.push(e.message));
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor({ timeout: 15000 });
+  await page.waitForFunction(() => !!window.stingray);
+  return page;
+}
+try {
+  let page = await launch();
+  check('desktop bridge loaded (not browser demo)', await page.evaluate(() => window.stingray.mode === 'desktop'));
+  await page.screenshot({ path: path.join(evidence, 'desktop-empty.png') });
+  const secondaryExit = await new Promise((resolve, reject) => {
+    const secondary = spawn(executablePath || 'node_modules/.bin/electron', launchArgs, { env, stdio: 'ignore' });
+    const timeout = setTimeout(() => { secondary.kill(); reject(new Error('Second instance did not exit')); }, 10000);
+    secondary.on('error', e => { clearTimeout(timeout); reject(e); });
+    secondary.on('exit', code => { clearTimeout(timeout); resolve(code); });
+  });
+  check('second instance exits without opening a duplicate window', secondaryExit === 0 && app.windows().length === 1);
+  await page.getByRole('button', { name: 'Add project', exact: true }).click();
+  await page.getByLabel('Repository path', { exact: true }).fill(repo);
+  await page.getByRole('dialog').getByRole('button', { name: 'Open repository', exact: true }).click();
+  await page.getByRole('button', { name: 'Open project fixture-project', exact: true }).click();
+  await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
+  const main = await page.evaluate(async () => (await window.stingray.state()).workspaces[0]);
+  check('real repository opened through UI', main.path.endsWith('/fixture-project'));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
+  await page.waitForFunction(() => innerWidth === 760);
+  check('compact empty terminal does not overlap its footer', await page.evaluate(() => {
+    const hint = document.querySelector('.shortcut-hint').getBoundingClientRect();
+    const footer = document.querySelector('.terminal-footer').getBoundingClientRect();
+    return hint.bottom <= footer.top && document.documentElement.scrollWidth <= innerWidth;
+  }));
+  await page.screenshot({ path: path.join(evidence, 'desktop-compact-empty.png') });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 940));
+  await page.getByRole('button', { name: 'Open terminal', exact: true }).click();
+  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals()).length === 1), 'terminal creation');
+  const terminal = (await page.evaluate(() => window.stingray.terminals()))[0];
+  await page.locator('.xterm-helper-textarea').click();
+  await page.keyboard.type("printf 'STINGRAY_NATIVE_OK\\n'"); await page.keyboard.press('Enter');
+  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals())[0]?.buffer.includes('STINGRAY_NATIVE_OK\r\n')), 'real terminal output');
+  check('real PTY accepted keyboard input and returned command output', true);
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  check('Projects home unmounts workspace terminals and preview without stopping PTYs', await page.locator('.terminal-surface, webview').count() === 0 && (await page.evaluate(() => window.stingray.terminals())).length === 1);
+  await page.keyboard.press('Meta+t');
+  check('terminal shortcut at home does not launch a shell', (await page.evaluate(() => window.stingray.terminals())).length === 1);
+  await page.getByLabel('Find a project').fill('missing-repository');
+  await page.getByRole('heading', { name: 'No matching projects.' }).waitFor();
+  await page.getByRole('button', { name: 'Show all projects' }).click();
+  await page.getByRole('button', { name: 'Add project', exact: true }).click();
+  await page.getByLabel('Repository path', { exact: true }).fill(path.join(root, 'not-a-repository'));
+  await page.getByRole('dialog').getByRole('button', { name: 'Open repository', exact: true }).click();
+  await page.getByRole('dialog').getByRole('alert').waitFor();
+  check('invalid repository error leaves registrations unchanged', (await page.evaluate(() => window.stingray.state())).repos.length === 1);
+  await page.getByLabel('Repository path', { exact: true }).fill(otherRepo);
+  await page.getByRole('dialog').getByRole('button', { name: 'Open repository', exact: true }).click();
+  await page.getByRole('button', { name: 'Open project other-project', exact: true }).waitFor();
+  check('one project card per registered repository', await page.locator('.project-card').count() === 2);
+  await page.screenshot({ path: path.join(evidence, 'projects-home.png') });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
+  await page.waitForFunction(() => innerWidth === 760);
+  check('compact project cards fit without horizontal overflow or a prototype switcher', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('.project-home').scrollWidth <= document.querySelector('.project-home').clientWidth && !document.querySelector('.ph-switcher')));
+  await page.screenshot({ path: path.join(evidence, 'projects-home-compact.png') });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 940));
+  await page.reload();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  check('home reload preserves home and registered repositories', await page.locator('.project-card').count() === 2);
+  await page.getByRole('button', { name: 'Open project other-project', exact: true }).click();
+  await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
+  check('other project shows no terminals from the first repository', await page.locator('.terminal-surface').count() === 0 && await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button').count() === 1);
+  await page.getByRole('button', { name: 'New worktree', exact: true }).click();
+  await page.getByLabel('New branch name').fill('feature/other-project');
+  await page.getByRole('button', { name: 'Create worktree', exact: true }).click();
+  await page.getByRole('heading', { name: 'feature/other-project', exact: true }).waitFor();
+  check('worktree creation targets the open project only', otherGit('branch', '--list', 'feature/other-project').includes('feature/other-project') && !git('branch', '--list', 'feature/other-project').trim());
+  await page.reload();
+  await page.getByRole('heading', { name: 'feature/other-project', exact: true }).waitFor();
+  check('renderer reload restores the selected project and worktree without auto-launch', (await page.locator('.project-current').innerText()).includes('other-project') && (await page.evaluate(() => window.stingray.terminals())).length === 1);
+  await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByLabel('Branch confirmation').fill('feature/other-project');
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
+  check('removing a worktree falls back within its own project', (await page.locator('.project-current').innerText()).includes('other-project'));
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Open project fixture-project', exact: true }).click();
+  await waitFor(async () => await page.locator('.terminal-surface:visible').count() === 1, 'terminal remount');
+  check('returning to the original project replays its terminal and hides other project branches', (await page.evaluate(() => window.stingray.terminals()))[0].id === terminal.id && !(await page.getByRole('navigation', { name: 'Project workspaces' }).innerText()).includes('feature/other-project'));
+  await page.getByRole('button', { name: 'Split terminals', exact: true }).click();
+  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals()).length === 2), 'split terminal');
+  await waitFor(async () => await page.locator('.terminal-surface:visible').count() === 2, 'split panes rendered');
+  check('split view opens a second real PTY', await page.locator('.terminal-surface:visible').count() === 2);
+  await page.getByRole('button', { name: 'Close Terminal 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals()).length === 1), 'split terminal close');
+  await page.getByRole('button', { name: 'New worktree', exact: true }).click();
+  await page.getByLabel('New branch name').fill('feature/native-test');
+  await page.getByRole('button', { name: 'Create worktree', exact: true }).click();
+  await page.getByRole('heading', { name: 'feature/native-test', exact: true }).waitFor();
+  const worktree = await page.evaluate(async () => (await window.stingray.state()).workspaces.find(w => w.branch === 'feature/native-test'));
+  check('real worktree and branch created', git('worktree', 'list', '--porcelain').includes('feature/native-test'));
+  check('terminal survives workspace switch', (await page.evaluate(() => window.stingray.terminals()))[0].id === terminal.id);
+  await writeFile(path.join(worktree.path, 'keep.txt'), 'never delete dirty work');
+  await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByLabel('Branch confirmation').fill('feature/native-test');
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'modified, untracked, or ignored' }).waitFor();
+  check('UI refuses dirty worktree deletion', await readFile(path.join(worktree.path, 'keep.txt'), 'utf8') === 'never delete dirty work');
+  await page.getByRole('button', { name: 'Keep worktree' }).click();
+  await rm(path.join(worktree.path, 'keep.txt'));
+  await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByLabel('Branch confirmation').fill('feature/native-test');
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
+  check('clean worktree removed and branch retained', !git('worktree', 'list', '--porcelain').includes('feature/native-test') && git('branch', '--list', 'feature/native-test').includes('feature/native-test'));
+  await page.getByLabel('Preview URL').fill('file:///etc/passwd');
+  await page.getByRole('button', { name: 'Load preview', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'HTTP or HTTPS' }).waitFor();
+  check('preview form rejects file URLs without navigating', await page.locator('webview').count() === 0);
+  await page.getByLabel('Preview URL').fill(url);
+  await page.getByRole('button', { name: 'Load preview', exact: true }).click();
+  await waitFor(() => app.evaluate(({ webContents }) => webContents.getAllWebContents().some(w => w.getType() === 'webview' && w.getURL().startsWith('http://127.0.0.1:'))), 'preview guest');
+  const guestState = await app.evaluate(async ({ webContents }) => {
+    const guest = webContents.getAllWebContents().find(w => w.getType() === 'webview');
+    await guest.executeJavaScript("document.getElementById('counter').click()");
+    return { text: await guest.executeJavaScript("document.getElementById('counter').textContent"), privileges: await guest.executeJavaScript("({require:typeof require,process:typeof process,bridge:typeof window.stingray})"), preferences: { node: guest.getLastWebPreferences().nodeIntegration, sandbox: guest.getLastWebPreferences().sandbox, isolation: guest.getLastWebPreferences().contextIsolation } };
+  });
+  check('real browser preview is interactive', guestState.text === 'Clicks: 1');
+  check('preview has no Node or Stingray bridge and is sandboxed', Object.values(guestState.privileges).every(v => v === 'undefined') && guestState.preferences.node === false && guestState.preferences.sandbox && guestState.preferences.isolation);
+  const blocked = await page.evaluate(async () => {
+    try { await window.stingray.preview('00000000-0000-4000-8000-000000000002', 'file:///etc/passwd'); return false; } catch { return true; }
+  });
+  check('unsafe preview scheme is rejected at IPC boundary', blocked);
+  const guestCount = await app.evaluate(({ webContents }) => webContents.getAllWebContents().length);
+  await app.evaluate(async ({ webContents }) => { const guest = webContents.getAllWebContents().find(w => w.getType() === 'webview'); await guest.executeJavaScript("window.open('https://example.com')"); });
+  check('preview popups are blocked', await app.evaluate(({ webContents }) => webContents.getAllWebContents().length) === guestCount);
+  const guestWidth = await app.evaluate(async ({ webContents }) => webContents.getAllWebContents().find(w => w.getType() === 'webview').executeJavaScript('innerWidth'));
+  check('preview viewport fits the visible pane', Math.abs(guestWidth - (await page.locator('webview').boundingBox()).width) < 2);
+  await waitFor(() => app.evaluate(({ webContents }) => !webContents.getAllWebContents().find(w => w.getType() === 'webview').isLoading()), 'preview load settled');
+  await app.evaluate(async ({ BrowserWindow, webContents }) => {
+    const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus();
+    const guest = webContents.getAllWebContents().find(w => w.getType() === 'webview');
+    await guest.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  });
+  // Allow the guest compositor to submit its frame before capturing the host window.
+  await page.waitForTimeout(250);
+  const nativeCapture = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'));
+  await writeFile(path.join(evidence, 'desktop-terminal-preview.png'), Buffer.from(nativeCapture, 'base64'));
+  await page.reload();
+  await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
+  check('renderer reload retains PTY and saved preview URL', await page.evaluate(async () => {
+    const ts = await window.stingray.terminals(); const s = await window.stingray.state();
+    return ts.length === 1 && ts[0].buffer.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
+  }));
+  await page.getByRole('tab', { name: /Changes/ }).click();
+  await page.getByRole('heading', { name: 'All clear.' }).waitFor();
+  await page.screenshot({ path: path.join(evidence, 'desktop-clean-status.png') });
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Terminal 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals()).length === 0), 'terminal close');
+  check('terminal close requires confirmation and releases session', true);
+  await app.close(); app = undefined;
+  page = await launch();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  check('full app restart starts at Projects with saved repositories and no auto-launched terminals', await page.locator('.project-card').count() === 2 && await page.evaluate(async () => (await window.stingray.state()).workspaces.length === 2 && (await window.stingray.terminals()).length === 0));
+  check('no renderer exceptions', errors.length === 0);
+  await writeFile(path.join(evidence, 'desktop-results.json'), JSON.stringify({ passed: checks.length, checks, errors, scope: `${executablePath ? 'Packaged macOS app' : 'Actual Electron build'}; temporary Git repository and app data; local preview fixture; no real agent invocation.` }, null, 2));
+} catch (e) {
+  console.error(e);
+  if (app) { const windows = app.windows(); if (windows[0]) await windows[0].screenshot({ path: path.join(evidence, 'desktop-failure.png') }).catch(() => {}); }
+  await writeFile(path.join(evidence, 'desktop-failure.json'), JSON.stringify({ checks, errors, failure: String(e) }, null, 2));
+  process.exitCode = 1;
+} finally {
+  if (app) {
+    await app.evaluate(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) w.destroy(); }).catch(() => {});
+    await app.close().catch(() => {});
+  }
+  server.close();
+  await rm(root, { recursive: true, force: true });
+}
