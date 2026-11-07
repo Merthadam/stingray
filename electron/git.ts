@@ -4,10 +4,12 @@ import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store } from './store';
-import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus } from '../src/shared';
+import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type SnapshotHint, type RepoSnapshot, snapshotHintSchema } from '../src/shared';
 import { cloneGit } from './clone';
+import { repoSnapshot, inspectFile } from './repo-map';
 
 const exec = promisify(execFile);
+const snapshotsInFlight = new Map<string, Promise<RepoSnapshot>>();
 export async function git(cwd: string, args: string[]) {
   try {
     const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
@@ -26,8 +28,8 @@ export function parseStatus(output: string) {
     const row = entries[i];
     if (!row) continue;
     const status = row.slice(0, 2);
-    changes.push({ status, path: row.slice(3) });
-    if (status.includes('R') || status.includes('C')) i++;
+    const renamed = status.includes('R') || status.includes('C');
+    changes.push({ status, path: row.slice(3), ...(renamed ? { originalPath: entries[++i] } : {}) });
   }
   return changes;
 }
@@ -140,6 +142,28 @@ export class GitService {
       git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     ]);
     return { branch: branch.trim() || 'detached HEAD', changes: parseStatus(output) };
+  }
+  async repoSnapshot(id: string, hint?: SnapshotHint) {
+    if (hint) snapshotHintSchema.parse(hint);
+    const w = await this.workspace(id);
+    const root = await realpath(w.path);
+    let job = snapshotsInFlight.get(root);
+    if (!job) {
+      job = (async () => repoSnapshot(root, await this.status(id), true, hint))();
+      snapshotsInFlight.set(root, job);
+    }
+    try {
+      // Concurrent requests share one entire status/inventory/count operation.
+      // A newer focus hint is handled on the next normal refresh, not queued.
+      const result = await job;
+      if (hint?.file && !result.files.some(file => file.path === hint.file)) throw new Error('Priority file is not in workspace inventory');
+      if (hint?.scope && !result.files.some(file => file.path.startsWith(hint.scope + '/'))) throw new Error('Priority scope is not in workspace inventory');
+      return result;
+    } finally { if (snapshotsInFlight.get(root) === job) snapshotsInFlight.delete(root); }
+  }
+  async inspectFile(id: string, relative: string) {
+    const w = await this.workspace(id);
+    return inspectFile(w.path, relative, await repoSnapshot(w.path, await this.status(id), false));
   }
   preview(id: string, input: string) {
     return this.serial(async () => {

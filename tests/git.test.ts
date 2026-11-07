@@ -101,7 +101,7 @@ test('corrupt saved state fails closed and is not overwritten', async () => {
 });
 test('porcelain parser preserves spaces, newlines, and rename records', () => {
   assert.deepEqual(parseStatus(' M file with spaces\0R  new\0old\0?? line\nbreak\0'), [
-    { status: ' M', path: 'file with spaces' }, { status: 'R ', path: 'new' }, { status: '??', path: 'line\nbreak' },
+    { status: ' M', path: 'file with spaces' }, { status: 'R ', path: 'new', originalPath: 'old' }, { status: '??', path: 'line\nbreak' },
   ]);
 });
 test('linked worktrees and their subfolders resolve to one repository project', async () => {

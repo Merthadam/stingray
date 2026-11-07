@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, GitCompareArrows, Globe, LayoutGrid, Monitor, Plus, RefreshCw, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map, Monitor, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import type { GitStatus, State, TerminalInfo } from './shared';
 import { TerminalPane } from './TerminalPane';
@@ -7,6 +7,7 @@ import { BrowserPane } from './BrowserPane';
 import { Modal } from './Modal';
 import { ProjectHome } from './ProjectHome';
 import { AddProjectForm } from './AddProjectForm';
+import { RepoMap } from './RepoMap';
 import { navigationKey, parseSelection, resolveSelection, type ProjectSelection } from './project-navigation';
 
 const emptyState: State = { version: 1, repos: [], workspaces: [] };
@@ -31,8 +32,6 @@ export default function App() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState<GitStatus | null>(null);
-  const [statusBusy, setStatusBusy] = useState(false);
-  const [statusError, setStatusError] = useState('');
   const search = useRef<HTMLInputElement>(null);
   const statusSequence = useRef(0);
   const selection = resolveSelection(state, navigation);
@@ -64,11 +63,9 @@ export default function App() {
   useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
   const refreshStatus = useCallback(async () => {
     const sequence = ++statusSequence.current;
-    if (!selected) { setStatus(null); setStatusBusy(false); setStatusError(''); return; }
-    setStatusBusy(true); setStatusError('');
+    if (!selected) { setStatus(null); return; }
     try { const next = await api.gitStatus(selected); if (sequence === statusSequence.current) setStatus(next); }
-    catch (e) { if (sequence === statusSequence.current) { setStatus(null); setStatusError((e as Error).message); } }
-    finally { if (sequence === statusSequence.current) setStatusBusy(false); }
+    catch { if (sequence === statusSequence.current) setStatus(null); }
   }, [selected]);
   useEffect(() => { setStatus(null); void refreshStatus(); }, [refreshStatus, tab]);
   async function run(action: () => Promise<void>) {
@@ -118,7 +115,7 @@ export default function App() {
           <div className="workspace-header"><div className="workspace-heading"><span className="branch-icon"><GitBranch size={19} /></span><div><h1>{workspace.name}</h1><p>{repo?.name}<ChevronRight size={11} />{workspace.managed ? 'Worktree' : 'Repository'}</p></div></div>
             <div className="header-actions"><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={16} /></button>{workspace.managed && <button className="icon" aria-label="Remove worktree" title="Remove worktree" onClick={() => openModal('remove')}><Trash2 size={15} /></button>}<button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={15} /> New terminal</button></div>
           </div>
-          <div className="workspace-tabs" role="tablist" aria-label="Workspace views"><button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={14} /> Workspace</button><button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><GitCompareArrows size={14} /> Changes {status && <span className="count">{status.changes.length}</span>}</button><span className="workspace-path" title={workspace.path}>{workspace.path}</span></div>
+          <div className="workspace-tabs" role="tablist" aria-label="Workspace views"><button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={14} /> Workspace</button><button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><Map size={14} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button><span className="workspace-path" title={workspace.path}>{workspace.path}</span></div>
           <div className={'workspace-content ' + (showBrowser ? 'with-browser' : '')} style={{ display: tab === 'workspace' ? 'flex' : 'none' }}>
             <section className="terminal-area" aria-label="Terminals">
               <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}</div><div className="terminal-tools"><button className="icon" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button></div></div>
@@ -130,7 +127,7 @@ export default function App() {
             </section>
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
-          {tab === 'changes' && <section className="changes-view"><div className="changes-heading"><div><h2>Working tree</h2><p>Read-only Git status. Refresh after making changes.</p></div><button className="secondary" disabled={statusBusy} onClick={() => void refreshStatus()}><RefreshCw size={14} className={statusBusy ? 'spin' : ''} /> Refresh</button></div>{statusError ? <div className="inline-error" role="alert">{statusError}</div> : statusBusy ? <p className="muted">Checking Git status…</p> : status?.changes.length ? <div className="changes-list">{status.changes.map((change, i) => <div className="change" key={i}><span className={change.status === '??' ? 'untracked' : 'modified'}>{change.status === '??' ? 'U' : change.status.trim()}</span><code>{change.path}</code></div>)}</div> : <div className="clean-state"><ShieldCheck size={32} /><h2>All clear.</h2><p>No uncommitted changes in this workspace.</p></div>}</section>}
+          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} terminals={workspaceTerminals} onStatus={setStatus} onPreview={() => { setShowBrowser(true); setTab('workspace'); }} />}
         </>}
       </main>
     </div>

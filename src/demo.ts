@@ -1,6 +1,22 @@
-import type { DesktopAPI, State, TerminalInfo, TerminalEvent } from './shared';
+import type { DesktopAPI, State, TerminalInfo, TerminalEvent, RepoFile } from './shared';
 const repoId = '00000000-0000-4000-8000-000000000001';
 const mainId = '00000000-0000-4000-8000-000000000002';
+const demoContent = (path: string) => path.endsWith('.tsx') ? 'export function Button() {\n  return <button className="primary">Continue</button>;\n}\n' : '// Simulated file contents for the browser demo.\n';
+const demoFiles: RepoFile[] = [
+  { path: 'src/App.tsx', status: ' M' }, { path: 'src/styles.css', status: ' M' },
+  { path: 'src/components/Button.tsx', status: ' M' }, { path: 'src/components/Dialog.tsx', status: '??' },
+  { path: 'src/components/Sidebar.tsx', status: '' }, { path: 'src/hooks/useWorkspace.ts', status: '' },
+  { path: 'src/legacy.ts', status: ' D' }, { path: 'src/main.tsx', status: '' },
+  { path: 'electron/main.ts', status: '' }, { path: 'electron/git.ts', status: ' M' },
+  { path: 'electron/preload.ts', status: '' }, { path: 'tests/git.test.ts', status: '??' },
+  { path: 'tests/navigation.test.ts', status: '' }, { path: 'public/stingray.svg', status: '' },
+  { path: 'src/conflict.ts', status: 'UU' }, { path: 'assets/binary.png', status: '??' },
+  ...Array.from({ length: 160 }, (_, i) => ({ path: `src/features/feature-${Math.floor(i / 12)}/module-${i}.ts`, status: i % 13 === 0 ? ' M' : '' })),
+  { path: 'README.md', status: '' }, { path: 'package.json', status: '' }, { path: 'tsconfig.json', status: '' },
+].map((file, i) => ({ ...file, size: file.path.endsWith('.png') ? { state: 'unavailable' as const, source: 'working tree' as const, reason: 'Synthetic binary fixture' } : { state: 'known' as const, textLines: 10 + (i * 97 % 700), source: file.status.includes('D') ? 'HEAD' as const : 'working tree' as const }, lines: {
+  added: file.status && !file.status.includes('D') ? demoContent(file.path).split('\n').length - 1 : 0,
+  removed: file.status && file.status !== '??' ? 1 : 0,
+} }));
 const initial: State = {
   version: 1, repos: [{ id: repoId, name: 'stingray', path: '/demo/stingray' }],
   workspaces: [
@@ -33,7 +49,25 @@ export const demoAPI: DesktopAPI = {
     if (terminalList.some(t => t.workspaceId === id)) throw new Error('Close every terminal in this workspace first.');
     state.workspaces = state.workspaces.filter(w => w.id !== id); return save();
   },
-  gitStatus: async id => ({ branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: [{ path: 'src/App.tsx', status: ' M' }, { path: 'src/styles.css', status: ' M' }, { path: 'README.md', status: '??' }] }),
+  gitStatus: async id => ({ branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
+  repoSnapshot: async id => ({
+    branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown',
+    changes: demoFiles.filter(file => file.status),
+    files: demoFiles,
+    statsNotice: 'Simulated demo counts, not a real repository. Desktop counts use Git.',
+    sizeNotice: 'Synthetic varied text-line sizes for layout demonstration; not measured repository content.',
+  }),
+  inspectFile: async (_id, path) => {
+    const file = demoFiles.find(file => file.path === path);
+    if (!file) throw new Error('Demo file not found.');
+    const content = file.status.includes('D') ? '// Previous version\n' : demoContent(path);
+    const { added, removed } = file.lines!;
+    return { path, content, source: file.status.includes('D') ? 'HEAD' : 'working tree', staged: '',
+      unstaged: file.status ? `--- ${removed ? 'a/' + path : '/dev/null'}\n+++ ${added ? 'b/' + path : '/dev/null'}\n@@ -${removed ? 1 : 0},${removed} +${added ? 1 : 0},${added} @@\n` + (removed ? '-// Previous version\n' : '') + (added ? content.trimEnd().split('\n').map(line => '+' + line).join('\n') + '\n' : '') : '',
+      notice: file.status.includes('D') ? 'Deleted file · showing simulated HEAD contents.' : '',
+      revision: 'demo-' + path,
+    };
+  },
   preview: async (id, url) => { const w = state.workspaces.find(w => w.id === id); if (w) w.previewUrl = url; return save(); },
   terminals: async () => structuredClone(terminalList),
   createTerminal: async workspaceId => {
@@ -47,6 +81,7 @@ export const demoAPI: DesktopAPI = {
     const sequence = t ? ++t.sequence : 0;
     listeners.forEach(fn => fn({ id, data: output, sequence }));
   },
+  openTerminalLink: async () => { throw new Error('Opening terminal links requires the desktop app. No external app was opened.'); },
   resizeTerminal: async () => undefined,
   closeTerminal: async id => { terminalList = terminalList.filter(t => t.id !== id); },
   onTerminal: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },

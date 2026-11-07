@@ -1,11 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { idSchema, urlSchema } from '../src/shared';
+import { idSchema, urlSchema, repoPathSchema, snapshotHintSchema } from '../src/shared';
 import { Store } from './store';
 import { GitService } from './git';
 import { Terminals } from './terminals';
+import { openTerminalLink } from './terminal-links';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -17,6 +18,7 @@ let win: BrowserWindow;
 app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 let quitting = false;
 let cloning = false;
+let openingLink = false;
 const store = new Store(app.getPath('userData'));
 const terminals = new Terminals(event => { if (win && !win.isDestroyed()) win.webContents.send('terminal-event', event); });
 const git = new GitService(store, id => terminals.hasWorkspace(id));
@@ -81,10 +83,33 @@ app.whenReady().then(() => {
   handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
   handle('remove-workspace', z.tuple([idSchema, z.string().max(200)]), (id, confirmation) => git.removeWorkspace(id, confirmation));
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
+  handle('repo-snapshot', z.tuple([idSchema, snapshotHintSchema.optional()]), (id, hint) => git.repoSnapshot(id, hint));
+  handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
   handle('preview', z.tuple([idSchema, z.union([z.literal(''), urlSchema])]), (id, url) => git.preview(id, url));
   handle('terminals', z.tuple([]), () => terminals.list());
   handle('create-terminal', z.tuple([idSchema]), id => git.useWorkspace(id, w => terminals.create(id, w.path)));
   handle('write-terminal', z.tuple([idSchema, z.string().max(65536)]), (id, data) => terminals.write(id, data));
+  handle('open-terminal-link', z.tuple([idSchema, z.string().min(1).max(8192)]), async (id, uri) => {
+    if (openingLink) throw new Error('Finish the current link confirmation first.');
+    const terminal = terminals.list().find(t => t.id === id);
+    if (!terminal) throw new Error('Terminal not found.');
+    openingLink = true;
+    try {
+      const workspace = await git.workspace(terminal.workspaceId);
+      await openTerminalLink(uri, workspace.path, {
+        confirm: async link => {
+          const action = link.kind === 'web' ? 'Open in browser' : link.kind === 'file' ? 'Open file' : 'Show in file manager';
+          const { response } = await dialog.showMessageBox(win, { type: 'question', title: 'Open terminal link',
+            message: action + '?', detail: link.target + '\n\nTerminal output can contain misleading links. Only open targets you trust.',
+            buttons: ['Cancel', action], defaultId: 0, cancelId: 0, noLink: true });
+          return response === 1;
+        },
+        openExternal: target => shell.openExternal(target),
+        openPath: target => shell.openPath(target),
+        showItemInFolder: target => shell.showItemInFolder(target),
+      });
+    } finally { openingLink = false; }
+  });
   handle('resize-terminal', z.tuple([idSchema, z.number().int().min(2).max(500), z.number().int().min(1).max(300)]), (id, cols, rows) => terminals.resize(id, cols, rows));
   handle('close-terminal', z.tuple([idSchema]), id => terminals.close(id));
   win.on('close', event => {

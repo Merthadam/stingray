@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalInfo, TerminalEvent } from './shared';
 import { api } from './api';
+import { installTerminalLinks } from './terminal-links';
 
 export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void }) {
   const element = useRef<HTMLDivElement>(null);
@@ -12,10 +13,13 @@ export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; v
   useEffect(() => {
     const terminal = new Terminal({
       cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
-      scrollback: 3000, allowProposedApi: false,
+      scrollback: 3000, allowProposedApi: false, macOptionClickForcesSelection: true,
       theme: { background: '#151110', foreground: '#eae8e6', cursor: '#e07850', selectionBackground: '#e0785040',
         black: '#151110', red: '#dc6b6b', green: '#7ec699', yellow: '#e5c07b', blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#eae8e6',
         brightBlack: '#a8a5a3', brightRed: '#e88888', brightGreen: '#98d1a8', brightYellow: '#ecd08f', brightBlue: '#7ec0f5', brightMagenta: '#d494e6', brightCyan: '#73c7d3', brightWhite: '#ffffff' },
+    });
+    const removeLinks = installTerminalLinks(terminal, element.current!, uri => {
+      void api.openTerminalLink(info.id, uri).catch(e => errorRef.current(e.message));
     });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current!);
     const fitNow = () => {
@@ -45,7 +49,7 @@ export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; v
       pending.forEach(consume); pending.length = 0;
     }).catch(e => { if (!disposed) errorRef.current(e.message); });
     fitNow();
-    return () => { disposed = true; observer.disconnect(); input.dispose(); off(); terminal.dispose(); };
+    return () => { disposed = true; removeLinks(); observer.disconnect(); input.dispose(); off(); terminal.dispose(); };
   }, [info.id]);
   useEffect(() => { if (visible) requestAnimationFrame(() => fitRef.current()); }, [visible]);
   return <div className="terminal-surface" style={{ display: visible ? 'block' : 'none' }} ref={element} role="region" aria-label={info.title + (api.mode === 'demo' ? ' (simulated)' : '')} />;
