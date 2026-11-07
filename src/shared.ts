@@ -30,7 +30,21 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export type Repository = z.infer<typeof repoSchema>;
 export type State = z.infer<typeof stateSchema>;
 export type Change = { path: string; status: string };
-export type GitStatus = { branch: string; changes: Change[] };
+export type GitLineStats =
+  | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
+  | { kind: 'unavailable'; message: string };
+export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+export type PullRequestStatus =
+  | { kind: 'pr'; branch: string; repository: string; checkedAt: number; number: number; state: 'open' | 'draft' | 'merged' | 'closed' }
+  | { kind: 'none'; branch: string; repository: string; checkedAt: number }
+  | { kind: 'unsupported'; branch: string; message: string }
+  | { kind: 'unavailable'; branch: string; message: string };
+export type ContainerInfo = {
+  id: string; name: string; image: string; state: string; health: string;
+  paths: string[];
+  ports: { port: number; target: string; url: string }[];
+};
+export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
 export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
@@ -43,6 +57,9 @@ export interface DesktopAPI {
   createWorkspace(repoId: string, branch: string): Promise<State>;
   removeWorkspace(id: string, confirmation: string): Promise<State>;
   gitStatus(id: string): Promise<GitStatus>;
+  pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
+  containers(): Promise<ContainerInfo[]>;
+  ports(): Promise<WorkspacePort[]>;
   preview(id: string, url: string): Promise<State>;
   terminals(): Promise<TerminalInfo[]>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;

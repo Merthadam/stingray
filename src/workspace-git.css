@@ -1,0 +1,23 @@
+.workspace-git{display:flex;flex-direction:column;gap:3px;min-width:0;padding:8px 10px 0;font-size:10px}
+.workspace-card-top{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.workspace-card-top>.activity-dot{margin-top:6px}
+.pr-symbol{display:inline-flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0;min-width:24px;color:var(--muted)}
+.pr-symbol>svg{flex-shrink:0}
+.pr-symbol>small{font-size:9px;line-height:1.1;font-variant-numeric:tabular-nums}
+.pr-symbol:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+.pr-open{color:#7ec699}
+.pr-merged{color:#c6a0f6}
+.pr-closed{color:#f28b82}
+.pr-unavailable{color:#efb4a9}
+.workspace-card-metrics{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:0;flex:1}
+.git-lines{min-width:0;max-width:100%;padding:0;gap:6px;flex-wrap:wrap;justify-content:flex-end;font:10px/14px ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.git-lines>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.lines-added{color:#7ec699}
+.lines-deleted{color:#f28b82}
+.lines-unavailable{color:var(--muted)}
+.workspace-git-badges{display:flex;align-items:center;justify-content:flex-end;min-width:0;max-width:100%}
+.workspace-card-bottom{display:flex;align-items:center;gap:4px;min-width:0}
+.workspace-entry .workspace-card-bottom .workspace-link{min-width:0;min-height:20px;flex:1;padding:0;margin:0}
+.workspace-card-bottom .git-branch-label{font:11px ui-monospace,monospace;line-height:18px}
+.workspace-git .git-refresh{position:static;min-width:20px;min-height:20px;padding:3px;flex-shrink:0}
+@media(max-width:760px){.workspace-git{padding-left:8px;padding-right:8px}.workspace-card-bottom .git-branch-label{font-size:10px}}

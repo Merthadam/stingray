@@ -6,11 +6,39 @@ A macOS-first desktop workspace for coding-agent terminals, Git worktrees, and b
 
 Runtime screenshots and detailed test evidence are retained locally under `artifacts/testing/` and are intentionally excluded from this source repository.
 
-**Delivery status:** One **Add project** action with **Local folder / Repository URL** is now delivered at **`release/Stingray.app`** and was reopened normally after approved promotion. The original build is preserved at `release/backups/2026-11-06-before-add-project/Stingray.app`; both candidate bundles remain intact. See the live promotion report (local evidence: `artifacts/testing/2026-11-06-live-promotion/verification.md`) for fresh final-path checks and the Add project implementation report (local evidence: `artifacts/testing/2026-11-06-add-project/verification.md`) for prior implementation evidence.
+**Delivery status:** Compact sidebar branch/PR cards, tracked-line counts and workspace ports are implemented and verified in a separate packaged candidate. Source publication and installed-app promotion are separate operations: the local delivery report at `artifacts/testing/2026-11-07-sidebar-delivery/continuation/verification.md` records the promotion outcome, backup path and final-installed-path results. The installed path is **`~/Projects/stingray/release/Stingray.app`**, outside this source checkout. Do not infer that a running app was updated merely because source was pushed.
+
+The earlier **Add project** delivery and its preserved backup are historical: `artifacts/testing/2026-11-06-live-promotion/verification.md` in the original checkout records that promotion. Bundles and evidence are not published in this source repository.
+
+## Compact branch / PR cards
+
+Each workspace card in the **left sidebar** has its actual branch name at the **bottom**, a state-changing branch/PR symbol with a small PR number beneath it when applicable, the port badge, and **+/− line counts at the top-right of the card**. There is no separate PR pill, files-changed badge, or demo dropdown. **Open PRs are green, merged PRs purple, closed-unmerged PRs red, and drafts/no PR neutral**; distinct icons, accessible status names and tooltips supplement color. Loading, unsupported repositories and failed lookups remain separate states. Long branch names truncate with full-name tooltips. Clicking +/− selects that workspace and opens Changes.
+
+- **Line counts** are Git's net tracked-file diff against HEAD, combining staged and unstaged changes without double-counting. Untracked files and submodules are excluded; binary files contribute no lines and their count is disclosed in the tooltip. Pure renames add no lines. Unborn repositories (no HEAD commit), merge conflicts and failed/oversized/timed-out reads show unavailable counts—not zero. This is not a PR diff or evidence that local changes were merged. Reads use `git diff --numstat -z`, disable external diffs/textconv, and have a 10-second/2 MiB command-output bound. The Changes tab still lists and counts local uncommitted files, including untracked files.
+- **GitHub lookup:** read-only `gh pr list`, using your existing GitHub CLI login. Stingray never installs `gh`, signs in, changes credentials, fetches Git branches, creates PRs, or merges anything. Standard credential-free `github.com` **origin** URLs are supported (HTTPS or Git SSH). Other hosts, SSH aliases, missing origins and detached HEAD are explicit unsupported states.
+- **Matching:** exact head repository and current branch, preferring an open PR; otherwise the most recently updated historical PR. A merged badge does not imply current local edits are merged. Fork-to-upstream PR discovery is not implemented. Lookups request at most 100 entries; reaching the limit fails visibly rather than guessing.
+- **Refresh and privacy:** rows in the displayed project's filtered workspace list, once per minute for PRs and every 10 seconds for Git while the window is visible, plus focus/manual refresh. Background Git and PR reads share a three-request concurrency budget; queued work is skipped when its row is removed. Results cache for 60 seconds; manual retries have a five-second cooldown. GitHub gets repository/branch identifiers; the requested fields are PR number/state/draft, head identity and update time—not titles, bodies, file contents or reviews. No PR metadata is persisted to app data. Errors are sanitized; a failed read does not become “No PR.”
+- **Preview:** the browser demo uses explicitly simulated PR states and line counts (main merged/#41, feature/browser open/#42). There is no state dropdown and it makes no GitHub calls.
+
+Source implementation evidence and limitations: `artifacts/testing/sidebar-card-refinement/verification.md`. Fresh candidate and installed-path delivery results are recorded separately in `artifacts/testing/2026-11-07-sidebar-delivery/continuation/verification.md`; the earlier sidebar-placement report is historical.
+
+## Compact workspace ports
+
+Stingray uses **small sidebar port-count badges**, inspired by Superset's workspace rows, instead of a large container panel above the terminal. Git information sits alongside ports in each sidebar workspace card.
+
+- **Ports:** hover/click the radio-tower badge for a small list with per-port open actions. Keyboard users can press Enter or Arrow Down to open details and Escape to dismiss. Opening a port from another workspace selects that workspace and reveals its preview.
+- **Terminal discovery (macOS):** bounded `ps` PID/PPID metadata plus PID-selected `lsof` detects local TCP listeners belonging to live Stingray terminals and their descendants, including `npm run dev`. It does not read process environments or command lines, probe HTTP health, or discover unrelated external/reparented processes. No process-kill controls are added.
+- **Docker:** the existing read-only local Unix-socket discovery contributes only ports associated with a workspace via Compose/bind paths. Unassociated containers, containers without published TCP ports, UDP, and LAN-only bindings are not badge entries. Remote contexts are refused. No containers are started or stopped.
+- **Honest states:** initial scanning, waiting for a server, opening, partial discovery errors with retry, preview loading, a waiting message after eight seconds, and load failure with reload guidance. A listener is not proof of HTTP readiness. Links default to HTTP; use the address bar for HTTPS or another address.
+- **Refresh:** terminal ports every 2.5 seconds while the project UI is visible, Git and Docker every 10 seconds, plus focus/manual refresh. Hidden windows pause periodic reads. Scans are bounded/coalesced; Docker and terminal discovery fail independently. Git summaries also refresh for background workspace cards in the displayed list.
+
+Fresh delivery verification: **51 unit tests**, TypeScript/production build, and packaged-candidate **31 PR/sidebar checks**, **27 workspace-status checks**, **31 desktop regressions**, **22 add-project checks**, signature and isolated LaunchServices smoke passed. Workspace-status checks use real PTY HTTP servers and macOS process scanning; GitHub and Docker use strict fixtures. No live GitHub/Docker or real-provider clone transfer was tested in this delivery. The known intermittent clone-timeout fixture failure remains unresolved, although this fresh run passed. Candidate evidence is under `artifacts/testing/2026-11-07-sidebar-delivery/continuation/`; the delivery report distinguishes candidate results from any final-installed-path results. Superset comparison remains selected shipped-code/static evidence, not a live equivalence claim.
+
+For an interactive **simulated** browser preview, use `npm run dev:ui` on its configured port if free. Do not launch another desktop build against the same data directory while the packaged app is running.
 
 ## Open the desktop app
 
-To open the **current Add project build**, double-click **`~/Projects/stingray/release/Stingray.app`** in Finder, or run:
+To open the **installed build**, double-click **`~/Projects/stingray/release/Stingray.app`** in Finder, or run:
 
 ```sh
 open "$HOME/Projects/stingray/release/Stingray.app"
@@ -27,7 +55,7 @@ The Add project candidate, previous Design A navigation candidate and original-b
 This checkout also has dependencies and a verified production build:
 
 ```sh
-cd ~/Projects/stingray
+# From the root of your source checkout:
 npm start
 ```
 
@@ -54,7 +82,7 @@ npm start
 2. **New worktree**: inside a project, choose a new branch name. Only that repository's workspaces are shown, and creation targets that repository. The branch starts at the registered repository's current HEAD, not necessarily the selected worktree's HEAD. The separate directory still lives in Stingray's app-data folder: “inside a project” means ownership/navigation, not physical nesting in the repository. **All projects** returns home without stopping existing terminals.
 3. **Open terminal**: starts your login shell in that workspace. Run an already-installed agent CLI or dev server yourself. Nothing is bundled, installed, or launched automatically. Use terminal tabs or the split button for two visible terminals.
 4. **Browser preview**: enter your development server's HTTP(S) address. Back, forward, reload, and close are available in the desktop app. Workspace switching recreates the preview document; it does not preserve its in-memory page state.
-5. **Changes**: inspect read-only Git status; refresh after editing. This version does not stage, commit, push, merge, or show file diffs.
+5. **Changes**: inspect read-only Git status via a workspace's sidebar +/− line counts or the Changes tab. Status refreshes automatically; manual refresh is also available. This version does not stage, commit, push, merge, or show file diffs.
 6. **Remove worktree**: close all its terminals and type the exact branch name. Only Stingray-managed worktrees can be removed. Modified, untracked, or ignored files prevent removal. The branch and commits remain in Git.
 
 Shortcuts: **Cmd/Ctrl K** focuses project search at home or workspace search inside a project. **Cmd/Ctrl T** opens a terminal and **Cmd/Ctrl B** toggles the preview only when a workspace is open; neither launches a shell from home. At compact desktop sizes, Projects scrolls vertically and the terminal/preview stack vertically; scroll the relevant pane to reach lower content.
@@ -77,7 +105,7 @@ Keep the window open during cloning. Cancel/Escape/window-close are blocked whil
 - Shell startup files and repository-configured Git filters can execute local code. Only open trusted repositories. Stingray's Git service disables Git hooks, but commands you type in its terminals use your normal tools and configuration.
 - Native preview guests have no Node integration or Stingray bridge, use sandbox/context isolation, and deny popups, permissions, and downloads. Each workspace has a separate persistent browser session. This is not a VM, network firewall, or isolation boundary for terminal commands. Preview pages and terminal commands can make network requests.
 - Preview URLs accept HTTP(S), reject embedded username/password credentials, and are saved locally. Do not paste secret-bearing query strings; arbitrary URL query values are not automatically redacted. Preview cookies/cache can persist in the app-data directory.
-- No accounts, telemetry, cloud sync, or bundled agents are implemented. No real agent run was part of verification.
+- No Stingray accounts, telemetry, cloud sync, or bundled agents are implemented. Optional PR status uses your existing `gh` login for read-only GitHub requests; it does not add a login flow or store credentials. No real agent run was part of verification.
 
 ## Verification
 
@@ -85,6 +113,8 @@ Keep the window open during cloning. Cancel/Escape/window-close are blocked whil
 npm run build
 npm test
 npm run test:desktop
+npm run test:workspace-status
+npm run test:pull-requests
 npm run test:add-project
 STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/source-launch" node tests/launch.mjs
 ```
@@ -132,6 +162,10 @@ The recipe builds and packages a self-contained `.app`, generates the existing S
 - `src/App.tsx`, `ProjectHome.tsx`, `project-home.css`, `project-navigation.ts`: repository cards, scoped navigation, reload selection.
 - `src/AddProjectForm.tsx`, `add-project.css`: local/URL dialog, validation and busy/error states.
 - `src/TerminalPane.tsx`, `BrowserPane.tsx`: terminals and preview.
+- `src/WorkspaceStatus.tsx`, `usePullRequest.ts`, `workspace-git.css`, `electron/pull-requests.ts`: compact sidebar branch/PR symbols and bounded read-only GitHub PR lookup. `electron/git-lines.ts` reads bounded tracked-line statistics. `useSidebarGit.ts` and `workspace-read-queue.ts` bound background-row reads.
+- `src/WorkspacePortsChip.tsx`, `useWorkspacePorts.ts`, `workspace-status.ts`, `workspace-ports.css`: compact port badges, popover, discovery and waiting/error states.
+- `electron/ports.ts`: bounded macOS terminal-descendant listener discovery; no process command lines or environments.
+- `electron/containers.ts`: bounded, read-only local Docker discovery; no full inspect/environment payloads.
 - `src/shared.ts`: shared types and schemas; `src/demo.ts`: explicitly simulated browser adapter.
 - `tests/`: filesystem/Git regression tests and native/launch tests.
 - `artifacts/testing/`: plan, screenshots, logs, and verification record.

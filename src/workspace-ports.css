@@ -1,0 +1,36 @@
+.workspace-entry{margin:2px 0 4px;border:1px solid transparent;border-radius:6px;position:relative;padding-bottom:7px}
+.workspace-entry.selected{background:var(--active);border-color:#3a3330}
+.workspace-entry.selected:before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:2px;background:var(--accent);border-radius:2px}
+.workspace-entry .workspace-link{margin:0;min-height:35px;padding:8px 10px 5px 12px;border:0}
+.workspace-entry .workspace-link.selected{background:none}
+.workspace-entry .workspace-link.selected:before{display:none}
+.workspace-chips{display:flex;align-items:center;gap:6px;padding-left:36px;padding-right:7px;min-height:20px;flex-wrap:wrap}
+.ports-chip,.git-chip{height:20px;min-height:20px;border-radius:10px;padding:0 6px;gap:4px;font-size:10px;line-height:1;font-variant-numeric:tabular-nums;background:#302c29;color:#c4bfbb;max-width:100%}
+.ports-chip span,.git-chip span{overflow:hidden;text-overflow:ellipsis}
+.ports-chip:hover,.git-chip:hover{background:#3b3531!important;color:var(--text)}
+.ports-chip.ports-active{color:#dbd8d5}
+.git-chip.git-clean{color:var(--green)}
+.git-chip.git-dirty{color:#e5c07b}
+.ports-warning{color:#efb4a9}
+.ports-popover{position:fixed;z-index:80;width:280px;max-width:calc(100vw - 16px);max-height:min(320px,calc(100dvh - 16px));overflow:auto;border:1px solid #49403a;border-radius:8px;background:#24201d;box-shadow:0 10px 40px #0008;padding:5px;color:var(--text)}
+.ports-popover-heading{display:flex;align-items:center;justify-content:space-between;padding:1px 4px 4px 7px}
+.ports-popover-heading strong{font-size:10px;letter-spacing:.8px;text-transform:uppercase;font-weight:550;color:var(--muted)}
+.ports-popover-heading strong span{margin-left:5px;font-variant-numeric:tabular-nums}
+.ports-popover-heading>div{display:flex;gap:2px}
+.ports-popover .icon{min-width:24px;min-height:24px;padding:4px}
+.port-rows{display:flex;flex-direction:column}
+.port-row{padding:7px;gap:7px;min-height:37px;width:100%;text-align:left;justify-content:flex-start}
+.port-row:hover:not(:disabled){background:#352e29}
+.port-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.port-label small{display:block;color:var(--muted);font-size:9px;margin-top:3px}
+.port-row code{font:11px ui-monospace,monospace;color:#c7beb8}
+.port-row>svg:last-child{color:var(--muted)}
+.ports-empty{padding:15px 9px 12px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:0}
+.ports-empty strong{font-size:12px;color:var(--text);font-weight:500}
+.ports-empty p{margin:2px 0 0;line-height:1.6;text-align:center}
+.ports-notice{font-size:11px;line-height:1.5;padding:5px 7px;margin:0;overflow-wrap:anywhere}
+.ports-retry{font-size:11px;padding:5px 7px;margin:3px 5px;background:#3a302a}
+.ports-footnote{border-top:1px solid #3a322c;color:var(--muted);font-size:10px;line-height:1.5;margin:6px 0 0;padding:8px 7px 4px}
+.preview-loading{font-size:11px;display:flex;align-items:center;gap:7px;padding:6px 12px;color:var(--muted);border-bottom:1px solid var(--border)}
+@media(max-width:1100px){.workspace-content>.terminal-area{min-height:330px}}
+@media(max-width:760px){.workspace-chips{padding-left:32px;gap:4px}.workspace-entry .workspace-link{padding-left:8px}}

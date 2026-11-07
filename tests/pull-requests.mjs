@@ -1,0 +1,150 @@
+// Native UI + real local Git; gh is a strict read-only fixture, never a network request.
+import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const executablePath = process.env.STINGRAY_TEST_APP ? path.resolve(process.env.STINGRAY_TEST_APP) : undefined;
+const root = await mkdtemp(path.join(tmpdir(), 'stingray-pr-'));
+const repo = path.join(root, 'pr-project'), bin = path.join(root, 'bin');
+const fixture = path.join(root, 'pr.json'), calls = path.join(root, 'calls.jsonl');
+const evidence = path.resolve(process.env.STINGRAY_TEST_EVIDENCE || 'artifacts/testing/workspace-git-pr/native');
+await mkdir(repo); await mkdir(bin); await mkdir(evidence, { recursive: true });
+const git = (...args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
+git('init', '-b', 'feature/ui');
+await writeFile(path.join(repo, 'README.md'), '# Fixture\n'); await writeFile(path.join(repo, 'rename.txt'), 'rename me\n');
+git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture');
+git('remote', 'add', 'origin', 'https://github.com/fixture/app');
+await writeFile(calls, '');
+const setFixture = value => writeFile(fixture, JSON.stringify(value));
+await setFixture({ state: 'OPEN', delay: 1200 });
+await writeFile(path.join(bin, 'gh'), `#!${process.execPath}
+const fs=require('node:fs');const args=process.argv.slice(2);
+if(args[0]!=='pr'||args[1]!=='list'||args[args.indexOf('--repo')+1]!=='github.com/fixture/app'||!args.includes('--json'))process.exit(2);
+fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+'\\n');
+const value=JSON.parse(fs.readFileSync(${JSON.stringify(fixture)},'utf8'));
+const branch=args[args.indexOf('--head')+1];
+setTimeout(()=>{if(value.error){console.error('PRIVATE ERROR MUST NOT LEAK');process.exit(1);}
+console.log(JSON.stringify(value.none?[]:[{number:branch==='feature/ui'?42:43,state:value.state||'OPEN',isDraft:!!value.draft,headRefName:branch,headRepository:{name:'app'},headRepositoryOwner:{login:'fixture'},updatedAt:'2026-11-06T20:00:00Z'}]));},value.delay||0);
+`);
+await writeFile(path.join(bin, 'docker'), '#!/bin/sh\nexit 1\n');
+await chmod(path.join(bin, 'gh'), 0o755); await chmod(path.join(bin, 'docker'), 0o755);
+const env = { ...process.env, PATH: bin + path.delimiter + process.env.PATH, STINGRAY_DATA_DIR: path.join(root, 'data') };
+for (const name of ['ELECTRON_RUN_AS_NODE', 'STINGRAY_DEV_URL', 'DOCKER_CONTEXT', 'DOCKER_HOST']) delete env[name];
+let app, page;
+const checks = [], errors = [];
+const check = (name, condition = true) => { assert.ok(condition, name); checks.push(name); console.log('PASS', name); };
+const active = () => page.locator('.workspace-entry.selected');
+const refreshButton = () => active().getByRole('button', { name: /^Refresh Git and PR status for / });
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function refreshPR(value, label) {
+  await setFixture(value); await pause(5100); // Exercise the real manual refresh cooldown, not a test-only bypass.
+  await refreshButton().click();
+  await active().getByRole('img', { name: label, exact: true }).waitFor();
+}
+try {
+  app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
+  page = await app.firstWindow(); page.setDefaultTimeout(20000);
+  page.on('pageerror', error => errors.push(error.message));
+  await page.getByRole('button', { name: 'Add project', exact: true }).click();
+  await page.getByLabel('Repository path', { exact: true }).fill(repo);
+  await page.getByRole('button', { name: 'Open repository', exact: true }).click();
+  await page.getByRole('button', { name: 'Open project pr-project', exact: true }).click();
+  await active().locator('.pr-loading').waitFor(); check('PR loading state is explicit');
+  await active().getByRole('img', { name: 'PR #42 Open', exact: true }).waitFor();
+  check('native bridge reads the current Git branch and an open PR', await active().locator('.git-branch-label').innerText() === 'feature/ui');
+  check('open PR is green', await active().locator('.pr-open').evaluate(el => getComputedStyle(el).color) === 'rgb(126, 198, 153)');
+  await page.getByRole('button', { name: 'feature/ui: 0 lines added, 0 lines deleted', exact: true }).waitFor();
+  check('redundant files-changed badge is absent', await page.locator('.git-files').count() === 0);
+  check('Git details live in sidebar cards, not the top-right header', await page.locator('.sidebar .workspace-entry .workspace-git').count() === 1 && await page.locator('.workspace-header .workspace-git,.workspace-header .pr-symbol,.workspace-header .git-files').count() === 0);
+  check('sidebar controls are not nested in workspace navigation buttons', await page.locator('.workspace-entry button button').count() === 0);
+  check('no simulated selector or separate PR pill', await page.getByLabel('Simulated PR state').count() === 0 && await page.locator('.pr-badge,.pr-demo-control').count() === 0);
+  check('PR symbol has only the number underneath and an accessible status', await active().locator('.pr-symbol').innerText() === '#42' && await active().locator('.pr-symbol svg.lucide-git-pull-request').count() === 1);
+  check('clean line counts explicitly show +0 and −0', await active().locator('.lines-added').innerText() === '+0' && await active().locator('.lines-deleted').innerText() === '−0');
+  check('branch is at bottom and line counts at top right', await active().evaluate(el => {
+    const box = selector => el.querySelector(selector).getBoundingClientRect();
+    const branch = box('.git-branch-label'), lines = box('.git-lines'), icon = box('.pr-symbol'), badges = box('.workspace-git-badges');
+    return branch.top >= badges.bottom && lines.left > icon.right && lines.top < badges.top;
+  }));
+  await writeFile(path.join(repo, 'README.md'), '# Staged\n'); git('add', 'README.md');
+  await writeFile(path.join(repo, 'README.md'), '# Staged and unstaged\n');
+  git('mv', 'rename.txt', 'renamed.txt'); await writeFile(path.join(repo, 'new.txt'), 'untracked');
+  await refreshButton().click();
+  const lines = page.getByRole('button', { name: 'feature/ui: 1 lines added, 1 lines deleted', exact: true }); await lines.waitFor();
+  check('real net line counts exclude untracked and pure renames', await active().locator('.lines-added').innerText() === '+1' && await active().locator('.lines-deleted').innerText() === '−1' && (await lines.getAttribute('title')).includes('Excludes untracked'));
+  await lines.click(); await page.locator('.change').filter({ hasText: 'new.txt' }).waitFor();
+  check('line counts open Changes, which still includes untracked files and counts staged+unstaged/rename once', await page.locator('.change').count() === 3);
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await refreshPR({ state: 'MERGED' }, 'PR #42 Merged');
+  check('merged PR is purple independently of local uncommitted changes', await active().locator('.pr-merged').evaluate(el => getComputedStyle(el).color) === 'rgb(198, 160, 246)' && await lines.isVisible());
+  await page.screenshot({ path: path.join(evidence, 'merged-wide.png') });
+  await refreshPR({ state: 'OPEN', draft: true }, 'PR #42 Draft'); check('draft PR has a labeled neutral state');
+  await refreshPR({ state: 'CLOSED' }, 'PR #42 Closed'); check('closed-unmerged PR has a separate red state', await active().locator('.pr-closed').count() === 1);
+  await refreshPR({ none: true }, 'No PR'); check('empty successful lookup is distinct from errors');
+  await refreshPR({ error: true }, 'PR unavailable');
+  check('GitHub failure leaves local Git available and hides raw stderr', await lines.isVisible() && !(await page.locator('body').innerText()).includes('PRIVATE ERROR') && !(await active().locator('.pr-symbol').getAttribute('title')).includes('PRIVATE ERROR'));
+  await page.screenshot({ path: path.join(evidence, 'unavailable.png') });
+  await refreshPR({ state: 'OPEN' }, 'PR #42 Open'); check('manual retry recovers without changing credentials or restarting');
+  const state = await page.evaluate(() => window.stingray.state());
+  const longBranch = 'feature/' + 'long-branch-'.repeat(6) + 'ui';
+  await page.evaluate(({ id, branch }) => window.stingray.createWorkspace(id, branch), { id: state.repos[0].id, branch: longBranch });
+  await setFixture({ state: 'CLOSED', delay: 1300 }); await page.reload();
+  await page.getByRole('button', { name: longBranch, exact: true }).click();
+  await active().locator('.pr-loading').waitFor();
+  check('workspace switch clears previous branch PR while waiting');
+  // Switch away while the other workspace's request is still in flight.
+  await page.getByRole('button', { name: 'feature/ui', exact: true }).click();
+  await active().getByRole('img', { name: 'PR #42 Open', exact: true }).waitFor(); await pause(1600);
+  check('late response from a different workspace cannot replace the selected PR', (await active().locator('.pr-symbol').innerText()).includes('#42'));
+  const otherCard = page.locator('.workspace-entry').filter({ has: page.getByRole('button', { name: longBranch, exact: true }) });
+  await otherCard.getByRole('img', { name: 'PR #43 Closed', exact: true }).waitFor();
+  check('background workspace shows its own branch, line counts and PR without selecting it', await otherCard.getByRole('button', { name: `${longBranch}: 0 lines added, 0 lines deleted`, exact: true }).isVisible() && (await otherCard.locator('.git-branch-label').innerText()) === longBranch);
+  await otherCard.locator('.git-lines').click();
+  await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
+  check('background line counts select that workspace and open its Changes view', await active().locator('.workspace-link').innerText() === longBranch);
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  check('different workspace uses its own branch PR and line counts', await page.getByRole('button', { name: `${longBranch}: 0 lines added, 0 lines deleted`, exact: true }).isVisible());
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
+  await page.waitForFunction(() => innerWidth === 760);
+  await active().evaluate(el => el.scrollIntoView({ block: 'center' }));
+  check('compact selected card including bottom branch fits in the visible sidebar', await active().evaluate(el => {
+    const r = el.getBoundingClientRect(), nav = el.closest('nav').getBoundingClientRect();
+    return r.top >= nav.top - 1 && r.bottom <= nav.bottom + 1;
+  }));
+  check('compact sidebar summary stays inside its workspace card', await active().locator('.workspace-git').evaluate(el => {
+    const r = el.getBoundingClientRect(), card = el.closest('.workspace-entry').getBoundingClientRect(); return r.left >= card.left && r.right <= card.right && document.documentElement.scrollWidth <= innerWidth;
+  }));
+  check('long bottom branch is truncated visually but retained in tooltip', (await active().locator('.workspace-link').getAttribute('title')).includes(longBranch) && await active().locator('.workspace-link>div>span').evaluate(el => el.scrollWidth > el.clientWidth));
+  await page.screenshot({ path: path.join(evidence, 'compact-long-branch.png') });
+  await page.getByRole('button', { name: 'feature/ui', exact: true }).click();
+  git('checkout', '-b', 'new-current-branch');
+  await refreshButton().click();
+  await active().locator('.git-branch-label').filter({ hasText: 'new-current-branch' }).waitFor();
+  await active().getByRole('img', { name: 'PR #43 Closed', exact: true }).waitFor();
+  check('external checkout updates the displayed actual branch and PR, not the registered workspace name');
+  const before = (await readFile(calls, 'utf8')).trim().split('\n').length;
+  git('remote', 'remove', 'origin');
+  await refreshButton().click();
+  await active().locator('.pr-unsupported').waitFor();
+  check('missing origin is not shown as no PR and makes no GitHub request', (await readFile(calls, 'utf8')).trim().split('\n').length === before);
+  git('checkout', '--detach');
+  await refreshButton().click();
+  await active().locator('.git-branch-label').filter({ hasText: 'detached HEAD' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.workspace-entry.selected .pr-symbol')?.getAttribute('title')?.includes('Detached HEAD'));
+  check('detached HEAD has an explicit non-PR state');
+  await rm(path.join(repo, '.git'), { recursive: true });
+  await refreshButton().click();
+  await page.getByRole('button', { name: 'feature/ui: Line counts unavailable', exact: true }).waitFor();
+  check('Git failures do not show stale branch, zero files or a successful PR', (await active().locator('.git-branch-label').innerText()) === 'Branch unavailable' && (await active().locator('.pr-symbol').getAttribute('aria-label')) === 'PR unavailable' && (await active().locator('.git-lines').innerText()) === '—');
+  check('no renderer exceptions', errors.length === 0);
+  await writeFile(path.join(evidence, 'results.json'), JSON.stringify({ checks, errors, executablePath: executablePath || null, scope: `${executablePath ? 'Packaged macOS app' : 'Source Electron build'} and real local Git; strict gh fixture, isolated app data. No live GitHub claims.` }, null, 2));
+} catch (error) {
+  await writeFile(path.join(evidence, 'failure.json'), JSON.stringify({ checks, errors, error: String(error) }, null, 2));
+  if (page && !page.isClosed()) await page.screenshot({ path: path.join(evidence, 'failure.png') });
+  throw error;
+} finally {
+  if (app) await app.close();
+  await rm(root, { recursive: true, force: true });
+}

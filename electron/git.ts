@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Store } from './store';
 import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus } from '../src/shared';
 import { cloneGit } from './clone';
+import { readGitLines } from './git-lines';
 
 const exec = promisify(execFile);
 export async function git(cwd: string, args: string[]) {
@@ -139,7 +140,8 @@ export class GitService {
       git(w.path, ['branch', '--show-current']),
       git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     ]);
-    return { branch: branch.trim() || 'detached HEAD', changes: parseStatus(output) };
+    const changes = parseStatus(output);
+    return { branch: branch.trim() || 'detached HEAD', changes, lines: await readGitLines(w.path, changes) };
   }
   preview(id: string, input: string) {
     return this.serial(async () => {

@@ -10,6 +10,9 @@ export class Terminals {
   list(): TerminalInfo[] {
     return [...this.entries.values()].map(({ process: _, ...info }) => info);
   }
+  portRoots() {
+    return [...this.entries.values()].filter(t => !t.exited).map(t => ({ id: t.id, workspaceId: t.workspaceId, title: t.title, pid: t.process.pid }));
+  }
   hasWorkspace(id: string) { return [...this.entries.values()].some(t => t.workspaceId === id); }
   create(workspaceId: string, cwd: string): TerminalInfo {
     if (this.entries.size >= 24) throw new Error('Close a terminal before opening another (limit 24).');

@@ -6,6 +6,9 @@ import { idSchema, urlSchema } from '../src/shared';
 import { Store } from './store';
 import { GitService } from './git';
 import { Terminals } from './terminals';
+import { ContainerService } from './containers';
+import { PortService } from './ports';
+import { PullRequestService } from './pull-requests';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -21,6 +24,9 @@ const store = new Store(app.getPath('userData'));
 const terminals = new Terminals(event => { if (win && !win.isDestroyed()) win.webContents.send('terminal-event', event); });
 const git = new GitService(store, id => terminals.hasWorkspace(id));
 const lockedSessions = new Set<string>();
+const containers = new ContainerService();
+const ports = new PortService(() => terminals.portRoots());
+const pullRequests = new PullRequestService();
 
 function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
   ipcMain.handle(name, (event, ...args) => {
@@ -81,6 +87,9 @@ app.whenReady().then(() => {
   handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
   handle('remove-workspace', z.tuple([idSchema, z.string().max(200)]), (id, confirmation) => git.removeWorkspace(id, confirmation));
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
+  handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
+  handle('containers', z.tuple([]), () => containers.list());
+  handle('ports', z.tuple([]), () => ports.list());
   handle('preview', z.tuple([idSchema, z.union([z.literal(''), urlSchema])]), (id, url) => git.preview(id, url));
   handle('terminals', z.tuple([]), () => terminals.list());
   handle('create-terminal', z.tuple([idSchema]), id => git.useWorkspace(id, w => terminals.create(id, w.path)));

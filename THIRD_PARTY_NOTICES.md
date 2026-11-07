@@ -2,6 +2,8 @@
 
 The warm dark UI/terminal palette is adapted from Superset's `packages/shared/src/themes/built-in/ember.ts`, source commit `9c6f098329dd3d6956bd3c19da73d2ab7d9bb1d6` (desktop package 2.0.5). The layout is inspired by Superset; Stingray is independent and not affiliated. No Superset logos or bundled executable artifacts are redistributed.
 
+The compact workspace port badge/popover interaction and terminal-descendant listener-discovery approach were also informed by read-only inspection of Superset 1.29.0's shipped JavaScript/source maps (`DashboardSidebarPortsChip`, `DashboardSidebarPortHoverRow`, and `@superset/port-scanner`). Stingray's implementation is local-only and does not include Superset's remote forwarding or port-killing behavior. Extracted reference artifacts are kept in ignored local analysis directories, not distributed with the app.
+
 MIT License
 
 Copyright (c) 2025-2026 Superset Inc.
