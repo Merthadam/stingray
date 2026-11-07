@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ActivitySnapshot } from './activity';
 
 export const idSchema = z.string().uuid();
 export const urlSchema = z.string().max(2048).refine((value) => {
@@ -30,7 +31,6 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export type Repository = z.infer<typeof repoSchema>;
 export type State = z.infer<typeof stateSchema>;
 export type Change = { path: string; status: string; originalPath?: string };
-export type GitStatus = { branch: string; changes: Change[] };
 export type LineStats = { added: number; removed: number };
 export type FileSize = { state: 'known'; textLines: number; source: 'working tree' | 'HEAD' | 'index'; stale?: boolean } |
   { state: 'pending' | 'unavailable'; reason: string; source: 'working tree' | 'HEAD' | 'index'; stale?: boolean };
@@ -48,7 +48,22 @@ export const repoPathSchema = z.string().min(1).max(4096).refine(value =>
 );
 export const snapshotHintSchema = z.object({ file: repoPathSchema.optional(), scope: z.union([z.literal(''), repoPathSchema]).optional() }).strict();
 export type SnapshotHint = z.infer<typeof snapshotHintSchema>;
-export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number };
+export type GitLineStats =
+  | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
+  | { kind: 'unavailable'; message: string };
+export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+export type PullRequestStatus =
+  | { kind: 'pr'; branch: string; repository: string; checkedAt: number; number: number; state: 'open' | 'draft' | 'merged' | 'closed' }
+  | { kind: 'none'; branch: string; repository: string; checkedAt: number }
+  | { kind: 'unsupported'; branch: string; message: string }
+  | { kind: 'unavailable'; branch: string; message: string };
+export type ContainerInfo = {
+  id: string; name: string; image: string; state: string; health: string;
+  paths: string[];
+  ports: { port: number; target: string; url: string }[];
+};
+export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
+export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; piTracking?: 'available' | 'unavailable' };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
   mode: 'desktop' | 'demo';
@@ -62,7 +77,14 @@ export interface DesktopAPI {
   gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string, hint?: SnapshotHint): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;
+  pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
+  containers(): Promise<ContainerInfo[]>;
+  ports(): Promise<WorkspacePort[]>;
   preview(id: string, url: string): Promise<State>;
+  activity(): Promise<ActivitySnapshot>;
+  onActivity(listener: (snapshot: ActivitySnapshot) => void): () => void;
+  activityView(terminalIds: string[]): Promise<void>;
+  acknowledgeActivity(id: string, terminalId: string, reviewRevision: number): Promise<void>;
   terminals(): Promise<TerminalInfo[]>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;

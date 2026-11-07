@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopAPI, TerminalEvent } from '../src/shared';
+import type { ActivitySnapshot } from '../src/activity';
 const api: DesktopAPI = {
   mode: 'desktop',
   state: () => ipcRenderer.invoke('state'),
@@ -12,7 +13,18 @@ const api: DesktopAPI = {
   gitStatus: id => ipcRenderer.invoke('git-status', id),
   repoSnapshot: (id, hint) => ipcRenderer.invoke('repo-snapshot', id, hint),
   inspectFile: (id, path) => ipcRenderer.invoke('inspect-file', id, path),
+  pullRequest: (id, refresh) => ipcRenderer.invoke('pull-request', id, refresh),
+  containers: () => ipcRenderer.invoke('containers'),
+  ports: () => ipcRenderer.invoke('ports'),
   preview: (id, url) => ipcRenderer.invoke('preview', id, url),
+  activity: () => ipcRenderer.invoke('activity'),
+  activityView: ids => ipcRenderer.invoke('activity-view', ids),
+  acknowledgeActivity: (id, terminalId, revision) => ipcRenderer.invoke('acknowledge-activity', id, terminalId, revision),
+  onActivity: listener => {
+    const handler = (_event: unknown, payload: ActivitySnapshot) => listener(payload);
+    ipcRenderer.on('activity-event', handler);
+    return () => ipcRenderer.removeListener('activity-event', handler);
+  },
   terminals: () => ipcRenderer.invoke('terminals'),
   createTerminal: id => ipcRenderer.invoke('create-terminal', id),
   writeTerminal: (id, data) => ipcRenderer.invoke('write-terminal', id, data),

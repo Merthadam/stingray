@@ -6,9 +6,12 @@ import type { TerminalInfo, TerminalEvent } from './shared';
 import { api } from './api';
 import { installTerminalLinks } from './terminal-links';
 
-export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void }) {
+export function TerminalPane({ info, visible, onError, onObserve }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void; onObserve: (id: string, stillObserved: () => boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
   const fitRef = useRef<() => void>(() => {});
+  const observeRef = useRef<() => void>(() => {});
+  const visibleRef = useRef(visible); visibleRef.current = visible;
+  const onObserveRef = useRef(onObserve); onObserveRef.current = onObserve;
   const errorRef = useRef(onError); errorRef.current = onError;
   useEffect(() => {
     const terminal = new Terminal({
@@ -33,9 +36,26 @@ export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; v
     let disposed = false;
     let ready = false;
     let sequence = 0;
+    let pendingWrites = 0;
+    let rendered = false;
+    const observed = () => !disposed && ready && rendered && !pendingWrites && visibleRef.current &&
+      Boolean(element.current?.clientWidth && element.current?.clientHeight) &&
+      terminal.buffer.active.viewportY === terminal.buffer.active.baseY;
+    const observe = () => onObserveRef.current(info.id, observed);
+    observeRef.current = observe;
+    const write = (data: string, initial = false) => {
+      ++pendingWrites;
+      terminal.write(data, () => { --pendingWrites; if (initial) requestAnimationFrame(observe); });
+    };
+    const render = terminal.onRender(() => { rendered = true; });
+    // Only view/focus/user actions acknowledge. Output and activity snapshots do not.
+    const host = element.current!;
+    const interaction = () => observe();
+    for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.addEventListener(name, interaction);
+    window.addEventListener('focus', interaction);
     const pending: TerminalEvent[] = [];
     const consume = (event: TerminalEvent) => {
-      if (event.data && (event.sequence ?? 0) > sequence) { terminal.write(event.data); sequence = event.sequence!; }
+      if (event.data && (event.sequence ?? 0) > sequence) { write(event.data); sequence = event.sequence!; }
       if (event.exitCode !== undefined) terminal.write('\\r\\n[Process exited: ' + event.exitCode + ']\\r\\n');
     };
     const off = api.onTerminal(event => {
@@ -45,12 +65,21 @@ export function TerminalPane({ info, visible, onError }: { info: TerminalInfo; v
     void api.terminals().then(items => {
       if (disposed) return;
       const snapshot = items.find(t => t.id === info.id) ?? info;
-      terminal.write(snapshot.buffer); sequence = snapshot.sequence; ready = true;
+      write(snapshot.buffer, true); sequence = snapshot.sequence; ready = true;
       pending.forEach(consume); pending.length = 0;
     }).catch(e => { if (!disposed) errorRef.current(e.message); });
     fitNow();
-    return () => { disposed = true; removeLinks(); observer.disconnect(); input.dispose(); off(); terminal.dispose(); };
+    return () => {
+      disposed = true; removeLinks();
+      for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.removeEventListener(name, interaction);
+      window.removeEventListener('focus', interaction);
+      observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();
+    };
   }, [info.id]);
-  useEffect(() => { if (visible) requestAnimationFrame(() => fitRef.current()); }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
+    const frame = requestAnimationFrame(() => { fitRef.current(); observeRef.current(); });
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
   return <div className="terminal-surface" style={{ display: visible ? 'block' : 'none' }} ref={element} role="region" aria-label={info.title + (api.mode === 'demo' ? ' (simulated)' : '')} />;
 }

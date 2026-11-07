@@ -223,6 +223,19 @@ test('line counts are net HEAD to working tree, not staged plus unstaged double 
   } finally { await f.cleanup(); }
 });
 
+test('map snapshots preserve tracked-only sidebar totals separately from untracked map counts', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.repo, 'existing.txt'), 'changed\n');
+    await writeFile(path.join(f.repo, 'new.txt'), 'one\ntwo\n');
+    const map = await f.service.repoSnapshot(f.id);
+    assert.deepEqual(map.lines, { kind: 'available', added: 1, deleted: 1, binaryFiles: 0 });
+    assert.deepEqual(map.files.find(file => file.path === 'new.txt')?.lines, { added: 2, removed: 0 });
+    assert.equal(buildRepoTree(map.files).added, 3);
+    assert.deepEqual((await f.service.status(f.id)).lines, map.lines);
+  } finally { await f.cleanup(); }
+});
+
 test('deleted, empty and untracked files have real counts including missing final newline', async () => {
   const f = await fixture();
   try {
@@ -265,7 +278,7 @@ test('corrupt HEAD is unknown rather than misclassified as an unborn branch', as
   const f = await fixture();
   try {
     await writeFile(path.join(f.repo, '.git/refs/heads/main'), 'a'.repeat(40) + '\n');
-    const map = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: ' M' }] });
+    const map = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: ' M' }], lines: { kind: 'unavailable', message: 'Fixture: corrupt HEAD' } });
     assert.equal(map.files.find(file => file.path === 'existing.txt')?.lines, null);
     assert.match(map.statsNotice!, /unavailable/);
   } finally { await f.cleanup(); }
@@ -284,7 +297,7 @@ test('binary, large, non-UTF-8, symlink and conflict counts are explicit unknown
       const file = map.files.find(file => file.path === name)!;
       assert.equal(file.lines, null); assert.ok(file.lineNotice);
     }
-    const conflict = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: 'UU' }] });
+    const conflict = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: 'UU' }], lines: { kind: 'unavailable', message: 'Fixture: unresolved conflict' } });
     assert.equal(conflict.files.find(file => file.path === 'existing.txt')?.lines, null);
     assert.match(conflict.files.find(file => file.path === 'existing.txt')!.lineNotice!, /conflict/);
   } finally { await f.cleanup(); }

@@ -107,7 +107,7 @@ try {
   check('home reload preserves home and registered repositories', await page.locator('.project-card').count() === 2);
   await page.getByRole('button', { name: 'Open project other-project', exact: true }).click();
   await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
-  check('other project shows no terminals from the first repository', await page.locator('.terminal-surface').count() === 0 && await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button').count() === 1);
+  check('other project shows no terminals from the first repository', await page.locator('.terminal-surface').count() === 0 && await page.getByRole('navigation', { name: 'Project workspaces' }).locator('.workspace-link').count() === 1);
   await page.getByRole('button', { name: 'New worktree', exact: true }).click();
   await page.getByLabel('New branch name').fill('feature/other-project');
   await page.getByRole('button', { name: 'Create worktree', exact: true }).click();

@@ -6,11 +6,56 @@ A macOS-first desktop workspace for coding-agent terminals, Git worktrees, and b
 
 Runtime screenshots and detailed test evidence are retained locally under `artifacts/testing/` and are intentionally excluded from this source repository.
 
-**Delivery status:** One **Add project** action with **Local folder / Repository URL** is now delivered at **`release/Stingray.app`** and was reopened normally after approved promotion. The original build is preserved at `release/backups/2026-11-06-before-add-project/Stingray.app`; both candidate bundles remain intact. See the live promotion report (local evidence: `artifacts/testing/2026-11-06-live-promotion/verification.md`) for fresh final-path checks and the Add project implementation report (local evidence: `artifacts/testing/2026-11-06-add-project/verification.md`) for prior implementation evidence.
+**Latest source integration checkpoint:** Repo Map and guarded terminal links are integrated with Pi activity, sidebar Git/PR cards and workspace ports. The completed source run passed build, **106 unit, 66 Repo Map, 26 terminal-link, 22 Pi-native, 36 PR/sidebar, 28 ports, 31 desktop and 22 add-project checks**. See the [integration review](docs/repo-map-integration-review.md) for evidence, retained failures and limitations. This does not imply remote publication or an installed-app update; visual and live native-handler acceptance remain pending.
+
+**Earlier Pi activity checkpoint:** Pi activity is implemented and source/candidate-verified for **Pi 1.5.0 typed in new zsh terminals**; Claude Code/Codex tracking is deferred. Whole-card selection and hiding empty/error-only port badges are included. The user requested source publication and replacement of the hosting app. Candidate verification is complete; actual installed-app promotion/reopen is recorded separately in `artifacts/testing/2026-11-07-pi-activity-delivery/verification.md` and `status.json`. Do not infer installation from this source commit. Activity evidence/limits: [capability report](docs/agent-activity-capability-gates.md); earlier card/port evidence: `artifacts/testing/clickable-workspace-cards/verification.md`. The running-terminal dot remains shell liveness, not agent state.
+
+**Earlier delivery status:** Compact sidebar branch/PR cards, tracked-line counts and workspace ports are implemented and verified in a separate packaged candidate. Source publication and installed-app promotion are separate operations: the local delivery report at `artifacts/testing/2026-11-07-sidebar-delivery/continuation/verification.md` records the promotion outcome, backup path and final-installed-path results. The installed path is **`~/Projects/stingray/release/Stingray.app`**, outside this source checkout. Do not infer that a running app was updated merely because source was pushed.
+
+The earlier **Add project** delivery and its preserved backup are historical: `artifacts/testing/2026-11-06-live-promotion/verification.md` in the original checkout records that promotion. Bundles and evidence are not published in this source repository.
+
+## Pi activity (source and verified candidate)
+
+Type `pi` in a **new zsh terminal** in the source build. Stingray adds a per-invocation extension through temporary app-owned startup/PATH files; it does not install Pi, launch an agent automatically, add launch buttons, or modify persistent shell/agent configuration. The bundled observer accepts exactly Pi **1.5.0**. Existing sessions are not retrofitted.
+
+- **Working** means an observed active turn; **Waiting for you** means an active blocking extension-UI span, not every built-in picker or permission mechanism.
+- **Needs review** means a successful settled completion not yet acknowledged. `agent_end`, failure, interruption and process exit are not successful completion.
+- **Idle** requires initialized, connected tracking with no active work, blocking UI or unseen completion. Failed, Interrupted, Disconnected and Tracking unavailable remain distinct. An ordinary shell never implies agent Idle.
+- A view/focus/user interaction can acknowledge the relevant visible terminal at its live buffer bottom, using an exact review revision. Merely receiving output or a completion snapshot does not clear review; hidden terminals, scrollback and other panes do not acknowledge it. Workspace aggregation prioritizes Waiting, Working, then Needs review; tooltips retain per-session connection/phase details.
+- Aliases/functions, absolute executable paths, later PATH overrides, nested-shell startup choices, disabled extensions, maintenance/help and noninteractive invocations can bypass attachment. Other shells and Claude/Codex have no activity adapter. The footer distinguishes not attached from unavailable; see the [implementation plan](docs/agent-activity-plan.md) for boundaries.
+- Activity transport is private/local and metadata-only: no prompts, model output, tool data or credentials are added to activity snapshots/logs. The terminal-bound transport capability stays out of renderer snapshots. This is not hostile same-user isolation. Activity is bounded (8 retained runs per terminal, 64 sockets, 64 retired runtimes per run) and does not survive app exit. Cancellable compaction/tree operations may remain unknown.
+
+Saved source verification passed build, **64 unit tests, 22 Pi-native checks, 8 real-Pi no-provider checks, 36 PR/sidebar checks, 28 ports checks, 31 desktop checks and 22 add-project checks**. The real Pi smoke covers extension loading, blocking confirmation UI, reload/new/shutdown; turn/retry/failure/completion tests use **synthetic events**, not a real provider. Evidence: `artifacts/testing/agent-activity/pi-verification/run-TKtMfS/`. These source results alone do not establish promotion or broad real-agent compatibility. Subsequent candidate checks passed **22 Pi, 36 PR/sidebar, 28 ports, 31 desktop and 22 add-project checks**, bundled-resource LaunchServices smoke and deep/strict signature verification. Candidate: `release/pi-activity-candidate-2026-11-07/Stingray.app`. The delivery report distinguishes these results from final-installed-path checks.
+
+## Compact branch / PR cards
+
+Each workspace card in the **left sidebar** has its actual branch name at the **bottom**, a state-changing branch/PR symbol with a small PR number beneath it when applicable, the port badge, and **+/− line counts at the top-right of the card**. There is no separate PR pill, files-changed badge, or demo dropdown. **Open PRs are green, merged PRs purple, closed-unmerged PRs red, and drafts/no PR neutral**; distinct icons, accessible status names and tooltips supplement color. Loading, unsupported repositories and failed lookups remain separate states. Long branch names truncate with full-name tooltips. The whole card background (including its PR symbol) selects the workspace; the branch button also supports keyboard navigation. Clicking +/− selects that workspace and opens Repo Map. Refresh and port controls keep their own actions without selecting the card.
+
+- **Line counts** are Git's net tracked-file diff against HEAD, combining staged and unstaged changes without double-counting. Untracked files and submodules are excluded; binary files contribute no lines and their count is disclosed in the tooltip. Pure renames add no lines. Unborn repositories (no HEAD commit), merge conflicts and failed/oversized/timed-out reads show unavailable counts—not zero. This is not a PR diff or evidence that local changes were merged. Reads use `git diff --numstat -z`, disable external diffs/textconv, and have a 10-second/2 MiB command-output bound. Repo Map includes untracked files and has separate per-file/folder counts, with explicit partial/unavailable states.
+- **GitHub lookup:** read-only `gh pr list`, using your existing GitHub CLI login. Stingray never installs `gh`, signs in, changes credentials, fetches Git branches, creates PRs, or merges anything. Standard credential-free `github.com` **origin** URLs are supported (HTTPS or Git SSH). Other hosts, SSH aliases, missing origins and detached HEAD are explicit unsupported states.
+- **Matching:** exact head repository and current branch, preferring an open PR; otherwise the most recently updated historical PR. A merged badge does not imply current local edits are merged. Fork-to-upstream PR discovery is not implemented. Lookups request at most 100 entries; reaching the limit fails visibly rather than guessing.
+- **Refresh and privacy:** rows in the displayed project's filtered workspace list, once per minute for PRs and every 10 seconds for Git while the window is visible, plus focus/manual refresh. Background Git and PR reads share a three-request concurrency budget; queued work is skipped when its row is removed. Results cache for 60 seconds; manual retries have a five-second cooldown. GitHub gets repository/branch identifiers; the requested fields are PR number/state/draft, head identity and update time—not titles, bodies, file contents or reviews. No PR metadata is persisted to app data. Errors are sanitized; a failed read does not become “No PR.”
+- **Preview:** the browser demo uses explicitly simulated PR states and line counts (main merged/#41, feature/browser open/#42). There is no state dropdown and it makes no GitHub calls.
+
+Source implementation evidence and limitations: `artifacts/testing/sidebar-card-refinement/verification.md`. Fresh candidate and installed-path delivery results are recorded separately in `artifacts/testing/2026-11-07-sidebar-delivery/continuation/verification.md`; the earlier sidebar-placement report is historical.
+
+## Compact workspace ports
+
+Stingray uses **small sidebar port-count badges**, inspired by Superset's workspace rows, instead of a large container panel above the terminal. Git information sits alongside ports in each sidebar workspace card.
+
+- **Ports:** hover/click the radio-tower badge for a small list with per-port open actions. Keyboard users can press Enter or Arrow Down to open details and Escape to dismiss. Opening a port from another workspace selects that workspace and reveals its preview.
+- **Terminal discovery (macOS):** bounded `ps` PID/PPID metadata plus PID-selected `lsof` detects local TCP listeners belonging to live Stingray terminals and their descendants, including `npm run dev`. It does not read process environments or command lines, probe HTTP health, or discover unrelated external/reparented processes. No process-kill controls are added.
+- **Docker:** the existing read-only local Unix-socket discovery contributes only ports associated with a workspace via Compose/bind paths. Unassociated containers, containers without published TCP ports, UDP, and LAN-only bindings are not badge entries. Remote contexts are refused. No containers are started or stopped.
+- **Visibility and states:** a port badge appears only when at least one workspace port is discovered. Empty, initial-scanning, and failed-with-no-ports results show no badge; discovery continues automatically. Losing the last port closes its popover. Partial discovery errors with retry remain inside details when healthy ports exist. Opening, preview loading, a waiting message after eight seconds, and load failure with reload guidance remain explicit. A listener is not proof of HTTP readiness. Links default to HTTP; use the address bar for HTTPS or another address.
+- **Refresh:** terminal ports every 2.5 seconds while the project UI is visible, Git and Docker every 10 seconds, plus focus/manual refresh. Hidden windows pause periodic reads. Scans are bounded/coalesced; Docker and terminal discovery fail independently. Git summaries also refresh for background workspace cards in the displayed list.
+
+Fresh delivery verification: **51 unit tests**, TypeScript/production build, and packaged-candidate **31 PR/sidebar checks**, **27 workspace-status checks**, **31 desktop regressions**, **22 add-project checks**, signature and isolated LaunchServices smoke passed. Workspace-status checks use real PTY HTTP servers and macOS process scanning; GitHub and Docker use strict fixtures. No live GitHub/Docker or real-provider clone transfer was tested in this delivery. The known intermittent clone-timeout fixture failure remains unresolved, although this fresh run passed. Candidate evidence is under `artifacts/testing/2026-11-07-sidebar-delivery/continuation/`; the delivery report distinguishes candidate results from any final-installed-path results. Superset comparison remains selected shipped-code/static evidence, not a live equivalence claim.
+
+For an interactive **simulated** browser preview, use `npm run dev:ui` on its configured port if free. Do not launch another desktop build against the same data directory while the packaged app is running.
 
 ## Open the desktop app
 
-To open the **current Add project build**, double-click **`~/Projects/stingray/release/Stingray.app`** in Finder, or run:
+To open the **installed build**, double-click **`~/Projects/stingray/release/Stingray.app`** in Finder, or run:
 
 ```sh
 open "$HOME/Projects/stingray/release/Stingray.app"
@@ -27,7 +72,7 @@ The Add project candidate, previous Design A navigation candidate and original-b
 This checkout also has dependencies and a verified production build:
 
 ```sh
-cd ~/Projects/stingray
+# From the root of your source checkout:
 npm start
 ```
 
@@ -54,7 +99,7 @@ npm start
 2. **New worktree**: inside a project, choose a new branch name. Only that repository's workspaces are shown, and creation targets that repository. The branch starts at the registered repository's current HEAD, not necessarily the selected worktree's HEAD. The separate directory still lives in Stingray's app-data folder: “inside a project” means ownership/navigation, not physical nesting in the repository. **All projects** returns home without stopping existing terminals.
 3. **Open terminal**: starts your login shell in that workspace. Run an already-installed agent CLI or dev server yourself. Nothing is bundled, installed, or launched automatically. Use terminal tabs or the split button for two visible terminals.
 4. **Browser preview**: enter your development server's HTTP(S) address. Back, forward, reload, and close are available in the desktop app. Workspace switching recreates the preview document; it does not preserve its in-memory page state.
-5. **Repo Map (source build)**: replaces Changes with a nested treemap: folders enclose descendants, and file areas are weighted by total **text lines**, separately from Git changes. All files are shown by default; **Only changes** filters out clean entries. Yellow means modified, green added/untracked, red deleted, and purple a merge conflict; text badges accompany the colors. Click folders or aggregate tiles to focus them, use Back or Root to return, or search the full inventory to reveal a file. The map fits its pane without panning, zoom controls or canvas scrolling. Click a file to open the right-hand **Git diff / Whole file / Preview** inspector. Drag the divider (or focus it and use Left/Right arrows) to resize; expand the reader to fill the workspace content area, then restore the sidebar. **×** closes it. **Escape** first dismisses search, then restores an expanded reader, then closes the sidebar, then navigates back in the map. Staged and unstaged diffs remain separate; deleted files remain inspectable. Tiles and the inspector show actual `+added / -removed` net counts. The map refreshes every five seconds while visible, with a manual refresh button. No staging, committing, pushing, merging, or source editing is performed.
+5. **Repo Map (source build)**: opens from the tab or sidebar line counts and replaces Changes with a nested treemap: folders enclose descendants, and file areas are weighted by total **text lines**, separately from Git changes. All files are shown by default; **Only changes** filters out clean entries. Yellow means modified, green added/untracked, red deleted, and purple a merge conflict; text badges accompany the colors. Click folders or aggregate tiles to focus them, use Back or Root to return, or search the full inventory to reveal a file. The map fits its pane without panning, zoom controls or canvas scrolling. Click a file to open the right-hand **Git diff / Whole file / Preview** inspector. Drag the divider (or focus it and use Left/Right arrows) to resize; expand the reader to fill the workspace content area, then restore the sidebar. **×** closes it. **Escape** first dismisses search, then restores an expanded reader, then closes the sidebar, then navigates back in the map. Staged and unstaged diffs remain separate; deleted files remain inspectable. Tiles and the inspector show actual `+added / -removed` net counts. The map refreshes every five seconds while visible, with a manual refresh button. No staging, committing, pushing, merging, or source editing is performed.
 6. **Remove worktree**: close all its terminals and type the exact branch name. Only Stingray-managed worktrees can be removed. Modified, untracked, or ignored files prevent removal. The branch and commits remain in Git.
 
 Shortcuts: **Cmd/Ctrl K** focuses project search at home or workspace search inside a project. **Cmd/Ctrl T** opens a terminal and **Cmd/Ctrl B** toggles the preview only when a workspace is open; neither launches a shell from home. At compact desktop sizes, Projects scrolls vertically and the terminal/preview stack vertically; scroll the relevant pane to reach lower content.
@@ -108,9 +153,23 @@ Keep the window open during cloning. Cancel/Escape/window-close are blocked whil
 - Shell startup files and repository-configured Git filters can execute local code. Only open trusted repositories. Stingray's Git service disables Git hooks, but commands you type in its terminals use your normal tools and configuration.
 - Native preview guests have no Node integration or Stingray bridge, use sandbox/context isolation, and deny popups, permissions, and downloads. Each workspace has a separate persistent browser session. This is not a VM, network firewall, or isolation boundary for terminal commands. Preview pages and terminal commands can make network requests.
 - Preview URLs accept HTTP(S), reject embedded username/password credentials, and are saved locally. Do not paste secret-bearing query strings; arbitrary URL query values are not automatically redacted. Preview cookies/cache can persist in the app-data directory.
-- No accounts, telemetry, cloud sync, or bundled agents are implemented. No real agent run was part of verification.
+- No Stingray accounts, telemetry, cloud sync, or bundled agents are implemented. Optional PR status uses your existing `gh` login for read-only GitHub requests; it does not add a login flow or store credentials. Pi verification includes an isolated real-CLI no-provider smoke, not model/tool execution or general agent compatibility.
 
 ## Verification
+
+For the Pi source checkpoint, the sequential isolated runner creates a fresh evidence directory on every invocation (requires already-installed project dependencies):
+
+```sh
+node tests/verify-activity.mjs
+# Optional real-Pi smoke: use an existing absolute path, never an installation command.
+PI_TEST_CLI="/absolute/path/to/pi/dist/cli.js" node tests/verify-activity.mjs
+# Optional stage selection for a justified bounded rerun:
+node tests/verify-activity.mjs unit pi-native
+```
+
+Without `PI_TEST_CLI`, the real-Pi smoke is explicitly skipped. The runner sanitizes HOME/config/environment and uses test-owned sessions, local Git fixtures and fake gh/docker; the real-Pi smoke additionally requires macOS `sandbox-exec` and denies network except the private activity socket. It never packages/promotes the installed app. See the [capability report](docs/agent-activity-capability-gates.md#verification-status) for the saved eight-stage results, initial npm-config failure, Vite warning and coverage limits. Completed suites were not rerun during the documentation-only review.
+
+Individual/general regression commands (not the runner's sanitized environment):
 
 ```sh
 npm run build
@@ -118,6 +177,8 @@ npm test
 npm run test:desktop
 npm run test:repo-map
 npm run test:terminal-links
+npm run test:workspace-status
+npm run test:pull-requests
 npm run test:add-project
 STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/source-launch" node tests/launch.mjs
 ```
@@ -150,7 +211,7 @@ The earlier standard-bundle packaging report (local evidence: `artifacts/testing
 
 Earlier development-build/browser results are preserved separately in the development verification report (local evidence: `artifacts/testing/2026-11-06-stingray/verification.md`); they are not substituted for packaged-app tests.
 
-**Known limits:** no Apple notarization, installer, auto-updates, Intel/Windows/Linux testing, real-agent compatibility run, exhaustive accessibility/security audit, or exhaustive failure-injection recovery suite (clone timeout and registration-save failure are now covered). The earlier packaging `npm audit` recorded **5 moderate findings** in packaging development dependencies (0 high/critical); the audit was not rerun for this task. Packaging tools are excluded from the runtime bundle. No forced dependency changes were made. The renderer bundle still produces Vite's >500 kB warning. The combined `npm run dev` launcher remains unverified; production `npm start` was tested for this Add project candidate (see the source-launch evidence in the report).
+**Known limits:** no Apple notarization, installer, auto-updates, Intel/Windows/Linux testing, real-provider agent verification or broad agent compatibility coverage beyond the scoped Pi smoke, exhaustive accessibility/security audit, or exhaustive failure-injection recovery suite (clone timeout and registration-save failure have fixture coverage; clone-timeout intermittency is not proven fixed). The earlier packaging `npm audit` recorded **5 moderate findings** in packaging development dependencies (0 high/critical); the audit was not rerun for this task. Packaging tools are excluded from the runtime bundle. No forced dependency changes were made. The renderer bundle still produces Vite's >500 kB warning. The combined `npm run dev` launcher remains unverified; production `npm start` was tested for this Add project candidate (see the source-launch evidence in the report).
 
 ### Rebuild the local app
 
@@ -160,7 +221,7 @@ On Apple Silicon macOS with project dependencies installed:
 npm run package:mac
 ```
 
-The recipe builds and packages a self-contained `.app`, generates the existing Stingray icon, and applies/verifies a local ad-hoc signature. **It refuses to overwrite an existing target.** To retain the standard build, choose a fresh directory beneath `release`, for example `STINGRAY_PACKAGE_OUTPUT=release/new-candidate npm run package:mac`. Never move/replace a running build; confirm it has quit and preserve the original before an approved replacement. Rerun packaged checks for the chosen path afterward. There is no upload, notarization, or global installation step.
+The recipe builds and packages a self-contained `.app`, generates the existing Stingray icon, and applies/verifies a local ad-hoc signature. Optional `STINGRAY_ELECTRON_ZIP_DIR=/absolute/existing/archive-directory` uses an already-downloaded matching Electron ZIP and fails rather than downloading if it is missing. **It refuses to overwrite an existing target.** To retain the standard build, choose a fresh directory beneath `release`, for example `STINGRAY_PACKAGE_OUTPUT=release/new-candidate npm run package:mac`. Never move/replace a running build; confirm it has quit and preserve the original before an approved replacement. Rerun packaged checks for the chosen path afterward. There is no upload, notarization, or global installation step.
 
 ## Structure
 
@@ -172,6 +233,13 @@ The recipe builds and packages a self-contained `.app`, generates the existing S
 - `src/RepoMap.tsx`, `RepoMapCanvas.tsx`, `repo-map-model.ts`, `repo-map-layout.ts`, `repo-map.css`: weighted nested treemap, navigation, Git-status presentation and resizable/expandable inspector.
 - `src/RepoMapCodeView.tsx`, `LineCounts.tsx`: virtualized bounded-content reader and explicit net-count/unknown presentation.
 - `electron/repo-map.ts`, `repo-map-size.ts`: read-only inventory/inspection and progressive bounded text-line measurement; `tests/repo-map.test.ts` and `tests/repo-map.mjs`: service/model and native UI coverage.
+- `src/WorkspaceStatus.tsx`, `usePullRequest.ts`, `workspace-git.css`, `electron/pull-requests.ts`: compact sidebar branch/PR symbols and bounded read-only GitHub PR lookup. `electron/git-lines.ts` reads bounded tracked-line statistics. `useSidebarGit.ts` and `workspace-read-queue.ts` bound background-row reads.
+- `src/WorkspacePortsChip.tsx`, `useWorkspacePorts.ts`, `workspace-status.ts`, `workspace-ports.css`: discovered-port-only badges, popover, discovery and partial-error details.
+- `electron/activity.ts`, `activity-shell.ts`, `agents/pi-extension.ts`, `agents/pi-observer.ts`: private metadata transport, temporary zsh attachment and version-gated Pi lifecycle observation.
+- `src/activity.ts`, `useActivity.ts`, `WorkspaceActivity.tsx`, `workspace-activity.css`: activity aggregation, revisioned snapshots/acknowledgement and sidebar status; `TerminalPane.tsx` supplies terminal observation guards.
+- `tests/verify-activity.mjs`, `pi-activity.mjs`, `pi-smoke.ts`: sequential isolated runner, native synthetic-lifecycle tests and opt-in real-Pi no-provider smoke.
+- `electron/ports.ts`: bounded macOS terminal-descendant listener discovery; no process command lines or environments.
+- `electron/containers.ts`: bounded, read-only local Docker discovery; no full inspect/environment payloads.
 - `src/shared.ts`: shared types and schemas; `src/demo.ts`: explicitly simulated browser adapter.
 - `tests/`: filesystem/Git regression tests and native/launch tests.
 - `artifacts/testing/`: plan, screenshots, logs, and verification record.

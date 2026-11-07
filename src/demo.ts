@@ -49,8 +49,9 @@ export const demoAPI: DesktopAPI = {
     if (terminalList.some(t => t.workspaceId === id)) throw new Error('Close every terminal in this workspace first.');
     state.workspaces = state.workspaces.filter(w => w.id !== id); return save();
   },
-  gitStatus: async id => ({ branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
+  gitStatus: async id => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
   repoSnapshot: async id => ({
+    lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 },
     branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown',
     changes: demoFiles.filter(file => file.status),
     files: demoFiles,
@@ -68,7 +69,19 @@ export const demoAPI: DesktopAPI = {
       revision: 'demo-' + path,
     };
   },
+  pullRequest: async id => {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const branch = state.workspaces.find(w => w.id === id)?.branch || 'unknown';
+    return { kind: 'pr', branch, repository: 'demo/stingray', checkedAt: Date.now(), number: id === mainId ? 41 : 42, state: id === mainId ? 'merged' : 'open' };
+  },
+  ports: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return []; },
+  containers: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return [{ id: 'demo-web', name: 'demo-web', image: 'node:24', state: 'running', health: 'healthy', paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 3000, target: '3000/tcp', url: 'http://127.0.0.1:3000' }] }, { id: 'demo-db', name: 'demo-db', image: 'postgres:17', state: 'running', health: '', paths: [], ports: [] }]; },
   preview: async (id, url) => { const w = state.workspaces.find(w => w.id === id); if (w) w.previewUrl = url; return save(); },
+  // No real Pi runs in the browser demo; never fabricate live activity.
+  activity: async () => ({ revision: 0, agents: [] }),
+  activityView: async () => undefined,
+  acknowledgeActivity: async () => undefined,
+  onActivity: () => () => {},
   terminals: async () => structuredClone(terminalList),
   createTerminal: async workspaceId => {
     if (terminalList.length >= 24) throw new Error('Terminal limit reached.');

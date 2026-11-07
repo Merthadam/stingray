@@ -178,7 +178,7 @@ try {
   await page.getByRole('tab', { name: 'Preview', exact: true }).click();
   check('component preview stays unsupported without executing source', await page.getByRole('heading', { name: 'No component preview configured' }).isVisible());
   await page.getByRole('tab', { name: 'Agent tracker', exact: true }).click();
-  check('tracker does not invent agents or activity', await page.getByRole('heading', { name: 'No agent integrations connected' }).isVisible());
+  check('tracker does not invent agents or activity', await page.getByRole('heading', { name: 'Map agent tracker not connected' }).isVisible());
   await page.getByRole('tab', { name: 'File inspector', exact: true }).click();
   await button('Close inspector').click(); await rootButton().click(); await page.getByLabel('Only changes', { exact: true }).check();
   check('Only changes omits clean files', await page.locator('.map-tile.file.clean').count() === 0);
@@ -275,12 +275,12 @@ try {
     refreshDisabled: await button('Refresh repository map').isDisabled(),
   };
   check('automatic snapshot is held with Refresh disabled before workspace switch', timings.delayedSnapshot.entered && timings.delayedSnapshot.refreshDisabled);
-  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: /clean-worktree/ }).click(); await page.locator('.map-tile').first().waitFor();
+  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'clean-worktree', exact: true }).click(); await page.locator('.map-tile').first().waitFor();
   check('workspace switch resets an open inspector without renderer reload', await sidebar.count() === 0 && state.workspaces.length === 2);
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor(); await releaseGate(); await page.waitForTimeout(150);
   check('late snapshot cannot overwrite new workspace inventory or inspector', (await page.locator('.inspector-file-heading').innerText()).includes('README.md') && (await page.locator('.map-title').innerText()).includes('0 changes') && await page.locator('.inline-error').count() === 0);
   await gateResponse('inspect-file', 'README.md'); await button('Refresh repository map').click(); await waitGate();
-  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main Local repository', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main', exact: true }).click();
   await page.locator('.map-tile').first().waitFor(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Whole file', exact: true }).click(); await button('Mark reviewed').click(); await releaseGate(); await page.waitForTimeout(150);
   check('late inspection from previous workspace preserves new content and review', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after review') && await button('Reviewed').count() === 1 && await page.locator('.inline-error').count() === 0);
@@ -297,11 +297,11 @@ try {
   await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', globalThis.mapSnapshotHandler); delete globalThis.mapSnapshotHandler; });
   await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
   check('snapshot recovery preserves navigation and reading mode', await page.locator('.repo-map-view > .inline-error').count() === 0 && await page.getByRole('tab', { name: 'Whole file', exact: true }).getAttribute('aria-selected') === 'true' && await button('Modified file src/App.tsx').count() === 1);
-  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: /clean-worktree/ }).click(); await page.locator('.map-tile').first().waitFor();
+  await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'clean-worktree', exact: true }).click(); await page.locator('.map-tile').first().waitFor();
   await rootButton().click();
   await page.getByLabel('Only changes', { exact: true }).check(); await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
   check('clean workspace has explicit empty filtered state', await page.locator('.map-tile').count() === 0);
-  await button('Toggle agent tracker').click(); check('tracker opens independently of files', await page.getByRole('heading', { name: 'No agent integrations connected' }).isVisible());
+  await button('Toggle agent tracker').click(); check('tracker opens independently of files', await page.getByRole('heading', { name: 'Map agent tracker not connected' }).isVisible());
   await button('Close inspector').focus(); await page.keyboard.press('Escape');
   check('Escape closes inspector and returns focus to map', await sidebar.count() === 0 && await page.locator('.map-viewport').evaluate(el => document.activeElement === el));
   check('no renderer exceptions', errors.length === 0);

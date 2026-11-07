@@ -7,6 +7,7 @@ import { Store } from './store';
 import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type SnapshotHint, type RepoSnapshot, snapshotHintSchema } from '../src/shared';
 import { cloneGit } from './clone';
 import { repoSnapshot, inspectFile } from './repo-map';
+import { readGitLines } from './git-lines';
 
 const exec = promisify(execFile);
 const snapshotsInFlight = new Map<string, Promise<RepoSnapshot>>();
@@ -141,7 +142,8 @@ export class GitService {
       git(w.path, ['branch', '--show-current']),
       git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     ]);
-    return { branch: branch.trim() || 'detached HEAD', changes: parseStatus(output) };
+    const changes = parseStatus(output);
+    return { branch: branch.trim() || 'detached HEAD', changes, lines: await readGitLines(w.path, changes) };
   }
   async repoSnapshot(id: string, hint?: SnapshotHint) {
     if (hint) snapshotHintSchema.parse(hint);
