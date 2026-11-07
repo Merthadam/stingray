@@ -59,6 +59,7 @@ try {
   await page.getByRole('button', { name: 'feature/ui: 0 lines added, 0 lines deleted', exact: true }).waitFor();
   check('redundant files-changed badge is absent', await page.locator('.git-files').count() === 0);
   check('Git details live in sidebar cards, not the top-right header', await page.locator('.sidebar .workspace-entry .workspace-git').count() === 1 && await page.locator('.workspace-header .workspace-git,.workspace-header .pr-symbol,.workspace-header .git-files').count() === 0);
+  check('unavailable Docker with no discovered ports has no sidebar badge', await page.locator('.ports-chip').count() === 0);
   check('sidebar controls are not nested in workspace navigation buttons', await page.locator('.workspace-entry button button').count() === 0);
   check('no simulated selector or separate PR pill', await page.getByLabel('Simulated PR state').count() === 0 && await page.locator('.pr-badge,.pr-demo-control').count() === 0);
   check('PR symbol has only the number underneath and an accessible status', await active().locator('.pr-symbol').innerText() === '#42' && await active().locator('.pr-symbol svg.lucide-git-pull-request').count() === 1);
@@ -66,7 +67,7 @@ try {
   check('branch is at bottom and line counts at top right', await active().evaluate(el => {
     const box = selector => el.querySelector(selector).getBoundingClientRect();
     const branch = box('.git-branch-label'), lines = box('.git-lines'), icon = box('.pr-symbol'), badges = box('.workspace-git-badges');
-    return branch.top >= badges.bottom && lines.left > icon.right && lines.top < badges.top;
+    return branch.top >= lines.bottom && lines.left > icon.right && (badges.height === 0 || lines.top < badges.top);
   }));
   await writeFile(path.join(repo, 'README.md'), '# Staged\n'); git('add', 'README.md');
   await writeFile(path.join(repo, 'README.md'), '# Staged and unstaged\n');
@@ -101,6 +102,16 @@ try {
   const otherCard = page.locator('.workspace-entry').filter({ has: page.getByRole('button', { name: longBranch, exact: true }) });
   await otherCard.getByRole('img', { name: 'PR #43 Closed', exact: true }).waitFor();
   check('background workspace shows its own branch, line counts and PR without selecting it', await otherCard.getByRole('button', { name: `${longBranch}: 0 lines added, 0 lines deleted`, exact: true }).isVisible() && (await otherCard.locator('.git-branch-label').innerText()) === longBranch);
+  await otherCard.click({ position: { x: 4, y: 4 } });
+  check('clicking card padding selects the workspace', await active().locator('.workspace-link').getAttribute('aria-label') === longBranch);
+  const mainNavigation = page.getByRole('button', { name: 'feature/ui', exact: true });
+  await mainNavigation.focus(); await mainNavigation.press('Enter');
+  check('keyboard workspace navigation is preserved', await active().locator('.workspace-link').getAttribute('aria-label') === 'feature/ui');
+  await otherCard.locator('.pr-symbol').click();
+  check('clicking the PR summary selects its workspace', await active().locator('.workspace-link').getAttribute('aria-label') === longBranch);
+  await mainNavigation.click();
+  await otherCard.locator('.git-refresh').click();
+  check('background refresh does not select that workspace', await active().locator('.workspace-link').getAttribute('aria-label') === 'feature/ui');
   await otherCard.locator('.git-lines').click();
   await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
   check('background line counts select that workspace and open its Changes view', await active().locator('.workspace-link').innerText() === longBranch);

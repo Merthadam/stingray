@@ -5,9 +5,12 @@ import type { GitStatus, Workspace } from './shared';
 import { usePullRequest } from './usePullRequest';
 import { useSidebarGit } from './useSidebarGit';
 import './workspace-git.css';
+import type { PiActivity } from './activity';
+import { WorkspaceActivity } from './WorkspaceActivity';
 
-export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, onSelect, onChanges, onRefresh, children }: {
+export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRefresh, children }: {
   workspace: Workspace; selected: boolean; status: GitStatus | null; statusBusy: boolean; statusError: string;
+  agents?: PiActivity[]; activityUnavailable?: boolean;
   disabled: boolean; running: boolean; onSelect: () => void; onChanges: () => void; onRefresh: () => void; children: ReactNode;
 }) {
   const background = useSidebarGit(workspace.id, !selected);
@@ -39,7 +42,7 @@ export function WorkspaceStatus({ workspace, selected, status: selectedStatus, s
         <PRIcon size={17} className={kind === 'loading' ? 'spin' : ''} />
         {!statusError && value?.kind === 'pr' && <small aria-hidden="true">#{value.number}</small>}
       </span>
-      {running && <span className="activity-dot" role="img" aria-label="Running terminal" />}
+      {running && <span className="activity-dot" role="img" aria-label="Running terminal" title="A shell is running; this is not agent activity." />}
       <div className="workspace-card-metrics">
       <button className="git-lines" aria-label={`${workspace.name}: ${lineLabel}`} aria-busy={statusBusy}
         title={(api.mode === 'demo' ? 'SIMULATED · ' : '') + lineDetails} onClick={onChanges}>
@@ -49,6 +52,7 @@ export function WorkspaceStatus({ workspace, selected, status: selectedStatus, s
       <div className="workspace-git-badges">{children}</div>
       </div>
     </div>
+    <WorkspaceActivity agents={agents} unavailable={activityUnavailable} />
     <div className="workspace-card-bottom">
       <button disabled={disabled} className={'workspace-link ' + (selected ? 'selected' : '')} aria-label={workspace.name}
         aria-current={selected ? 'page' : undefined} title={`${branch} · ${workspace.name} · ${workspace.managed ? 'Git worktree' : 'Local repository'} · ${workspace.path}`} onClick={onSelect}>

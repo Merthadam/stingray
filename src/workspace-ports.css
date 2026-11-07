@@ -1,4 +1,6 @@
-.workspace-entry{margin:2px 0 4px;border:1px solid transparent;border-radius:6px;position:relative;padding-bottom:7px}
+.workspace-entry{margin:2px 0 4px;border:1px solid transparent;border-radius:6px;position:relative;padding-bottom:7px;cursor:pointer}
+.workspace-entry:hover{border-color:#49403a}
+.workspace-entry:has(.workspace-link:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 .workspace-entry.selected{background:var(--active);border-color:#3a3330}
 .workspace-entry.selected:before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:2px;background:var(--accent);border-radius:2px}
 .workspace-entry .workspace-link{margin:0;min-height:35px;padding:8px 10px 5px 12px;border:0}

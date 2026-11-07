@@ -46,6 +46,8 @@ try {
   execFileSync('/usr/bin/iconutil', ['-c', 'icns', iconset, '-o', icon]);
   const packages = await packager({ dir: stage, name: 'Stingray', executableName: 'Stingray', platform: 'darwin', arch: 'arm64',
     electronVersion: manifest.devDependencies.electron, appBundleId: 'local.stingray.desktop',
+    // Optional existing archive directory: packager fails on a cache miss instead of downloading.
+    electronZipDir: process.env.STINGRAY_ELECTRON_ZIP_DIR ? path.resolve(process.env.STINGRAY_ELECTRON_ZIP_DIR) : undefined,
     appVersion: manifest.version, icon, out: path.join(work, 'output'), asar: false, prune: false,
     darwinDarkModeSupport: true });
   const app = path.join(packages[0], 'Stingray.app');

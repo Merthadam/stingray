@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ActivitySnapshot } from './activity';
 
 export const idSchema = z.string().uuid();
 export const urlSchema = z.string().max(2048).refine((value) => {
@@ -45,7 +46,7 @@ export type ContainerInfo = {
   ports: { port: number; target: string; url: string }[];
 };
 export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
-export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number };
+export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; piTracking?: 'available' | 'unavailable' };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
   mode: 'desktop' | 'demo';
@@ -61,6 +62,10 @@ export interface DesktopAPI {
   containers(): Promise<ContainerInfo[]>;
   ports(): Promise<WorkspacePort[]>;
   preview(id: string, url: string): Promise<State>;
+  activity(): Promise<ActivitySnapshot>;
+  onActivity(listener: (snapshot: ActivitySnapshot) => void): () => void;
+  activityView(terminalIds: string[]): Promise<void>;
+  acknowledgeActivity(id: string, terminalId: string, reviewRevision: number): Promise<void>;
   terminals(): Promise<TerminalInfo[]>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;

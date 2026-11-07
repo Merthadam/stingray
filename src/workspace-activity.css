@@ -1,0 +1,4 @@
+.workspace-activity{display:flex;align-items:center;gap:6px;margin:3px 12px 7px;font-size:10px;line-height:1.5;color:var(--muted);min-width:0}
+.workspace-activity>svg{flex-shrink:0}.workspace-activity>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workspace-activity>small{font:9px ui-monospace,monospace;border:1px solid var(--border);border-radius:3px;padding:0 4px}
+.activity-working{color:#9dc6f0}.activity-waiting-for-you{color:#ecd08f}.activity-needs-review{color:#c6a1e8}.activity-idle{color:var(--green)}.activity-failed{color:#efb4a9}
+.pi-terminal-state{font-size:10px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -10,6 +10,8 @@ import { AddProjectForm } from './AddProjectForm';
 import { WorkspaceStatus } from './WorkspaceStatus';
 import { WorkspacePortsChip } from './WorkspacePortsChip';
 import { useWorkspacePorts } from './useWorkspacePorts';
+import { useActivity } from './useActivity';
+import { aggregateActivity } from './activity';
 import { navigationKey, parseSelection, resolveSelection, type ProjectSelection } from './project-navigation';
 
 const emptyState: State = { version: 1, repos: [], workspaces: [] };
@@ -52,6 +54,9 @@ export default function App() {
   const workspaceTerminals = terminals.filter(t => t.workspaceId === selected);
   const active = activeTerminals[selected] || workspaceTerminals[0]?.id;
   const visibleTerminalIds = split ? [active, workspaceTerminals.find(t => t.id !== active)?.id] : [active];
+  const activity = useActivity(!initializing && !loadFailed && workspace && tab === 'workspace' && !modal
+    ? visibleTerminalIds.filter((id): id is string => Boolean(id)) : []);
+  const activeActivity = aggregateActivity(activity.agents.filter(a => a.terminalId === active));
   const setErrorMessage = useCallback((message: string) => setError(message), []);
   const apply = (next: State) => setState(next);
   function openProject(repoId: string) {
@@ -136,9 +141,16 @@ export default function App() {
           <label className="search"><Search size={14} /><input ref={search} aria-label="Find a workspace" placeholder="Find a workspace…" value={query} onChange={e => setQuery(e.target.value)} /><kbd>⌘ K</kbd></label>
           <div className="section-label">WORKSPACES <span>{projectWorkspaces.length}</span></div>
           <nav className="projects" aria-label="Project workspaces">{filteredWorkspaces.map(w =>
-            <div key={w.id} className={'workspace-entry ' + (selected === w.id ? 'selected' : '')}>
+            <div key={w.id} className={'workspace-entry ' + (selected === w.id ? 'selected' : '')}
+              onClick={event => {
+                // Keep nested actions (including port dialogs rendered through a portal)
+                // independent. The branch button remains the keyboard navigation target.
+                if (busy || (event.target as Element).closest('button, a, input, [role="dialog"]')) return;
+                setNavigation({ repoId: repo.id, workspaceId: w.id }); setError('');
+              }}>
               <WorkspaceStatus workspace={w} selected={selected === w.id} status={status} statusBusy={statusBusy} statusError={statusError}
                 disabled={busy} running={terminals.some(t => t.workspaceId === w.id && !t.exited)}
+                agents={activity.agents.filter(a => a.workspaceId === w.id)} activityUnavailable={activity.unavailable}
                 onSelect={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}
                 onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRefresh={() => void refreshStatus()}>
                 <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
@@ -160,9 +172,9 @@ export default function App() {
               <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}</div><div className="terminal-tools"><button className="icon" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button></div></div>
               {!workspaceTerminals.length && <div className="terminal-empty"><TerminalSquare size={30} strokeWidth={1.2} /><h2>Make room for your next idea.</h2><p>Open a shell in <strong>{workspace.name}</strong>.<br />Run Pi, Claude Code, Codex, or any installed CLI.</p><button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /> Open terminal</button><span className="shortcut-hint">or press <kbd>⌘ T</kbd></span></div>}
               <div className={'terminal-grid ' + (split && workspaceTerminals.length > 1 ? 'split' : '')}>
-                {terminals.filter(t => projectWorkspaces.some(w => w.id === t.workspaceId)).map(t => <TerminalPane key={t.id} info={t} visible={t.workspaceId === selected && visibleTerminalIds.includes(t.id) && tab === 'workspace'} onError={setErrorMessage} />)}
+                {terminals.filter(t => projectWorkspaces.some(w => w.id === t.workspaceId)).map(t => <TerminalPane key={t.id} info={t} visible={t.workspaceId === selected && visibleTerminalIds.includes(t.id) && tab === 'workspace'} onError={setErrorMessage} onObserve={activity.acknowledge} />)}
               </div>
-              <div className="terminal-footer"><span><span className="activity-dot" /> {workspaceTerminals.filter(t => !t.exited).length} running</span><span>{api.mode === 'desktop' ? 'Shell · local' : 'Simulated shell'}</span></div>
+              <div className="terminal-footer"><span><span className="activity-dot" /> {workspaceTerminals.filter(t => !t.exited).length} running</span><span className="pi-terminal-state" title="Pi 1.5.0 tracking attaches to typed pi commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Claude/Codex tracking is not supported. Shell liveness is not agent activity.">{api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable'}</span></div>
             </section>
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
