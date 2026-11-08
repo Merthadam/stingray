@@ -181,10 +181,11 @@ async function measure(root: string, files: RepoFile[], hint: SnapshotHint | und
   }
   for (const file of files) if (file.status === '??' || file.untrackedReplacement || unborn && file.status && !file.status.includes('U') && !['AA', 'DD'].includes(file.status)) {
     const size = file.size!;
-    file.lines = unborn && absent.has(file.path) ? { added: 0, removed: 0 } : size.state === 'known' && !size.stale && size.source === 'working tree' ? { added: size.textLines, removed: file.untrackedReplacement ? file.lines?.removed || 0 : 0 } : null;
-    if (!file.lines) file.lineNotice = size.state === 'unavailable' ? size.reason : 'Waiting for bounded line-count revalidation';
+    file.lines = unborn && absent.has(file.path) ? { added: 0, removed: 0 } : size.state === 'known' && size.source === 'working tree' ? { added: size.textLines, removed: file.untrackedReplacement ? file.lines?.removed || 0 : 0 } : null;
+    if (!file.lines) file.lineNotice = size.state === 'unavailable' ? size.reason : 'Waiting for bounded line-count measurement';
+    else file.lineNotice = 'Based on cached text sizes; revalidated in bounded batches, not an atomic snapshot.';
   }
   const progress = { checked, read, bytes, known: files.filter(f => f.size?.state === 'known').length,
     stale: files.filter(f => f.size?.stale).length, pending: files.filter(f => f.size?.state === 'pending').length };
-  return { sizeProgress: progress, sizeNotice: `${progress.known.toLocaleString()}/${files.length.toLocaleString()} sizes known · ${progress.pending} pending · ${progress.stale} awaiting revalidation. Text lines include blanks/comments; unknown and empty files use minimum layout weight 1, not one measured line.` };
+  return { sizeProgress: progress, sizeNotice: `${progress.known.toLocaleString()}/${files.length.toLocaleString()} sizes known · ${progress.pending} pending. Cached sizes are revalidated in bounded batches, not an atomic snapshot. Text lines include blanks/comments; unknown and empty files use minimum layout weight 1, not one measured line.` };
 }

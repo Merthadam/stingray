@@ -1,6 +1,17 @@
 # Stingray status
 
-Updated 2026-11-07. Context, not authorization for further work.
+Updated 2026-11-08. Context, not authorization for further work.
+
+## Repo Map idle-refresh and hover fix (source and separate candidate)
+
+- Background five-second polls preserve unchanged visible snapshots and inspector revisions without loading flashes. A bounded single-layout cache reuses geometry for status/count-only changes. Actual file edits, including same-line edits, still refresh the reader and invalidate review.
+- Cached untracked/unborn line counts remain visible between bounded revalidation batches. Rotating service freshness flags no longer cause per-tile label/count churn; the UI explicitly describes measurements as cached and non-atomic. Initial size discovery, real weight/inventory changes, filtering and resizing can still reflow the map.
+- Immediate hover/focus details replace native tile tooltips, remain readable when the pointer enters the panel, and dismiss with Escape. Duplicate native count tooltips are suppressed inside tiles.
+- Final sanitized source run: **build passed; 109/109 unit/integration; 74/74 native Repo Map; 31/31 desktop**. Three idle polls over 11 seconds produced zero visible map/reader mutations; fixture hover appearance was ~46 ms. Evidence/screenshots: `artifacts/testing/agent-activity/pi-verification/run-XMGKj7/`. Native coverage is 2,048 files; 100k remains model-only. Existing Vite chunk warning remains.
+- Retained initial failures: `run-dIt6hp` had an outdated expected notice string; `run-qPnXop` and `run-5V6LLX` observed React's unchanged controlled-checkbox name/type reassertions. The native assertion now watches visible attributes/content rather than those internal attributes; geometry, count, loading, checked-state and accessibility checks remain. Earlier passing native run: `run-qFi31t`.
+- A subsequent isolated packaged candidate passed **74 map, 26 terminal-link, 22 Pi-native, 36 PR/sidebar, 28 ports, 31 desktop and 22 clone checks**, LaunchServices, deep/strict signature and bundled build-resource equality. Evidence: `artifacts/testing/2026-11-08-repo-map-refresh-delivery/`.
+- The approved delivery attempt timed out waiting for normal app exit: no promotion or normal reopen occurred. No hooks, dependency changes, forced quit, app-data edits or existing-preview intervention. Publication is separate from installed-app delivery.
+- A subsequent user report of missing filename/line-count hover details remains unresolved in the affected running view. Automated candidate checks passed; user visual acceptance remains pending.
 
 ## Repo Map + main integration checkpoint
 

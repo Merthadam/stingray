@@ -1,4 +1,29 @@
-import type { RepoFile } from './shared';
+import type { GitStatus, RepoFile, RepoSnapshot } from './shared';
+
+export function sameGitStatus(a: GitStatus, b: GitStatus) {
+  return a.branch === b.branch && JSON.stringify(a.lines) === JSON.stringify(b.lines) &&
+    a.changes.length === b.changes.length && a.changes.every((change, i) => {
+      const next = b.changes[i];
+      return change.path === next.path && change.status === next.status && change.originalPath === next.originalPath;
+    });
+}
+function sameFile(a: RepoFile, b: RepoFile) {
+  const x = a.size, y = b.size;
+  return a.path === b.path && a.status === b.status && a.originalPath === b.originalPath &&
+    a.untrackedReplacement === b.untrackedReplacement && a.lineNotice === b.lineNotice &&
+    a.lines?.added === b.lines?.added && a.lines?.removed === b.lines?.removed &&
+    x?.state === y?.state && x?.source === y?.source &&
+    (x?.state === 'known' ? x.textLines : x?.reason) === (y?.state === 'known' ? y.textLines : y?.reason);
+}
+// Per-batch work counters and the rotating revalidation flag are diagnostics,
+// not content changes. The UI describes all measurements as cached; it never
+// claims an unchecked file is fresh. Preserve references on an idle poll.
+export function reconcileSnapshot(previous: RepoSnapshot | null, next: RepoSnapshot): RepoSnapshot {
+  if (!previous) return next;
+  const files = previous.files.length === next.files.length && previous.files.every((file, i) => sameFile(file, next.files[i])) ? previous.files : next.files;
+  if (files === previous.files && sameGitStatus(previous, next) && previous.sizeNotice === next.sizeNotice && previous.statsNotice === next.statsNotice) return previous;
+  return { ...next, files };
+}
 
 export type FileKind = 'modified' | 'added' | 'deleted' | 'conflict' | 'clean';
 export const kindLabels: Record<FileKind, string> = { modified: 'Modified', added: 'New', deleted: 'Deleted', conflict: 'Conflict', clean: 'Unchanged' };

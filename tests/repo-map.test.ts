@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GitService, git } from '../electron/git';
 import { Store } from '../electron/store';
-import { aggregate, buildRepoTree, clusterNodes, fileKind, findFolder, inRange } from '../src/repo-map-model';
+import { aggregate, buildRepoTree, clusterNodes, fileKind, findFolder, inRange, reconcileSnapshot } from '../src/repo-map-model';
 import { parseNumstat, repoSnapshot, readWorkingFile } from '../electron/repo-map';
 import { textLines, sizeWork } from '../electron/repo-map-size';
-import { squarify, treemap } from '../src/repo-map-layout';
-import type { RepoFile } from '../src/shared';
+import { createLayoutCache, squarify, treemap } from '../src/repo-map-layout';
+import type { RepoFile, RepoSnapshot } from '../src/shared';
 
 async function fixture(unborn = false) {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-map-'));
@@ -309,7 +309,7 @@ test('untracked counts have a fixed read budget and partial totals never imply f
     await Promise.all(Array.from({ length: 70 }, (_, i) => writeFile(path.join(f.repo, `new-${i.toString().padStart(2, '0')}`), 'line\n')));
     const map = await f.service.repoSnapshot(f.id);
     assert.equal(map.files.filter(file => file.status === '??' && file.lines !== null).length, 62);
-    assert.equal(map.files.filter(file => file.lineNotice === 'Waiting for bounded line-count revalidation').length, 8);
+    assert.equal(map.files.filter(file => file.lineNotice === 'Waiting for bounded line-count measurement').length, 8);
     assert.match(map.statsNotice!, /^8 changed/);
     assert.equal(map.sizeProgress?.read, 64); assert.equal(map.sizeProgress?.checked, 64);
     const tree = buildRepoTree(map.files);
@@ -473,6 +473,67 @@ test('shared 64-content budget progresses fairly, revalidates cache, and priorit
     const pair = await Promise.all([f.service.repoSnapshot(f.id), f.service.repoSnapshot(f.id)]);
     assert.ok(pair.every(map => map.sizeProgress!.read <= 64));
   } finally { await f.cleanup(); }
+});
+
+test('idle batches retain cached untracked counts and stable visible snapshots without hiding edits', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.repo, 'idle'));
+    await Promise.all(Array.from({ length: 150 }, (_, i) => writeFile(path.join(f.repo, `idle/${i}`), 'first\nsecond\n')));
+    let previous: RepoSnapshot | null = null;
+    for (let i = 0; i < 4; i++) previous = await f.service.repoSnapshot(f.id);
+    assert.equal(previous!.sizeProgress!.pending, 0);
+    const baseline = previous!;
+    assert.equal(baseline.files.filter(file => file.path.startsWith('idle/')).reduce((sum, file) => sum + (file.lines?.added || 0), 0), 300);
+    for (let i = 0; i < 4; i++) {
+      const next = await f.service.repoSnapshot(f.id);
+      assert.equal(next.sizeProgress!.read, 0);
+      assert.equal(reconcileSnapshot(baseline, next), baseline);
+      assert.equal(next.files.filter(file => file.path.startsWith('idle/') && file.lines === null).length, 0);
+    }
+    assert.match(baseline.sizeNotice!, /Cached sizes.*not an atomic snapshot/);
+    await writeFile(path.join(f.repo, 'idle/149'), 'changed\nextra\nline\n');
+    const edited = await f.service.repoSnapshot(f.id, { file: 'idle/149' });
+    assert.notEqual(reconcileSnapshot(baseline, edited), baseline);
+    assert.deepEqual(edited.files.find(file => file.path === 'idle/149')!.lines, { added: 3, removed: 0 });
+    await writeFile(path.join(f.repo, 'idle/149'), Buffer.from([0, 1]));
+    const binary = await f.service.repoSnapshot(f.id, { file: 'idle/149' });
+    assert.equal(binary.files.find(file => file.path === 'idle/149')!.lines, null);
+    assert.notEqual(reconcileSnapshot(edited, binary), edited);
+  } finally { await f.cleanup(); }
+});
+
+test('snapshot reconciliation preserves file identity but not actual Git/count/error changes', () => {
+  const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 },
+    files: [{ path: 'a', status: '', lines: { added: 0, removed: 0 }, size: { state: 'known', source: 'working tree', textLines: 2 } }] };
+  const idle = structuredClone(base); idle.files[0].size!.stale = true;
+  assert.equal(reconcileSnapshot(base, idle), base);
+  for (const change of [{ branch: 'other' }, { statsNotice: 'Git unavailable' }, { sizeNotice: 'Partial sizing' },
+    { lines: { kind: 'unavailable' as const, message: 'unavailable' } }]) {
+    const next = reconcileSnapshot(base, { ...idle, ...change });
+    assert.notEqual(next, base); assert.equal(next.files, base.files);
+  }
+  const counted = structuredClone(base); counted.files[0].lines!.added = 1;
+  assert.notEqual(reconcileSnapshot(base, counted).files, base.files);
+  const renamed = structuredClone(base); renamed.files[0].originalPath = 'old';
+  assert.notEqual(reconcileSnapshot(base, renamed), base);
+});
+
+test('layout cache skips geometry work for status-only changes but hydrates files and groups', () => {
+  let calls = 0;
+  const cached = createLayoutCache((...args) => { calls++; return treemap(...args); });
+  const files: RepoFile[] = Array.from({ length: 200 }, (_, i) => ({ path: `src/${i}`, status: '', size: { state: 'known', source: 'working tree', textLines: 2 } }));
+  const first = cached(buildRepoTree(files).children, 500, 400);
+  const changed = files.map(file => ({ ...file, status: ' M', lines: { added: 3, removed: 2 } }));
+  const next = cached(buildRepoTree(changed).children, 500, 400);
+  assert.equal(calls, 1);
+  assert.deepEqual(next.map(t => [t.id, t.x, t.y, t.width, t.height]), first.map(t => [t.id, t.x, t.y, t.width, t.height]));
+  assert.equal(aggregate(next.filter(t => t.terminal).map(t => t.totals)).added, 600);
+  assert.deepEqual(next, treemap(buildRepoTree(changed).children, 500, 400));
+  cached(buildRepoTree(changed).children, 600, 400); assert.equal(calls, 2);
+  changed[0].size = { state: 'known', source: 'working tree', textLines: 50 };
+  cached(buildRepoTree(changed).children, 600, 400); assert.equal(calls, 3);
+  cached(buildRepoTree(changed.slice(1)).children, 600, 400); assert.equal(calls, 4);
 });
 
 test('historical blob batches share the 64-content budget and invalidate on HEAD changes', async () => {

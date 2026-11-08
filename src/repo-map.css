@@ -28,6 +28,7 @@
 .tile-detail{display:flex;flex-direction:column;gap:6px;padding:5px;color:inherit;opacity:.8;font:9px ui-monospace,monospace;overflow:hidden}
 .map-tile.modified{color:#e4c075;background:#40331e;border-color:#9b7c40}.map-tile.added{color:#a3dbad;background:#284332;border-color:#538561}.map-tile.deleted{color:#edaaa4;background:#4a2927;border-color:#a2625a;border-style:dashed}.map-tile.deleted strong{text-decoration:line-through}.map-tile.conflict{color:#edb1df;background:#452b42;border-color:#99658d}
 .map-tile.group{background:repeating-linear-gradient(135deg,#30271f,#30271f 5px,#342b23 5px,#342b23 6px);color:#c9b7a4}
+.map-tooltip{position:fixed;z-index:30;width:min(320px,calc(100vw - 16px));max-height:min(192px,calc(100vh - 16px));overflow:auto;pointer-events:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;border:1px solid #6d5845;border-radius:6px;background:#241e1a;color:#e3d8cf;box-shadow:0 6px 24px #0008;font:11px/1.5 ui-monospace,monospace}
 .map-tile:hover{filter:brightness(1.2)}.map-tile:focus-visible{outline:2px solid #fff1df;outline-offset:-2px;}
 .map-search-results small{display:block;color:#e4c075;margin-top:4px}
 .line-counts{font-size:10px}.compact-tiles .tile-mosaic{max-height:8px}

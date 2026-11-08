@@ -1,4 +1,4 @@
-import { clusterNodes, type MapNode, type MapRange, type MapTile } from './repo-map-model';
+import { aggregate, clusterNodes, nodeKey, type MapNode, type MapRange, type MapTile } from './repo-map-model';
 export type Rect = { x: number; y: number; width: number; height: number };
 export type LayoutTile = MapTile & Rect & { parent: string; depth: number; terminal: boolean; folder: string };
 // Ordered squarification: no sorting by transient Git state or count. Preserve
@@ -61,5 +61,38 @@ export function treemap(nodes: MapNode[], width: number, height: number, folder 
     });
   }
   return result;
+}
+// Geometry depends on hierarchy/weights, not Git badges, counts or freshness.
+// Keep one bounded layout per mounted canvas; hydrate current data onto it when
+// only status changes. Each grouped range is disjoint within its parent.
+export function createLayoutCache(layout = treemap) {
+  let signature = '';
+  let geometry: LayoutTile[] = [];
+  return (nodes: MapNode[], width: number, height: number, folder = '') => {
+    const byPath = new Map<string, MapNode>();
+    const siblings = new Map<string, MapNode[]>([[folder, nodes]]);
+    const positions = new Map<string, number>();
+    const parts: (string | number)[] = [width, height, folder];
+    const stack = [nodes];
+    while (stack.length) {
+      const children = stack.pop()!;
+      children.forEach((node, index) => {
+        byPath.set(node.path, node); positions.set(nodeKey(node), index);
+        parts.push(nodeKey(node), node.weight);
+        if (!node.file) { siblings.set(node.path, node.children); stack.push(node.children); }
+      });
+    }
+    const next = JSON.stringify(parts);
+    if (next !== signature) { signature = next; geometry = layout(nodes, width, height, folder); return geometry; }
+    return geometry.map(tile => {
+      if (tile.node) {
+        const node = byPath.get(tile.node.path)!;
+        return { ...tile, node, totals: node, samples: node.children.slice(0, 9) };
+      }
+      const range = tile.range!;
+      const members = siblings.get(tile.folder)!.slice(positions.get(range.first)!, positions.get(range.last)! + 1);
+      return { ...tile, totals: aggregate(members), samples: members.slice(0, 9) };
+    });
+  };
 }
 export type MapScope = { folder: string; range?: MapRange; file?: string };

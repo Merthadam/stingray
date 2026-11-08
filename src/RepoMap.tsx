@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Check, FileCode2, RefreshCw, X, Maximize2, Minimize2 } from 'lucide-react';
 import { api } from './api';
 import type { FileInspection, GitStatus, RepoFile, RepoSnapshot, TerminalInfo, Workspace, SnapshotHint } from './shared';
-import { fileKind, kindBadges } from './repo-map-model';
+import { fileKind, kindBadges, reconcileSnapshot, sameGitStatus } from './repo-map-model';
 import { RepoMapCanvas } from './RepoMapCanvas';
 import { LineCounts } from './LineCounts';
 import { CodeView } from './RepoMapCodeView';
@@ -11,6 +11,7 @@ import './repo-map.css';
 type Props = { workspace: Workspace; terminals: TerminalInfo[]; onStatus: (status: GitStatus) => void; onPreview: () => void };
 export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
+  const snapshotRef = useRef<RepoSnapshot | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [changedOnly, setChangedOnly] = useState(false);
@@ -42,9 +43,10 @@ export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
   const refreshFile = useRef<() => void>(() => {});
   const alive = useRef(false);
   const onStatusRef = useRef(onStatus); onStatusRef.current = onStatus;
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (manual = false) => {
     if (inFlight.current || !alive.current) return;
-    inFlight.current = true; setBusy(true);
+    const foreground = manual || !snapshotRef.current;
+    inFlight.current = true; if (foreground) setBusy(true);
     const request = generation.current;
     try {
       const requestedHint = hint.current;
@@ -59,9 +61,19 @@ export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
         if (hint.current === requestedHint) hint.current = {};
         next = await api.repoSnapshot(workspace.id);
       }
-      if (alive.current && request === generation.current) { setSnapshot(next); setError(''); onStatusRef.current(next); refreshFile.current(); }
+      if (alive.current && request === generation.current) {
+        const previous = snapshotRef.current;
+        const reconciled = reconcileSnapshot(previous, next);
+        snapshotRef.current = reconciled;
+        if (reconciled !== previous) setSnapshot(reconciled);
+        setError('');
+        if (!previous || !sameGitStatus(previous, next)) onStatusRef.current(next);
+        // File contents can change without changing Git status or line counts.
+        // Keep checking the reader, but don't flash loading UI on idle polls.
+        refreshFile.current();
+      }
     } catch (e) { if (alive.current && request === generation.current) setError((e as Error).message); }
-    finally { if (request === generation.current) { inFlight.current = false; if (alive.current) setBusy(false); } }
+    finally { if (request === generation.current) { inFlight.current = false; if (foreground && alive.current) setBusy(false); } }
   }, [workspace.id]);
   const onHint = useCallback((next: SnapshotHint) => { hint.current = next; void refresh(); }, [refresh]);
   useEffect(() => {
@@ -75,18 +87,18 @@ export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
     let running = false;
     setFileError('');
     if (!selected) { setInspection(null); setFileBusy(false); return; }
-    const load = async () => {
+    const load = async (foreground = false) => {
       if (running) return;
-      running = true; setFileBusy(true);
+      running = true; if (foreground) setFileBusy(true);
       try {
         const next = await api.inspectFile(workspace.id, selected);
-        if (!cancelled) { setInspection(next); setFileError(''); }
+        if (!cancelled) { setInspection(previous => previous?.revision === next.revision ? previous : next); setFileError(''); }
       } catch (e) {
         if (!cancelled) { setInspection(null); setFileError((e as Error).message); }
-      } finally { running = false; if (!cancelled) setFileBusy(false); }
+      } finally { running = false; if (foreground && !cancelled) setFileBusy(false); }
     };
     refreshFile.current = () => { void load(); };
-    void load();
+    void load(true);
     return () => { cancelled = true; refreshFile.current = () => {}; };
   }, [workspace.id, selected]);
   const selectedFile = snapshot?.files.find(file => file.path === selected);
@@ -95,11 +107,12 @@ export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
     hint.current = { scope: hint.current.scope };
     viewport.current?.focus({ preventScroll: true });
   }
-  function openFile(file: RepoFile) {
+  const openFile = useCallback((file: RepoFile) => {
     if (selected !== file.path) { setInspection(null); setReviewed(''); }
     setSelected(file.path); setPanel('file'); setMode(file.status ? 'diff' : 'file');
     hint.current = { ...hint.current, file: file.path }; void refresh();
-  }
+  }, [selected, refresh]);
+  const showAll = useCallback(() => setChangedOnly(false), []);
   const hasDiff = !!inspection?.staged || !!inspection?.unstaged;
   return <section className="repo-map-view" aria-label="Repository map" onKeyDown={event => {
     if (event.key === 'Escape') { event.stopPropagation(); if (dismissSearch.current()) return; if (expanded) setExpanded(false); else if (panel) closeInspector(); else navigateBack.current(); }
@@ -108,11 +121,11 @@ export function RepoMap({ workspace, terminals, onStatus, onPreview }: Props) {
       <div className="map-title"><span className="map-eyebrow">REVIEW YOUR WORKTREE</span><h2>Repo map <span>{snapshot?.changes.length ?? '—'} changes</span></h2></div>
       <button className={'icon ' + (panel === 'agents' ? 'toggled' : '')} aria-label="Toggle agent tracker" title="Agent tracker" aria-expanded={panel === 'agents'} onClick={() => panel === 'agents' ? closeInspector() : setPanel('agents')}><Bot size={17} /></button>
       <label className="map-filter"><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Only changes</label>
-      <button className="icon" aria-label="Refresh repository map" title="Refresh repository map" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''} /></button>
+      <button className="icon" aria-label="Refresh repository map" title="Refresh repository map" disabled={busy} onClick={() => void refresh(true)}><RefreshCw size={15} className={busy ? 'spin' : ''} /></button>
     </div>
     {error && <div role="alert" className="inline-error">{error}{snapshot && ' · Showing the last successful map.'}</div>}
     <div ref={body} className={'repo-map-body ' + (expandedReader ? 'reader-expanded' : '')}>
-      <RepoMapCanvas snapshot={snapshot} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={() => setChangedOnly(false)} onHint={onHint} backRef={navigateBack} dismissSearchRef={dismissSearch} />
+      <RepoMapCanvas snapshot={snapshot} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={showAll} onHint={onHint} backRef={navigateBack} dismissSearchRef={dismissSearch} />
       {panel && !expandedReader && <div className="inspector-divider" role="separator" tabIndex={0} aria-label="Resize inspector" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={Math.max(210, bodyWidth - 180)} aria-valuenow={Math.round(inspectorWidth)}
         onPointerDown={event => { event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId) && body.current) setPreferredWidth(clampWidth(body.current.getBoundingClientRect().right - event.clientX)); }}

@@ -129,6 +129,55 @@ try {
   await page.getByRole('tab', { name: 'Whole file', exact: true }).click();
   check('Whole file mode shows current contents', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Working'));
   await screenshot('map-whole-file');
+  // Warm the real bounded size cache, not a fabricated all-known snapshot.
+  await page.evaluate(async id => {
+    for (let i = 0; i < 90; i++) {
+      const snapshot = await window.stingray.repoSnapshot(id);
+      if (!snapshot.sizeProgress.pending) return;
+    }
+    throw new Error('Size cache did not finish within bounded fixture warmup');
+  }, id);
+  await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
+  await page.waitForFunction(() => document.querySelector('.map-stats-note')?.textContent.includes('0 pending'));
+  await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5); await page.waitForTimeout(150);
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get('repo-snapshot');
+    globalThis.idleMapPolls = 0;
+    ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', async (...args) => { const result = await original(...args); globalThis.idleMapPolls++; return result; });
+  });
+  await page.evaluate(() => {
+    window.idleMapMutations = 0; window.idleMapRecords = [];
+    window.idleMapObserver = new MutationObserver(records => {
+      window.idleMapMutations += records.length;
+      window.idleMapRecords.push(...records.slice(0, 40).map(record => ({ type: record.type, attribute: record.attributeName,
+        target: record.target.nodeType === Node.TEXT_NODE ? record.target.parentElement?.className : record.target.className,
+        value: record.target.nodeType === Node.TEXT_NODE ? record.target.textContent : record.target.getAttribute(record.attributeName || 'class') })));
+    });
+    // React reasserts controlled-input name/type attributes on parent renders;
+    // those are not visible changes. Watch content, geometry, counts, loading,
+    // focus descriptions and checked state rather than that internal plumbing.
+    window.idleMapObserver.observe(document.querySelector('.repo-map-view'), { attributes: true,
+      attributeFilter: ['style', 'class', 'disabled', 'aria-pressed', 'aria-describedby', 'title', 'aria-label', 'aria-checked', 'checked'],
+      childList: true, characterData: true, subtree: true });
+  });
+  await page.waitForTimeout(11000);
+  timings.idle = { polls: await app.evaluate(() => globalThis.idleMapPolls), mutations: await page.evaluate(() => { window.idleMapObserver.disconnect(); return window.idleMapMutations; }), records: await page.evaluate(() => window.idleMapRecords) };
+  check('two real idle polls leave map, counts and reader visually unchanged', timings.idle.polls >= 2 && timings.idle.mutations === 0);
+  const hoverStart = performance.now();
+  await button('Modified file src/App.tsx').hover(); await page.getByRole('tooltip').waitFor({ timeout: 500 });
+  timings.hoverMs = performance.now() - hoverStart;
+  check('hover details appear promptly without a native title delay', timings.hoverMs < 1000 && await button('Modified file src/App.tsx').getAttribute('title') === null && (await page.getByRole('tooltip').innerText()).includes('src/App.tsx'));
+  const tooltip = await page.getByRole('tooltip').boundingBox();
+  check('hover panel stays inside the window', tooltip.x >= 0 && tooltip.y >= 0 && tooltip.x + tooltip.width <= await page.evaluate(() => innerWidth) && tooltip.y + tooltip.height <= await page.evaluate(() => innerHeight));
+  await screenshot('map-hover-details');
+  await page.getByRole('tooltip').hover(); await page.waitForTimeout(200);
+  check('details remain readable when the pointer enters the panel', await page.getByRole('tooltip').isVisible());
+  check('tile count labels do not trigger a second native tooltip', await button('Modified file src/App.tsx').locator('[title]').count() === 0);
+  await page.mouse.move(5, 5); await page.getByRole('tooltip').waitFor({ state: 'hidden' });
+  await button('Modified file src/App.tsx').focus(); await page.getByRole('tooltip').waitFor({ timeout: 500 });
+  check('keyboard focus exposes the same accessible details', await button('Modified file src/App.tsx').getAttribute('aria-describedby') === await page.getByRole('tooltip').getAttribute('id'));
+  await page.keyboard.press('Escape');
+  check('Escape dismisses details without closing reader or navigating', await page.getByRole('tooltip').count() === 0 && await page.locator('.map-inspector').count() === 1);
   await button('Mark reviewed').click(); check('review records this file version', await button('Reviewed').getAttribute('aria-pressed') === 'true');
   const scopeBeforePoll = await page.getByRole('navigation', { name: 'Map folders' }).innerText();
   const inputsBeforePoll = await page.evaluate(() => window.mapTestTrace.filter(entry => typeof entry.event === 'object').length);
@@ -139,6 +188,10 @@ try {
   check('polling refreshes contents and invalidates review after edits', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after review'));
   await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).waitFor({ timeout: 15000 });
   check('polling updates actual line counts', await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
+  await button('Mark reviewed').click();
+  await put('src/App.tsx', padding + 'export const App = () => "Updated after review (same-line edit)";\n// New line\n');
+  await button('Mark reviewed').waitFor({ timeout: 15000 });
+  check('silent polling still detects same-line edits and invalidates review', (await page.getByLabel('File content', { exact: true }).innerText()).includes('same-line edit') && await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
   const sidebar = page.locator('.map-inspector'); const initialWidth = (await sidebar.boundingBox()).width;
   const divider = page.getByRole('separator', { name: 'Resize inspector' });
   await divider.focus(); await page.keyboard.press('ArrowLeft');
@@ -266,15 +319,14 @@ try {
   await focusFolder('src'); await page.waitForTimeout(1000); await screenshot('map-focused-folder');
   await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await gateResponse('repo-snapshot', id);
-  // Let the real automatic refresh enter the gate. A poll/hint refresh can
-  // arrive before a manual click and keep Refresh disabled until releaseGate;
-  // waiting to click it here would deadlock the test against its own gate.
+  // Hold a real automatic refresh. Background checks must remain visually
+  // quiet; the gate, not a spinner, proves the request is in flight.
   await waitGate();
   timings.delayedSnapshot = {
     entered: await app.evaluate(() => globalThis.mapTestGate.entered),
     refreshDisabled: await button('Refresh repository map').isDisabled(),
   };
-  check('automatic snapshot is held with Refresh disabled before workspace switch', timings.delayedSnapshot.entered && timings.delayedSnapshot.refreshDisabled);
+  check('automatic snapshot is held without visible loading churn before workspace switch', timings.delayedSnapshot.entered && !timings.delayedSnapshot.refreshDisabled);
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'clean-worktree', exact: true }).click(); await page.locator('.map-tile').first().waitFor();
   check('workspace switch resets an open inspector without renderer reload', await sidebar.count() === 0 && state.workspaces.length === 2);
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor(); await releaseGate(); await page.waitForTimeout(150);
