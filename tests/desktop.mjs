@@ -118,6 +118,7 @@ try {
   check('renderer reload restores the selected project and worktree without auto-launch', (await page.locator('.project-current').innerText()).includes('other-project') && (await page.evaluate(() => window.stingray.terminals())).length === 1);
   await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
   await page.getByLabel('Branch confirmation').fill('feature/other-project');
+  await page.getByRole('dialog').getByRole('checkbox').check();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
   await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
   check('removing a worktree falls back within its own project', (await page.locator('.project-current').innerText()).includes('other-project'));
@@ -142,13 +143,14 @@ try {
   await writeFile(path.join(worktree.path, 'keep.txt'), 'never delete dirty work');
   await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
   await page.getByLabel('Branch confirmation').fill('feature/native-test');
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
   await page.getByRole('alert').filter({ hasText: 'modified, untracked, or ignored' }).waitFor();
-  check('UI refuses dirty worktree deletion', await readFile(path.join(worktree.path, 'keep.txt'), 'utf8') === 'never delete dirty work');
+  check('UI refuses dirty worktree deletion before submission', await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).isDisabled() && await readFile(path.join(worktree.path, 'keep.txt'), 'utf8') === 'never delete dirty work');
   await page.getByRole('button', { name: 'Keep worktree' }).click();
   await rm(path.join(worktree.path, 'keep.txt'));
   await page.getByRole('button', { name: 'Remove worktree', exact: true }).click();
   await page.getByLabel('Branch confirmation').fill('feature/native-test');
+  await page.getByRole('dialog').getByRole('checkbox').check();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove worktree', exact: true }).click();
   await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
   check('clean worktree removed and branch retained', !git('worktree', 'list', '--porcelain').includes('feature/native-test') && git('branch', '--list', 'feature/native-test').includes('feature/native-test'));

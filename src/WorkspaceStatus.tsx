@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { GitBranch, GitPullRequest, GitMerge, GitPullRequestClosed, GitPullRequestDraft, LoaderCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { GitBranch, GitPullRequest, GitMerge, GitPullRequestClosed, GitPullRequestDraft, LoaderCircle, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from './api';
 import type { GitStatus, Workspace } from './shared';
 import { usePullRequest } from './usePullRequest';
@@ -8,10 +8,10 @@ import './workspace-git.css';
 import type { PiActivity } from './activity';
 import { WorkspaceActivity } from './WorkspaceActivity';
 
-export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRefresh, children }: {
+export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRefresh, onRemove, children }: {
   workspace: Workspace; selected: boolean; status: GitStatus | null; statusBusy: boolean; statusError: string;
   agents?: PiActivity[]; activityUnavailable?: boolean;
-  disabled: boolean; running: boolean; onSelect: () => void; onChanges: () => void; onRefresh: () => void; children: ReactNode;
+  disabled: boolean; running: boolean; onSelect: () => void; onChanges: () => void; onRefresh: () => void; onRemove: () => void; children: ReactNode;
 }) {
   const background = useSidebarGit(workspace.id, !selected);
   const status = selected ? selectedStatus : background.status;
@@ -58,10 +58,13 @@ export function WorkspaceStatus({ workspace, selected, status: selectedStatus, s
         aria-current={selected ? 'page' : undefined} title={`${branch} · ${workspace.name} · ${workspace.managed ? 'Git worktree' : 'Local repository'} · ${workspace.path}`} onClick={onSelect}>
         <div><span className="git-branch-label">{branch}</span></div>
       </button>
+      <div className="workspace-card-actions">
+      {workspace.managed && <button type="button" className="icon workspace-remove" disabled={disabled} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree…" onClick={onRemove}><Trash2 size={12} /></button>}
       <button className="icon git-refresh" aria-label={`Refresh Git and PR status for ${workspace.name}`} title="Refresh Git and PR status (GitHub retry cooldown: 5 seconds)"
-        disabled={statusBusy || (Boolean(status) && pr.busy)} onClick={() => { refreshGit(); void pr.refresh(true); }}>
+        disabled={disabled || statusBusy || (Boolean(status) && pr.busy)} onClick={() => { refreshGit(); void pr.refresh(true); }}>
         <RefreshCw size={11} className={statusBusy || (Boolean(status) && pr.busy) ? 'spin' : ''} />
       </button>
+      </div>
     </div>
   </div>;
 }

@@ -13,6 +13,13 @@ Updated 2026-11-08. Context, not authorization for further work.
 - The approved delivery attempt timed out waiting for normal app exit: no promotion or normal reopen occurred. No hooks, dependency changes, forced quit, app-data edits or existing-preview intervention. Publication is separate from installed-app delivery.
 - A subsequent user report of missing filename/line-count hover details remains unresolved in the affected running view. Automated candidate checks passed; user visual acceptance remains pending.
 
+## Worktree removal and card selection — source only
+
+- Added managed-card removal actions and a preflight dialog with terminal/file/branch/lock blockers, upstream ahead/behind counts, explicit unknown states, acknowledgement for unpushed/unknown status, exact branch confirmation and main-process revalidation. Branches and commits are preserved. No fetch, force removal or automatic terminal shutdown.
+- Card backgrounds now have a stretched native button hit area; PR/activity tooltips, keyboard selection and independent controls remain usable. The installed bundle already contained the previous delegated click handler. Expanded pre-change fixture clicks passed after correcting an off-screen test coordinate, so the user's exact live-app failure is **not reproduced or claimed resolved in the installed app**.
+- Source checks: build, **113/113 unit**, **41/41 native card/removal**, **31/31 desktop**, **36/36 PR/sidebar**, **28/28 ports**, and whitespace passed. One initial full unit run hit the known clone-timeout missing-PID fixture failure; unchanged reruns passed. Failure evidence is retained, not declared fixed.
+- Evidence and limits: [worktree removal review](docs/worktree-removal-review.md), local `artifacts/testing/worktree-removal/`. Only disposable test worktrees were deleted. No installed-app replacement/restart, dependency installation, user terminal/container changes, commit, push or publication. Installed-app/user acceptance remains a separate gate.
+
 ## Repo Map + main integration checkpoint
 
 - Combined the nested read-only treemap and guarded terminal links with main's Pi activity, sidebar Git/PR cards and workspace ports. Sidebar tracked-only totals remain distinct from the map's untracked-inclusive counts. The map agent tracker remains explicitly unconnected; Pi activity continues separately in the sidebar.

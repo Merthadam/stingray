@@ -1,0 +1,15 @@
+.removal-path{display:block;overflow-wrap:anywhere;font-size:10px;color:var(--muted);margin:-10px 0 16px}
+.removal-review{font-size:12px;line-height:1.5;margin-bottom:14px}
+.removal-review .inline-error{margin:0 0 12px}.removal-review ul{padding-left:18px;margin:6px 0 0}
+.removal-warning{border:1px solid #806336;background:#312719;color:#efd09d;border-radius:6px;padding:10px 12px;overflow-wrap:anywhere}
+.removal-ack{display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-size:12px;line-height:1.5;cursor:pointer}
+.removal-ack input{flex-shrink:0;margin-top:3px;accent-color:var(--accent)}
+.remove-worktree-form .fine-print{margin-top:10px}.modal:has(.remove-worktree-form){max-height:calc(100dvh - 32px);overflow:auto}
+.workspace-card-actions{display:flex;align-items:center;gap:2px;position:relative;z-index:2}
+.workspace-card-actions .workspace-remove{min-width:22px;min-height:22px;padding:4px}.workspace-remove:hover:not(:disabled){color:#efb4a9}
+/* The branch is a native button with a stretched hit area, not just a text link.
+   Smaller independent controls and tooltip targets remain above its hit area. */
+.workspace-entry .workspace-link{position:static}
+.workspace-entry .workspace-link::after{content:"";position:absolute;inset:0;border-radius:6px;z-index:1}
+.workspace-entry .git-lines,.workspace-entry .workspace-git-badges,.workspace-entry .pr-symbol,.workspace-entry .workspace-activity{position:relative;z-index:2}
+.workspace-entry:has(.workspace-link:disabled){cursor:not-allowed}

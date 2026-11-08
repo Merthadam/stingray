@@ -52,6 +52,12 @@ export type GitLineStats =
   | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
   | { kind: 'unavailable'; message: string };
 export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+export type RemovalReview = {
+  branch: string; blockers: string[]; token: string;
+  push: { kind: 'known'; upstream: string; ahead: number; behind: number } | { kind: 'unknown'; message: string };
+};
+export const removalConsentSchema = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), acknowledge: z.boolean() }).strict();
+export type RemovalConsent = z.infer<typeof removalConsentSchema>;
 export type PullRequestStatus =
   | { kind: 'pr'; branch: string; repository: string; checkedAt: number; number: number; state: 'open' | 'draft' | 'merged' | 'closed' }
   | { kind: 'none'; branch: string; repository: string; checkedAt: number }
@@ -73,7 +79,8 @@ export interface DesktopAPI {
   pickCloneParent(): Promise<string | null>;
   cloneRepository(url: string, destination: string): Promise<State>;
   createWorkspace(repoId: string, branch: string): Promise<State>;
-  removeWorkspace(id: string, confirmation: string): Promise<State>;
+  reviewRemoval(id: string): Promise<RemovalReview>;
+  removeWorkspace(id: string, confirmation: string, consent: RemovalConsent): Promise<State>;
   gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string, hint?: SnapshotHint): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;

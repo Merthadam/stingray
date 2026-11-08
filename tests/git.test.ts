@@ -41,7 +41,8 @@ test('worktree creation and safe deletion preserve the branch and main repositor
     assert.equal((await f.service.status(w.id)).branch, 'feature/example');
     assert.equal(await readFile(path.join(w.path, 'README.md'), 'utf8'), '# Test fixture\n');
     await assert.rejects(f.service.removeWorkspace(w.id, 'wrong'), /exact branch/);
-    const removed = await f.service.removeWorkspace(w.id, w.branch);
+    const review = await f.service.reviewRemoval(w.id);
+    const removed = await f.service.removeWorkspace(w.id, w.branch, { token: review.token, acknowledge: true });
     assert.equal(removed.workspaces.length, 1);
     await assert.rejects(access(w.path));
     assert.ok(await git(f.repo, ['rev-parse', '--verify', 'refs/heads/feature/example']));

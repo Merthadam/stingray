@@ -9,6 +9,7 @@ import { ProjectHome } from './ProjectHome';
 import { AddProjectForm } from './AddProjectForm';
 import { RepoMap } from './RepoMap';
 import { WorkspaceStatus } from './WorkspaceStatus';
+import { RemoveWorktreeForm } from './RemoveWorktreeForm';
 import { WorkspacePortsChip } from './WorkspacePortsChip';
 import { useWorkspacePorts } from './useWorkspacePorts';
 import { useActivity } from './useActivity';
@@ -32,7 +33,7 @@ export default function App() {
   const [modal, setModal] = useState<'open' | 'create' | 'remove' | 'close-terminal' | 'about' | null>(null);
   const [closeId, setCloseId] = useState('');
   const [branch, setBranch] = useState('');
-  const [confirmation, setConfirmation] = useState('');
+  const [removalTarget, setRemovalTarget] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -129,7 +130,8 @@ export default function App() {
       setShowBrowser(true); setTab('workspace'); setPreviewReveal(n => n + 1);
     } finally { setBusy(false); }
   }
-  function openModal(value: typeof modal) { setError(''); setBranch(''); setConfirmation(''); setModal(value); }
+  function openModal(value: typeof modal) { setError(''); setBranch(''); setModal(value); }
+  function openRemoval(target: Workspace) { if (!busy) { setRemovalTarget(target); openModal('remove'); } }
   return <div className="app-shell">
     <header className="titlebar"><div className="window-space" /><span className="window-title">Stingray</span><span className="title-meta"><Monitor size={12} /> Local workspace</span></header>
     {api.mode === 'demo' && <div className="demo-banner"><span>Browser demo</span> Workspaces, terminals and PR states are simulated. Run the desktop app for real Git and shell access.</div>}
@@ -153,7 +155,7 @@ export default function App() {
                 disabled={busy} running={terminals.some(t => t.workspaceId === w.id && !t.exited)}
                 agents={activity.agents.filter(a => a.workspaceId === w.id)} activityUnavailable={activity.unavailable}
                 onSelect={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}
-                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRefresh={() => void refreshStatus()}>
+                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRefresh={() => void refreshStatus()} onRemove={() => openRemoval(w)}>
                 <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
               </WorkspaceStatus>
             </div>)}{!filteredWorkspaces.length && <div className="sidebar-empty">No matching workspaces.</div>}</nav>
@@ -165,7 +167,7 @@ export default function App() {
         {error && !modal && <div className="error-banner" role="alert"><span>{error}</span><button className="icon" aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
         {initializing || loadFailed || !workspace ? <ProjectHome state={state} terminals={terminals} query={projectQuery} setQuery={setProjectQuery} searchRef={search} loading={initializing} failed={loadFailed} onOpen={openProject} onAdd={() => openModal('open')} onRetry={() => void load()} /> : <>
           <div className="workspace-header"><div className="workspace-heading"><span className="branch-icon"><GitBranch size={19} /></span><div><h1>{workspace.name}</h1><p>{repo?.name}<ChevronRight size={11} />{workspace.managed ? 'Worktree' : 'Repository'}</p></div></div>
-            <div className="header-actions"><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={16} /></button>{workspace.managed && <button className="icon" aria-label="Remove worktree" title="Remove worktree" onClick={() => openModal('remove')}><Trash2 size={15} /></button>}<button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={15} /> New terminal</button></div>
+            <div className="header-actions"><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={16} /></button>{workspace.managed && <button className="icon" aria-label="Remove worktree" title="Remove worktree" disabled={busy} onClick={() => openRemoval(workspace)}><Trash2 size={15} /></button>}<button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={15} /> New terminal</button></div>
           </div>
           <div className="workspace-tabs" role="tablist" aria-label="Workspace views"><button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={14} /> Workspace</button><button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={14} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button><span className="workspace-path" title={workspace.path}>{workspace.path}</span></div>
           <div className={'workspace-content ' + (showBrowser ? 'with-browser' : '')} style={{ display: tab === 'workspace' ? 'flex' : 'none' }}>
@@ -189,7 +191,7 @@ export default function App() {
       {error && <div className="inline-error" role="alert">{error}</div>}
       {modal === 'open' && <AddProjectForm busy={busy} run={run} clearError={() => setError('')} onCancel={() => { setModal(null); setError(''); }} onAdded={next => { apply(next); setNavigation(null); setProjectQuery(''); setModal(null); }} />}
       {modal === 'create' && <form onSubmit={e => { e.preventDefault(); if (workspace) void run(async () => { const next = await api.createWorkspace(workspace.repoId, branch.trim()); apply(next); const created = next.workspaces.find(w => w.repoId === workspace.repoId && w.branch === branch.trim()); if (created) setNavigation({ repoId: workspace.repoId, workspaceId: created.id }); setModal(null); }); }}><p className="modal-description">Create a new branch from <strong>{repo?.name}</strong>'s current HEAD in a separate working directory. Your existing files stay untouched.</p><label className="field">New branch name<input autoFocus aria-label="New branch name" placeholder="feature/my-next-idea" maxLength={100} value={branch} onChange={e => setBranch(e.target.value)} required /></label><div className="info-box"><GitBranch size={16} /><span>Creates a real branch and worktree. No commit, push, dependency install, or agent launch.</span></div><div className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setModal(null)}>Cancel</button><button className="primary" disabled={busy || !branch.trim()}>{busy ? 'Creating…' : 'Create worktree'}</button></div></form>}
-      {modal === 'remove' && <form onSubmit={e => { e.preventDefault(); if (workspace) void run(async () => { apply(await api.removeWorkspace(workspace.id, confirmation)); setModal(null); }); }}><p className="modal-description">Deletes this worktree directory, <strong>not its branch or commits</strong>. Removal is refused if any terminals, modified, untracked, or ignored files remain.</p><p className="confirm-branch">Type <strong>{workspace?.branch}</strong> to confirm.</p><label className="field">Branch confirmation<input autoFocus aria-label="Branch confirmation" value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label><div className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setModal(null)}>Keep worktree</button><button className="danger" disabled={busy || confirmation !== workspace?.branch}>{busy ? 'Checking…' : 'Remove worktree'}</button></div></form>}
+      {modal === 'remove' && removalTarget && <RemoveWorktreeForm key={removalTarget.id} workspace={removalTarget} busy={busy} onBusy={setBusy} onRemoved={next => { apply(next); setModal(null); }} onCancel={() => setModal(null)} />}
       {modal === 'close-terminal' && <><p className="modal-description">This stops the shell and sends a hangup to its foreground jobs. Switching workspaces keeps terminals running; closing a terminal does not.</p><div className="modal-actions"><button className="secondary" onClick={() => setModal(null)} disabled={busy}>Keep running</button><button className="danger" disabled={busy} onClick={() => void run(async () => { await api.closeTerminal(closeId); setTerminals(ts => ts.filter(t => t.id !== closeId)); setActiveTerminals(a => Object.fromEntries(Object.entries(a).filter(([, v]) => v !== closeId))); setModal(null); })}>Close terminal</button></div></>}
       {modal === 'about' && <><p className="modal-description">A local-first home for your coding agents. Inspired by Superset's warm dark design, with an independent Stingray identity.</p><div className="shortcut-list"><span>Find a project or workspace <kbd>⌘ / Ctrl K</kbd></span><span>New terminal <kbd>⌘ / Ctrl T</kbd></span><span>Toggle browser <kbd>⌘ / Ctrl B</kbd></span></div><div className="info-box"><Settings2 size={17} /><span>Terminals stay alive on Projects home, when switching projects/workspaces, or reloading the UI, but not when quitting. Reload keeps your view; a new app window starts at Projects. Workspaces and preview addresses are saved. Browser permissions, downloads, and popups are blocked.</span></div><p className="fine-print">No telemetry, Stingray accounts, cloud sync, or bundled agents. PR status makes read-only GitHub requests using your existing gh login. No login or PR mutations are performed. Run your installed agent CLI in a terminal. macOS-first development build.</p><div className="modal-actions"><button className="primary" onClick={() => setModal(null)}>Back to work</button></div></>}
     </Modal>}

@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { idSchema, urlSchema, repoPathSchema, snapshotHintSchema } from '../src/shared';
+import { idSchema, urlSchema, repoPathSchema, snapshotHintSchema, removalConsentSchema } from '../src/shared';
 import { Store } from './store';
 import { GitService } from './git';
 import { Terminals } from './terminals';
@@ -98,7 +98,8 @@ app.whenReady().then(async () => {
     try { return await git.cloneRepository(url, destination); } finally { cloning = false; }
   });
   handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
-  handle('remove-workspace', z.tuple([idSchema, z.string().max(200)]), (id, confirmation) => git.removeWorkspace(id, confirmation));
+  handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
+  handle('remove-workspace', z.tuple([idSchema, z.string().max(200), removalConsentSchema]), (id, confirmation, consent) => git.removeWorkspace(id, confirmation, consent));
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
   handle('repo-snapshot', z.tuple([idSchema, snapshotHintSchema.optional()]), (id, hint) => git.repoSnapshot(id, hint));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));

@@ -43,10 +43,16 @@ export const demoAPI: DesktopAPI = {
     if (state.workspaces.length >= 20) throw new Error('Demo workspace limit reached.');
     state.workspaces.push({ id: crypto.randomUUID(), repoId: id, name: branch, branch, path: '/demo/' + branch, managed: true, previewUrl: '' }); return save();
   },
-  removeWorkspace: async (id, confirmation) => {
+  reviewRemoval: async id => {
+    const w = state.workspaces.find(w => w.id === id);
+    if (!w?.managed) throw new Error('Only managed worktrees can be removed.');
+    return { branch: w.branch, token: '0'.repeat(64), blockers: terminalList.some(t => t.workspaceId === id) ? ['Close every terminal in this workspace first.'] : [], push: { kind: 'unknown', message: 'Simulated demo: push status is unknown. No real Git check was performed.' } };
+  },
+  removeWorkspace: async (id, confirmation, consent) => {
     const w = state.workspaces.find(w => w.id === id);
     if (!w?.managed || w.branch !== confirmation) throw new Error('Type the exact branch name.');
     if (terminalList.some(t => t.workspaceId === id)) throw new Error('Close every terminal in this workspace first.');
+    if (consent.token !== '0'.repeat(64) || !consent.acknowledge) throw new Error('Review and acknowledge the simulated push status first.');
     state.workspaces = state.workspaces.filter(w => w.id !== id); return save();
   },
   gitStatus: async id => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),

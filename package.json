@@ -19,6 +19,7 @@
     "test:terminal-links": "node tests/terminal-links.mjs",
     "test:workspace-status": "node tests/workspace-status.mjs",
     "test:pull-requests": "node tests/pull-requests.mjs",
+    "test:worktree-removal": "node tests/worktree-removal.mjs",
     "test:add-project": "node tests/add-project.mjs"
   },
   "dependencies": {
