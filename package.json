@@ -15,6 +15,8 @@
     "package:mac": "npm run build && node scripts/package-mac.mjs",
     "test": "tsx --test tests/*.test.ts",
     "test:desktop": "node tests/desktop.mjs",
+    "test:repo-map": "node tests/repo-map.mjs",
+    "test:terminal-links": "node tests/terminal-links.mjs",
     "test:workspace-status": "node tests/workspace-status.mjs",
     "test:pull-requests": "node tests/pull-requests.mjs",
     "test:add-project": "node tests/add-project.mjs"

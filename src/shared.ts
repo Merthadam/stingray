@@ -30,7 +30,24 @@ export const stateSchema = z.object({
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type Repository = z.infer<typeof repoSchema>;
 export type State = z.infer<typeof stateSchema>;
-export type Change = { path: string; status: string };
+export type Change = { path: string; status: string; originalPath?: string };
+export type LineStats = { added: number; removed: number };
+export type FileSize = { state: 'known'; textLines: number; source: 'working tree' | 'HEAD' | 'index'; stale?: boolean } |
+  { state: 'pending' | 'unavailable'; reason: string; source: 'working tree' | 'HEAD' | 'index'; stale?: boolean };
+export type RepoFile = Change & { untrackedReplacement?: boolean; lines?: LineStats | null; lineNotice?: string; size?: FileSize };
+export type RepoSnapshot = GitStatus & { files: RepoFile[]; statsNotice?: string; sizeNotice?: string;
+  sizeProgress?: { checked: number; read: number; bytes: number; known: number; stale: number; pending: number } };
+export type FileInspection = {
+  path: string; content: string | null; source: 'working tree' | 'HEAD' | 'index';
+  staged: string; unstaged: string; notice: string; revision: string;
+};
+export const repoPathSchema = z.string().min(1).max(4096).refine(value =>
+  !value.startsWith('/') && !value.includes('\\') && !value.includes('\0') &&
+  !value.split('/').some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git'),
+  'Choose a repository-relative file path.',
+);
+export const snapshotHintSchema = z.object({ file: repoPathSchema.optional(), scope: z.union([z.literal(''), repoPathSchema]).optional() }).strict();
+export type SnapshotHint = z.infer<typeof snapshotHintSchema>;
 export type GitLineStats =
   | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
   | { kind: 'unavailable'; message: string };
@@ -58,6 +75,8 @@ export interface DesktopAPI {
   createWorkspace(repoId: string, branch: string): Promise<State>;
   removeWorkspace(id: string, confirmation: string): Promise<State>;
   gitStatus(id: string): Promise<GitStatus>;
+  repoSnapshot(id: string, hint?: SnapshotHint): Promise<RepoSnapshot>;
+  inspectFile(id: string, path: string): Promise<FileInspection>;
   pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
   containers(): Promise<ContainerInfo[]>;
   ports(): Promise<WorkspacePort[]>;
@@ -69,6 +88,7 @@ export interface DesktopAPI {
   terminals(): Promise<TerminalInfo[]>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;
+  openTerminalLink(id: string, uri: string): Promise<void>;
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>;
   closeTerminal(id: string): Promise<void>;
   onTerminal(listener: (event: TerminalEvent) => void): () => void;

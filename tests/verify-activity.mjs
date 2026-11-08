@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, appendFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-const names = ['build', 'unit', 'pi-native', 'pi-smoke', 'pull-requests', 'ports', 'desktop', 'add-project'];
+const names = ['build', 'unit', 'repo-map', 'terminal-links', 'pi-native', 'pi-smoke', 'pull-requests', 'ports', 'desktop', 'add-project'];
 const selected = process.argv.slice(2);
 assert.ok(selected.every(name => names.includes(name)), `Steps: ${names.join(', ')}`);
 const steps = selected.length ? names.filter(name => selected.includes(name)) : names;
@@ -31,6 +31,8 @@ const unitFiles = (await readdir('tests')).filter(name => name.endsWith('.test.t
 const commands = {
   build: [path.join(path.dirname(process.execPath), 'npm'), 'run', 'build'],
   unit: [process.execPath, '--import', 'tsx', '--test', '--test-concurrency=1', ...unitFiles],
+  'repo-map': [process.execPath, 'tests/repo-map.mjs'],
+  'terminal-links': [process.execPath, 'tests/terminal-links.mjs'],
   'pi-native': [process.execPath, 'tests/pi-activity.mjs'],
   'pi-smoke': [process.execPath, '--import', 'tsx', 'tests/pi-smoke.ts'],
   'pull-requests': [process.execPath, 'tests/pull-requests.mjs'],

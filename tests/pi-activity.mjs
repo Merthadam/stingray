@@ -69,7 +69,7 @@ try {
  check('a completion snapshot does not auto-acknowledge a focused terminal', (await agents())[0].reviewRevision !== null);
  await page.screenshot({path:path.join(evidence,'needs-review.png')});
  await page.locator('.terminal-surface:visible').click(); await phase('Idle'); check('visible rendered bottom interaction acknowledges completion');
- await page.getByRole('tab',{name:/^Changes/}).click(); await send('work'); await send('done'); await phase('Needs review');
+ await page.getByRole('tab',{name:/^Repo Map/}).click(); await send('work'); await send('done'); await phase('Needs review');
  const review = (await agents())[0];
  await page.evaluate(a => window.stingray.acknowledgeActivity(a.id,a.terminalId,a.reviewRevision), review);
  check('main rejects acknowledgement from a hidden terminal view', (await agents())[0].reviewRevision === review.reviewRevision);

@@ -34,7 +34,7 @@ export function WorkspaceStatus({ workspace, selected, status: selectedStatus, s
   const lines = status?.lines;
   const lineLabel = statusError || lines?.kind === 'unavailable' ? 'Line counts unavailable' : !lines ? 'Checking line counts…' : `${lines.added} lines added, ${lines.deleted} lines deleted`;
   const lineDetails = statusError || (lines?.kind === 'unavailable' ? lines.message : !lines ? 'Checking Git…' :
-    `Net tracked changes against HEAD (staged and unstaged combined). Excludes untracked files and submodules. ${lines.binaryFiles} binary files excluded from line counts. Not the PR diff. Open Changes.`);
+    `Net tracked changes against HEAD (staged and unstaged combined). Excludes untracked files and submodules. ${lines.binaryFiles} binary files excluded from line counts. Not the PR diff. Open Repo Map.`);
   return <div className="workspace-git" role="group" aria-label={`${workspace.name} Git summary`}>
     <div className="workspace-card-top">
       <span className={'pr-symbol pr-' + kind} role="img" aria-label={prLabel} tabIndex={0}

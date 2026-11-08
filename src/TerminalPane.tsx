@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalInfo, TerminalEvent } from './shared';
 import { api } from './api';
+import { installTerminalLinks } from './terminal-links';
 
 export function TerminalPane({ info, visible, onError, onObserve }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void; onObserve: (id: string, stillObserved: () => boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
@@ -15,10 +16,13 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
   useEffect(() => {
     const terminal = new Terminal({
       cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
-      scrollback: 3000, allowProposedApi: false,
+      scrollback: 3000, allowProposedApi: false, macOptionClickForcesSelection: true,
       theme: { background: '#151110', foreground: '#eae8e6', cursor: '#e07850', selectionBackground: '#e0785040',
         black: '#151110', red: '#dc6b6b', green: '#7ec699', yellow: '#e5c07b', blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#eae8e6',
         brightBlack: '#a8a5a3', brightRed: '#e88888', brightGreen: '#98d1a8', brightYellow: '#ecd08f', brightBlue: '#7ec0f5', brightMagenta: '#d494e6', brightCyan: '#73c7d3', brightWhite: '#ffffff' },
+    });
+    const removeLinks = installTerminalLinks(terminal, element.current!, uri => {
+      void api.openTerminalLink(info.id, uri).catch(e => errorRef.current(e.message));
     });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current!);
     const fitNow = () => {
@@ -66,7 +70,7 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
     }).catch(e => { if (!disposed) errorRef.current(e.message); });
     fitNow();
     return () => {
-      disposed = true;
+      disposed = true; removeLinks();
       for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.removeEventListener(name, interaction);
       window.removeEventListener('focus', interaction);
       observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();

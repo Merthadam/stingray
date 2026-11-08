@@ -191,8 +191,11 @@ try {
     const ts = await window.stingray.terminals(); const s = await window.stingray.state();
     return ts.length === 1 && ts[0].buffer.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
   }));
-  await page.getByRole('tab', { name: /Changes/ }).click();
-  await page.getByRole('heading', { name: 'All clear.' }).waitFor();
+  await page.getByRole('tab', { name: /Repo Map/ }).click();
+  await page.getByRole('button', { name: 'Unchanged file README.md', exact: true }).waitFor();
+  await page.getByLabel('Only changes', { exact: true }).check();
+  await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
+  await page.getByText('No uncommitted changes in this view.', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(evidence, 'desktop-clean-status.png') });
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   await page.getByRole('button', { name: 'Close Terminal 1', exact: true }).click();

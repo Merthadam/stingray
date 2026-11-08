@@ -75,8 +75,8 @@ try {
   await refreshButton().click();
   const lines = page.getByRole('button', { name: 'feature/ui: 1 lines added, 1 lines deleted', exact: true }); await lines.waitFor();
   check('real net line counts exclude untracked and pure renames', await active().locator('.lines-added').innerText() === '+1' && await active().locator('.lines-deleted').innerText() === '−1' && (await lines.getAttribute('title')).includes('Excludes untracked'));
-  await lines.click(); await page.locator('.change').filter({ hasText: 'new.txt' }).waitFor();
-  check('line counts open Changes, which still includes untracked files and counts staged+unstaged/rename once', await page.locator('.change').count() === 3);
+  await lines.click(); await page.getByRole('button', { name: 'New file new.txt', exact: true }).waitFor();
+  check('line counts open Repo Map, which still includes untracked files and counts staged+unstaged/rename once', await page.locator('.map-tile.file').count() === 3);
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   await refreshPR({ state: 'MERGED' }, 'PR #42 Merged');
   check('merged PR is purple independently of local uncommitted changes', await active().locator('.pr-merged').evaluate(el => getComputedStyle(el).color) === 'rgb(198, 160, 246)' && await lines.isVisible());
@@ -113,8 +113,10 @@ try {
   await otherCard.locator('.git-refresh').click();
   check('background refresh does not select that workspace', await active().locator('.workspace-link').getAttribute('aria-label') === 'feature/ui');
   await otherCard.locator('.git-lines').click();
+  await page.getByRole('button', { name: 'Unchanged file README.md', exact: true }).waitFor();
+  await page.getByLabel('Only changes', { exact: true }).check();
   await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
-  check('background line counts select that workspace and open its Changes view', await active().locator('.workspace-link').innerText() === longBranch);
+  check('background line counts select that workspace and open its Repo Map', await active().locator('.workspace-link').innerText() === longBranch);
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   check('different workspace uses its own branch PR and line counts', await page.getByRole('button', { name: `${longBranch}: 0 lines added, 0 lines deleted`, exact: true }).isVisible());
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));

@@ -83,7 +83,7 @@ try {
   const gitChip = page.getByRole('button',{name:'main: 1 lines added, 1 lines deleted',exact:true});
   await gitChip.waitFor();
   check('Git line counts refresh automatically with honest exclusions in the tooltip', (await gitChip.getAttribute('title')).includes('Excludes untracked'));
-  await gitChip.click(); await page.locator('.change').filter({hasText:'new.txt'}).waitFor(); check('Git line counts open Changes including untracked files');
+  await gitChip.click(); await page.getByRole('button',{name:'New file new.txt',exact:true}).waitFor(); check('Git line counts open Repo Map including untracked files');
   const state = await page.evaluate(() => window.stingray.state());
   const main = state.workspaces[0];
   const next = await page.evaluate(id => window.stingray.createWorkspace(id, 'other'), main.repoId);
@@ -168,8 +168,10 @@ try {
   await page.waitForTimeout(1500);
   check('failed discovery with no ports does not show Unavailable or an empty badge', await page.locator('.ports-chip,.ports-popover').count() === 0);
   await rm(path.join(repo,'.git'),{recursive:true});
-  await page.getByRole('tab',{name:/Changes/}).click();
-  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await page.getByRole('tab',{name:/Repo Map/}).click();
+  await page.getByRole('button',{name:'Refresh repository map',exact:true}).click();
+  await page.locator('.repo-map-view [role="alert"]').waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.getByRole('button',{name:'main: Line counts unavailable',exact:true}).waitFor();
   check('Git errors are not displayed as a clean working tree');
   check('no renderer exceptions', errors.length===0);
