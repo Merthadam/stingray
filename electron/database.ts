@@ -40,7 +40,7 @@ CREATE TABLE workspaces (
 CREATE TABLE view_state (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   view_id TEXT NOT NULL,
-  hidden TEXT NOT NULL,
+  hidden TEXT NOT NULL, -- hidden, positions and expanded are JSON, always read whole
   positions TEXT NOT NULL,
   expanded TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
