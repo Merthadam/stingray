@@ -19,8 +19,9 @@ if [ ! -d "$HOME/repos/sample" ]; then
   git -C "$HOME/repos/sample" -c user.name=Test -c user.email=test@invalid commit --quiet -m init
 fi
 
-# Pre-register every repo as a project (native folder dialogs can't be driven over CDP).
-if [ ! -f "$STINGRAY_DATA_DIR/workspaces.json" ]; then
+# Pre-register every repo as a project (native folder dialogs can't be driven over CDP). Written in the legacy
+# workspaces.json format, which Stingray imports into stingray.db on first start.
+if [ ! -f "$STINGRAY_DATA_DIR/stingray.db" ] && [ ! -f "$STINGRAY_DATA_DIR/workspaces.json" ]; then
   node -e '
     const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process"), { randomUUID } = require("crypto");
     const dir = path.join(process.env.HOME, "repos"), state = { version: 1, repos: [], workspaces: [] };
