@@ -7,8 +7,7 @@ import { GitService, git } from '../electron/git';
 import { Store } from '../electron/store';
 import { aggregate, buildRepoTree, clusterNodes, fileKind, findFolder, inRange, reconcileSnapshot } from '../src/repo-map-model';
 import { parseNumstat, repoSnapshot, readWorkingFile } from '../electron/repo-map';
-import { textLines, sizeWork } from '../electron/repo-map-size';
-import { createLayoutCache, squarify, treemap } from '../src/repo-map-layout';
+import { squarify, treemap } from '../src/repo-map-layout';
 import type { RepoFile, RepoSnapshot } from '../src/shared';
 
 async function fixture(unborn = false) {
@@ -156,8 +155,8 @@ test('folder counts aggregate known lines and flag unknowns, with stable sorted 
     { path: 'README.md', status: '??', lines: null },
   ];
   const tree = buildRepoTree(files);
-  assert.deepEqual(aggregate(tree.children), { total: 3, changed: 2, added: 12, removed: 3, unknown: 1, weight: 3, textLines: 0, unknownSizes: 3, staleSizes: 0 });
-  assert.equal(findFolder(tree, 'src').changed, 1); assert.equal(findFolder(tree, 'missing'), tree);
+  assert.deepEqual(aggregate(tree.children), { total: 3, changed: 2, added: 12, removed: 3, unknown: 1, weight: 3, textLines: 0, unknownSizes: 3 });
+  assert.equal(findFolder(tree, 'src')!.changed, 1); assert.equal(findFolder(tree, 'missing'), undefined);
   const ids = (input: typeof files) => clusterNodes(buildRepoTree(input).children, 2).map(tile => tile.id);
   assert.deepEqual(ids(files), ids([...files].reverse().map(file => ({ ...file, status: ' D' }))));
 });
@@ -187,7 +186,7 @@ test('100,000 files are all reachable through bounded groups with exact aggregat
 
 test('two-tile grouping still terminates; nested folders and unusual names are not lost', () => {
   const files = Array.from({ length: 257 }, (_, i) => ({ path: `src/nested/item ${i}\t\n.ts`, status: i % 2 ? '' : '??' }));
-  const folder = findFolder(buildRepoTree(files), 'src/nested');
+  const folder = findFolder(buildRepoTree(files), 'src/nested')!;
   let members = folder.children;
   const target = members.at(-1)!;
   let clicks = 0;
@@ -284,7 +283,7 @@ test('corrupt HEAD is unknown rather than misclassified as an unborn branch', as
   } finally { await f.cleanup(); }
 });
 
-test('binary, large, non-UTF-8, symlink and conflict counts are explicit unknowns', async () => {
+test('grep binary and symlink sizes and conflict counts are explicit unknowns', async () => {
   const f = await fixture();
   try {
     await writeFile(path.join(f.repo, 'binary'), Buffer.from([0, 1, 2]));
@@ -293,29 +292,15 @@ test('binary, large, non-UTF-8, symlink and conflict counts are explicit unknown
     await writeFile(path.join(f.repo, 'large'), 'x'.repeat(512 * 1024 + 1));
     await symlink(path.join(f.repo, 'existing.txt'), path.join(f.repo, 'link'));
     const map = await f.service.repoSnapshot(f.id);
-    for (const name of ['binary', 'invalid', 'large', 'link']) {
+    for (const name of ['binary', 'link']) {
       const file = map.files.find(file => file.path === name)!;
       assert.equal(file.lines, null); assert.ok(file.lineNotice);
     }
+    // grep counts non-NUL text without the inspector's UTF-8 or 512 KiB restrictions.
+    for (const name of ['invalid', 'large']) assert.deepEqual(map.files.find(file => file.path === name)?.lines, { added: 1, removed: 0 });
     const conflict = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: 'UU' }], lines: { kind: 'unavailable', message: 'Fixture: unresolved conflict' } });
     assert.equal(conflict.files.find(file => file.path === 'existing.txt')?.lines, null);
     assert.match(conflict.files.find(file => file.path === 'existing.txt')!.lineNotice!, /conflict/);
-  } finally { await f.cleanup(); }
-});
-
-test('untracked counts have a fixed read budget and partial totals never imply full coverage', async () => {
-  const f = await fixture();
-  try {
-    await Promise.all(Array.from({ length: 70 }, (_, i) => writeFile(path.join(f.repo, `new-${i.toString().padStart(2, '0')}`), 'line\n')));
-    const map = await f.service.repoSnapshot(f.id);
-    assert.equal(map.files.filter(file => file.status === '??' && file.lines !== null).length, 62);
-    assert.equal(map.files.filter(file => file.lineNotice === 'Waiting for bounded line-count measurement').length, 8);
-    assert.match(map.statsNotice!, /^8 changed/);
-    assert.equal(map.sizeProgress?.read, 64); assert.equal(map.sizeProgress?.checked, 64);
-    const tree = buildRepoTree(map.files);
-    assert.equal(tree.added, 62); assert.equal(tree.unknown, 8);
-    const noStats = await repoSnapshot(f.repo, map, false);
-    assert.ok(noStats.files.every(file => file.lines === undefined));
   } finally { await f.cleanup(); }
 });
 
@@ -368,17 +353,6 @@ test('bounded reads complete short reads and reject growth without exceeding the
   } finally { await f.cleanup(); }
 });
 
-test('deadline-skipped work does not advance fairness cursor or starve a 64-file tail', () => {
-  const files = Array.from({ length: 64 }, (_, i) => ({ path: String(i), status: '' }));
-  const seen = new Set<string>(); let cursor = 0;
-  // Simulate deadline exhaustion after the first four admitted items each time.
-  for (let refresh = 0; refresh < 64; refresh++) {
-    const admitted = sizeWork(files, { file: '0', scope: '' }, cursor).slice(0, 4);
-    for (const job of admitted) { seen.add(job.file.path); if (job.cursor !== undefined) cursor = job.cursor; }
-  }
-  assert.equal(seen.size, 64);
-});
-
 test('concurrent service refreshes coalesce status collection without a queue', async () => {
   const f = await fixture();
   try {
@@ -386,10 +360,8 @@ test('concurrent service refreshes coalesce status collection without a queue', 
     f.service.status = async id => { calls++; await new Promise(resolve => setTimeout(resolve, 30)); return status(id); };
     const results = await Promise.all(Array.from({ length: 12 }, () => f.service.repoSnapshot(f.id)));
     assert.equal(calls, 1); assert.ok(results.every(result => result === results[0]));
-    const good = f.service.repoSnapshot(f.id);
-    const bad = f.service.repoSnapshot(f.id, { file: 'not-in-inventory' });
-    await assert.rejects(bad, /inventory/); await good;
-    assert.equal(calls, 2); // joining an existing job still validates each hint
+    await f.service.repoSnapshot(f.id);
+    assert.equal(calls, 2);
   } finally { await f.cleanup(); }
 });
 
@@ -409,106 +381,12 @@ test('staged deletion plus same-path untracked replacement preserves both diff s
   } finally { await f.cleanup(); }
 });
 
-test('physical text lines count empty, LF, CRLF, comments, Unicode and unterminated lines', () => {
-  for (const [value, expected] of [['', 0], ['\n', 1], ['one\n', 1], ['one\r\ntwo\r\n', 2], ['// comment\n\nλ', 3], ['last', 1]] as const) assert.equal(textLines(Buffer.from(value)), expected);
-  assert.equal(textLines(Buffer.from([0xff])), null); assert.equal(textLines(Buffer.from([0])), null);
-});
-
-test('sizes stay separate from Git deltas and use HEAD/index for missing files', async () => {
-  const f = await fixture();
-  try {
-    await writeFile(path.join(f.repo, 'existing.txt'), 'one\ntwo\nthree\n');
-    await writeFile(path.join(f.repo, 'empty'), '');
-    await writeFile(path.join(f.repo, 'staged'), 'staged\nsecond'); await git(f.repo, ['add', 'staged']); await rm(path.join(f.repo, 'staged'));
-    let map = await f.service.repoSnapshot(f.id);
-    const measured = map.files.find(file => file.path === 'existing.txt')!;
-    assert.deepEqual(measured.size, { state: 'known', source: 'working tree', textLines: 3 });
-    assert.deepEqual(measured.lines, { added: 3, removed: 1 });
-    assert.equal(map.files.find(file => file.path === 'empty')!.size?.state, 'known');
-    assert.deepEqual(map.files.find(file => file.path === 'staged')!.size, { state: 'known', source: 'index', textLines: 2 });
-    await git(f.repo, ['rm', '-f', 'existing.txt']);
-    map = await f.service.repoSnapshot(f.id);
-    assert.deepEqual(map.files.find(file => file.path === 'existing.txt')!.size, { state: 'known', source: 'HEAD', textLines: 1 });
-    await writeFile(path.join(f.repo, 'staged'), 'new staged contents\nthree\nlines'); await git(f.repo, ['add', 'staged']); await rm(path.join(f.repo, 'staged'));
-    map = await f.service.repoSnapshot(f.id);
-    assert.equal((map.files.find(file => file.path === 'staged')!.size as { textLines: number }).textLines, 3);
-  } finally { await f.cleanup(); }
-});
-
-test('measurement rejects unsafe priority hints; unknown sizing never uses byte weights', async () => {
-  const f = await fixture();
-  try {
-    await writeFile(path.join(f.repo, 'binary'), Buffer.from([0, 1]));
-    await writeFile(path.join(f.repo, 'invalid'), Buffer.from([255]));
-    await writeFile(path.join(f.repo, 'large'), Buffer.alloc(512 * 1024 + 1, 65));
-    await symlink(path.join(f.repo, 'existing.txt'), path.join(f.repo, 'link'));
-    await mkdir(path.join(f.repo, 'parent')); await writeFile(path.join(f.repo, 'parent/child'), 'safe'); await git(f.repo, ['add', 'parent/child']);
-    await rm(path.join(f.repo, 'parent'), { recursive: true }); await symlink(f.root, path.join(f.repo, 'parent'));
-    for (const hint of [{ file: '../outside' }, { file: 'ignored/secret' }, { scope: '../' }, { scope: 'missing' }, { file: '/tmp/outside' }, { file: '.git/config' }]) await assert.rejects(f.service.repoSnapshot(f.id, hint));
-    const map = await f.service.repoSnapshot(f.id);
-    for (const name of ['binary', 'invalid', 'large', 'link', 'parent/child']) {
-      const file = map.files.find(f => f.path === name)!;
-      assert.equal(file.size?.state, 'unavailable'); assert.equal(buildRepoTree([file]).weight, 1);
-    }
-  } finally { await f.cleanup(); }
-});
-
-test('shared 64-content budget progresses fairly, revalidates cache, and prioritizes focus', async () => {
-  const f = await fixture();
-  try {
-    await mkdir(path.join(f.repo, 'bulk'));
-    await Promise.all(Array.from({ length: 150 }, (_, i) => writeFile(path.join(f.repo, `bulk/${String(i).padStart(3, '0')}`), 'line\n')));
-    const seen = new Set<string>();
-    for (let i = 0; i < 6; i++) {
-      const map = await f.service.repoSnapshot(f.id, { file: 'bulk/149', scope: 'bulk' });
-      assert.equal(map.files.find(f => f.path === 'bulk/149')!.size?.state, 'known');
-      assert.ok(map.sizeProgress!.checked <= 64); assert.ok(map.sizeProgress!.read <= 64); assert.ok(map.sizeProgress!.bytes <= 32 * 1024 * 1024);
-      for (const file of map.files) if (file.size?.state === 'known') seen.add(file.path);
-      if (i === 1) assert.ok(map.sizeProgress!.stale > 0);
-    }
-    assert.equal(seen.size, 152);
-    await writeFile(path.join(f.repo, 'bulk/149'), 'changed\nextra\n');
-    const updated = await f.service.repoSnapshot(f.id, { file: 'bulk/149' });
-    assert.deepEqual(updated.files.find(f => f.path === 'bulk/149')!.size, { state: 'known', source: 'working tree', textLines: 2 });
-    const pair = await Promise.all([f.service.repoSnapshot(f.id), f.service.repoSnapshot(f.id)]);
-    assert.ok(pair.every(map => map.sizeProgress!.read <= 64));
-  } finally { await f.cleanup(); }
-});
-
-test('idle batches retain cached untracked counts and stable visible snapshots without hiding edits', async () => {
-  const f = await fixture();
-  try {
-    await mkdir(path.join(f.repo, 'idle'));
-    await Promise.all(Array.from({ length: 150 }, (_, i) => writeFile(path.join(f.repo, `idle/${i}`), 'first\nsecond\n')));
-    let previous: RepoSnapshot | null = null;
-    for (let i = 0; i < 4; i++) previous = await f.service.repoSnapshot(f.id);
-    assert.equal(previous!.sizeProgress!.pending, 0);
-    const baseline = previous!;
-    assert.equal(baseline.files.filter(file => file.path.startsWith('idle/')).reduce((sum, file) => sum + (file.lines?.added || 0), 0), 300);
-    for (let i = 0; i < 4; i++) {
-      const next = await f.service.repoSnapshot(f.id);
-      assert.equal(next.sizeProgress!.read, 0);
-      assert.equal(reconcileSnapshot(baseline, next), baseline);
-      assert.equal(next.files.filter(file => file.path.startsWith('idle/') && file.lines === null).length, 0);
-    }
-    assert.match(baseline.sizeNotice!, /Cached sizes.*not an atomic snapshot/);
-    await writeFile(path.join(f.repo, 'idle/149'), 'changed\nextra\nline\n');
-    const edited = await f.service.repoSnapshot(f.id, { file: 'idle/149' });
-    assert.notEqual(reconcileSnapshot(baseline, edited), baseline);
-    assert.deepEqual(edited.files.find(file => file.path === 'idle/149')!.lines, { added: 3, removed: 0 });
-    await writeFile(path.join(f.repo, 'idle/149'), Buffer.from([0, 1]));
-    const binary = await f.service.repoSnapshot(f.id, { file: 'idle/149' });
-    assert.equal(binary.files.find(file => file.path === 'idle/149')!.lines, null);
-    assert.notEqual(reconcileSnapshot(edited, binary), edited);
-  } finally { await f.cleanup(); }
-});
-
 test('snapshot reconciliation preserves file identity but not actual Git/count/error changes', () => {
   const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 },
     files: [{ path: 'a', status: '', lines: { added: 0, removed: 0 }, size: { state: 'known', source: 'working tree', textLines: 2 } }] };
-  const idle = structuredClone(base); idle.files[0].size!.stale = true;
+  const idle = structuredClone(base);
   assert.equal(reconcileSnapshot(base, idle), base);
-  for (const change of [{ branch: 'other' }, { statsNotice: 'Git unavailable' }, { sizeNotice: 'Partial sizing' },
+  for (const change of [{ branch: 'other' }, { statsNotice: 'Git unavailable' },
     { lines: { kind: 'unavailable' as const, message: 'unavailable' } }]) {
     const next = reconcileSnapshot(base, { ...idle, ...change });
     assert.notEqual(next, base); assert.equal(next.files, base.files);
@@ -519,48 +397,7 @@ test('snapshot reconciliation preserves file identity but not actual Git/count/e
   assert.notEqual(reconcileSnapshot(base, renamed), base);
 });
 
-test('layout cache skips geometry work for status-only changes but hydrates files and groups', () => {
-  let calls = 0;
-  const cached = createLayoutCache((...args) => { calls++; return treemap(...args); });
-  const files: RepoFile[] = Array.from({ length: 200 }, (_, i) => ({ path: `src/${i}`, status: '', size: { state: 'known', source: 'working tree', textLines: 2 } }));
-  const first = cached(buildRepoTree(files).children, 500, 400);
-  const changed = files.map(file => ({ ...file, status: ' M', lines: { added: 3, removed: 2 } }));
-  const next = cached(buildRepoTree(changed).children, 500, 400);
-  assert.equal(calls, 1);
-  assert.deepEqual(next.map(t => [t.id, t.x, t.y, t.width, t.height]), first.map(t => [t.id, t.x, t.y, t.width, t.height]));
-  assert.equal(aggregate(next.filter(t => t.terminal).map(t => t.totals)).added, 600);
-  assert.deepEqual(next, treemap(buildRepoTree(changed).children, 500, 400));
-  cached(buildRepoTree(changed).children, 600, 400); assert.equal(calls, 2);
-  changed[0].size = { state: 'known', source: 'working tree', textLines: 50 };
-  cached(buildRepoTree(changed).children, 600, 400); assert.equal(calls, 3);
-  cached(buildRepoTree(changed.slice(1)).children, 600, 400); assert.equal(calls, 4);
-});
-
-test('historical blob batches share the 64-content budget and invalidate on HEAD changes', async () => {
-  const f = await fixture();
-  try {
-    await mkdir(path.join(f.repo, 'history'));
-    await Promise.all(Array.from({ length: 70 }, (_, i) => writeFile(path.join(f.repo, `history/${i}`), 'old\nsecond\n')));
-    await git(f.repo, ['add', 'history']);
-    await git(f.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'historical fixture']);
-    await git(f.repo, ['rm', '-r', 'history']);
-    const first = await f.service.repoSnapshot(f.id);
-    assert.equal(first.sizeProgress?.checked, 64); assert.equal(first.sizeProgress?.read, 64);
-    assert.equal(first.files.filter(file => file.size?.state === 'pending').length, 8);
-    const historical = first.files.filter(file => file.size?.state === 'known' && file.size.source === 'HEAD');
-    assert.equal(historical.length, 62); assert.ok(historical.every(file => file.size?.state === 'known' && file.size.textLines === 2));
-    const second = await f.service.repoSnapshot(f.id);
-    assert.equal(second.sizeProgress?.pending, 0); assert.ok(second.sizeProgress!.read <= 64);
-    await git(f.repo, ['reset', '--hard', 'HEAD']); // temporary fixture only
-    await writeFile(path.join(f.repo, 'history/0'), 'new\nthree\nlines\n'); await git(f.repo, ['add', 'history/0']);
-    await git(f.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'new historical identity']);
-    await git(f.repo, ['rm', 'history/0']);
-    const updated = await f.service.repoSnapshot(f.id, { file: 'history/0' });
-    assert.deepEqual(updated.files.find(file => file.path === 'history/0')!.size, { state: 'known', source: 'HEAD', textLines: 3 });
-  } finally { await f.cleanup(); }
-});
-
-test('size cache is isolated by canonical workspace and does not alter index or source', async () => {
+test('sizes are isolated by workspace and does not alter index or source', async () => {
   const a = await fixture(); const b = await fixture();
   try {
     await writeFile(path.join(b.repo, 'existing.txt'), 'different\nsecond\n');
@@ -626,4 +463,66 @@ test('deep trees and empty/unknown weights stay finite without recursive stack g
   validateGeometry(tiles, 900, 500); assert.ok(tiles.length <= 2000);
   assert.equal(aggregate(tiles.filter(t => t.terminal).map(t => t.totals)).total, 2);
   assert.equal(root.weight, 2); assert.equal(root.textLines, 0); assert.equal(root.unknownSizes, 1);
+});
+
+test('fresh snapshots follow commits: clean status and zero deltas retain new text sizes', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.repo, 'existing.txt'), 'new\nsecond\nlast');
+    const before = await f.service.repoSnapshot(f.id);
+    assert.ok(before.files.find(file => file.path === 'existing.txt')?.status);
+    await git(f.repo, ['add', 'existing.txt']);
+    await git(f.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'updated']);
+    const after = await f.service.repoSnapshot(f.id);
+    const file = after.files.find(file => file.path === 'existing.txt')!;
+    assert.equal(file.status, '');
+    assert.deepEqual(file.lines, { added: 0, removed: 0 });
+    assert.deepEqual(file.size, { state: 'known', source: 'working tree', textLines: 3 });
+    assert.notEqual(reconcileSnapshot(before, after), before);
+    assert.equal(reconcileSnapshot(after, await f.service.repoSnapshot(f.id)), after);
+  } finally { await f.cleanup(); }
+});
+
+test('git grep sizes count all text files in one snapshot and use removed counts for deletions', async () => {
+  const f = await fixture();
+  try {
+    await git(f.repo, ['rm', 'existing.txt']);
+    await writeFile(path.join(f.repo, 'untracked\nwith\ttabs.ts'), '// comment\n\nλ');
+    await writeFile(path.join(f.repo, 'empty'), '');
+    await writeFile(path.join(f.repo, 'binary'), Buffer.from([1, 0, 2]));
+    await mkdir(path.join(f.repo, 'ignored')); await writeFile(path.join(f.repo, 'ignored/secret'), 'private\n');
+    await Promise.all(Array.from({ length: 70 }, (_, i) => writeFile(path.join(f.repo, `new-${i}`), 'line\n')));
+    const snapshot = await f.service.repoSnapshot(f.id);
+    const file = (name: string) => snapshot.files.find(file => file.path === name)!;
+    assert.deepEqual(file('existing.txt').size, { state: 'known', source: 'HEAD', textLines: 1 });
+    assert.deepEqual(file('untracked\nwith\ttabs.ts').size, { state: 'known', source: 'working tree', textLines: 3 });
+    assert.deepEqual(file('untracked\nwith\ttabs.ts').lines, { added: 3, removed: 0 });
+    assert.deepEqual(file('empty').size, { state: 'known', source: 'working tree', textLines: 0 });
+    assert.equal(file('binary').size?.state, 'unavailable');
+    assert.equal(file('binary').lines, null);
+    assert.equal(file('ignored/secret'), undefined);
+    assert.equal(snapshot.files.filter(file => file.path.startsWith('new-') && file.size?.state === 'known').length, 70);
+    const noStats = await repoSnapshot(f.repo, snapshot, false);
+    assert.ok(noStats.files.every(file => file.lines === undefined && file.size === undefined));
+  } finally { await f.cleanup(); }
+});
+
+test('git grep exit one with no matches yields empty and unavailable sizes, not a snapshot error', async () => {
+  const f = await fixture(true);
+  try {
+    await rm(path.join(f.repo, '.gitignore')); await rm(path.join(f.repo, 'existing.txt'));
+    await writeFile(path.join(f.repo, 'empty'), '');
+    await writeFile(path.join(f.repo, 'binary'), Buffer.from([0]));
+    const snapshot = await f.service.repoSnapshot(f.id);
+    assert.equal(snapshot.files.find(file => file.path === 'empty')?.size?.state, 'known');
+    assert.equal(snapshot.files.find(file => file.path === 'binary')?.size?.state, 'unavailable');
+  } finally { await f.cleanup(); }
+});
+
+test('quantized layout weights stay stable for small line edits while totals stay exact', () => {
+  const tree = (textLines: number) => buildRepoTree([{ path: 'file.ts', status: '', size: { state: 'known', source: 'working tree', textLines } }]);
+  assert.equal(tree(100).weight, 128); assert.equal(tree(101).weight, 128);
+  assert.equal(tree(100).textLines, 100); assert.equal(tree(101).textLines, 101);
+  assert.equal(tree(0).weight, 1);
+  assert.deepEqual(treemap(tree(100).children, 600, 400).map(t => [t.x, t.y, t.width, t.height]), treemap(tree(101).children, 600, 400).map(t => [t.x, t.y, t.width, t.height]));
 });

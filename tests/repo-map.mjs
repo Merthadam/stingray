@@ -115,7 +115,7 @@ try {
   check('default all-files view includes unchanged entries', await page.locator('.map-tile.file.clean').count() > 0);
   const snapshot = await page.evaluate(id => window.stingray.repoSnapshot(id), id);
   check('ignored files are absent from inventory', !snapshot.files.some(file => file.path.startsWith('ignored/')));
-  check('size budget and partial progress are explicit', snapshot.sizeProgress.checked <= 64 && snapshot.sizeProgress.read <= 64 && snapshot.sizeProgress.pending > 0 && snapshot.sizeNotice.includes('pending'));
+  check('one snapshot measures all text files and flags binary files', snapshot.files.every(file => file.size?.state === (file.path === 'binary.bin' ? 'unavailable' : 'known')));
   await screenshot('map-overview'); await screenshot('map-unknown-sizing');
   await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   check('right inspector separates staged and unstaged diffs', await page.getByText('Unstaged · index → working tree', { exact: true }).isVisible());
@@ -129,16 +129,6 @@ try {
   await page.getByRole('tab', { name: 'Whole file', exact: true }).click();
   check('Whole file mode shows current contents', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Working'));
   await screenshot('map-whole-file');
-  // Warm the real bounded size cache, not a fabricated all-known snapshot.
-  await page.evaluate(async id => {
-    for (let i = 0; i < 90; i++) {
-      const snapshot = await window.stingray.repoSnapshot(id);
-      if (!snapshot.sizeProgress.pending) return;
-    }
-    throw new Error('Size cache did not finish within bounded fixture warmup');
-  }, id);
-  await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
-  await page.waitForFunction(() => document.querySelector('.map-stats-note')?.textContent.includes('0 pending'));
   await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5); await page.waitForTimeout(150);
   await app.evaluate(({ ipcMain }) => {
     const original = ipcMain._invokeHandlers.get('repo-snapshot');
@@ -178,20 +168,18 @@ try {
   check('keyboard focus exposes the same accessible details', await button('Modified file src/App.tsx').getAttribute('aria-describedby') === await page.getByRole('tooltip').getAttribute('id'));
   await page.keyboard.press('Escape');
   check('Escape dismisses details without closing reader or navigating', await page.getByRole('tooltip').count() === 0 && await page.locator('.map-inspector').count() === 1);
-  await button('Mark reviewed').click(); check('review records this file version', await button('Reviewed').getAttribute('aria-pressed') === 'true');
   const scopeBeforePoll = await page.getByRole('navigation', { name: 'Map folders' }).innerText();
   const inputsBeforePoll = await page.evaluate(() => window.mapTestTrace.filter(entry => typeof entry.event === 'object').length);
-  await put('src/App.tsx', padding + 'export const App = () => "Updated after review";\n// New line\n');
-  await button('Mark reviewed').waitFor({ timeout: 15000 });
+  await put('src/App.tsx', padding + 'export const App = () => "Updated after edit";\n// New line\n');
+  await page.waitForFunction(() => document.querySelector('[aria-label="File content"]')?.textContent.includes('Updated after edit'));
   check('polling wait has no unexpected pointer or keyboard input', await page.evaluate(() => window.mapTestTrace.filter(entry => typeof entry.event === 'object').length) === inputsBeforePoll);
   check('polling preserves focused scope and Whole file mode', await page.getByRole('navigation', { name: 'Map folders' }).innerText() === scopeBeforePoll && await page.getByRole('tab', { name: 'Whole file', exact: true }).getAttribute('aria-selected') === 'true');
-  check('polling refreshes contents and invalidates review after edits', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after review'));
+  check('polling refreshes contents after edits', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after edit'));
   await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).waitFor({ timeout: 15000 });
   check('polling updates actual line counts', await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
-  await button('Mark reviewed').click();
-  await put('src/App.tsx', padding + 'export const App = () => "Updated after review (same-line edit)";\n// New line\n');
-  await button('Mark reviewed').waitFor({ timeout: 15000 });
-  check('silent polling still detects same-line edits and invalidates review', (await page.getByLabel('File content', { exact: true }).innerText()).includes('same-line edit') && await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
+  await put('src/App.tsx', padding + 'export const App = () => "Updated after edit (same-line edit)";\n// New line\n');
+  await page.waitForFunction(() => document.querySelector('[aria-label="File content"]')?.textContent.includes('same-line edit'));
+  check('silent polling still detects same-line edits', (await page.getByLabel('File content', { exact: true }).innerText()).includes('same-line edit') && await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
   const sidebar = page.locator('.map-inspector'); const initialWidth = (await sidebar.boundingBox()).width;
   const divider = page.getByRole('separator', { name: 'Resize inspector' });
   await divider.focus(); await page.keyboard.press('ArrowLeft');
@@ -228,11 +216,6 @@ try {
   check('deleted ghost opens prior contents and real removals', (await page.getByLabel('File content', { exact: true }).innerText()).includes('legacy = true') && await page.locator('.inspector-file-heading').getByLabel('0 lines added, 1 lines removed', { exact: true }).count() === 1);
   await find('src/components/Dialog.tsx'); await page.getByText('New untracked file', { exact: true }).waitFor();
   check('global file search reveals nested files', await button('New file src/components/Dialog.tsx').isVisible());
-  await page.getByRole('tab', { name: 'Preview', exact: true }).click();
-  check('component preview stays unsupported without executing source', await page.getByRole('heading', { name: 'No component preview configured' }).isVisible());
-  await page.getByRole('tab', { name: 'Agent tracker', exact: true }).click();
-  check('tracker does not invent agents or activity', await page.getByRole('heading', { name: 'Map agent tracker not connected' }).isVisible());
-  await page.getByRole('tab', { name: 'File inspector', exact: true }).click();
   await button('Close inspector').click(); await rootButton().click(); await page.getByLabel('Only changes', { exact: true }).check();
   check('Only changes omits clean files', await page.locator('.map-tile.file.clean').count() === 0);
   await screenshot('map-only-changes');
@@ -253,9 +236,9 @@ try {
   await page.locator('.map-viewport').focus(); await page.keyboard.press('ArrowDown');
   check('wheel, drag and navigation keys do not pan map', JSON.stringify(await page.locator('.map-viewport').boundingBox()) === JSON.stringify(boundsBefore) && await page.locator('.map-viewport').evaluate(el => el.scrollTop === 0 && el.scrollLeft === 0));
   await find('binary.bin'); await page.getByText('Binary or non-UTF-8 file. Text inspection is unavailable.', { exact: true }).waitFor();
-  check('binary inspection cannot be marked reviewed', await button('Mark reviewed').count() === 0);
-  check('IPC blocks traversal and invalid priority hints', await page.evaluate(async id => {
-    let rejected = 0; for (const op of [() => window.stingray.inspectFile(id, '../outside'), () => window.stingray.repoSnapshot(id, { file: '../outside' }), () => window.stingray.repoSnapshot(id, { file: 'ignored/secret.txt' })]) try { await op(); } catch { rejected++; } return rejected === 3;
+  check('binary inspection has no text content', await page.getByLabel('File content', { exact: true }).count() === 0);
+  check('IPC blocks traversal and ignored files', await page.evaluate(async id => {
+    let rejected = 0; for (const op of [() => window.stingray.inspectFile(id, '../outside'), () => window.stingray.inspectFile(id, 'ignored/secret.txt')]) try { await op(); } catch { rejected++; } return rejected === 2;
   }, id));
   await button('Close inspector').click(); await rootButton().click(); await focusFolder('bulk');
   await framed('2,048-file scope renders dense treemap within 2,000-node budget');
@@ -273,8 +256,8 @@ try {
   check('search reveals final file beyond rendered aggregates', await button('Unchanged file bulk/file-2047.ts').isVisible()); await screenshot('map-large-search');
   await gateResponse('inspect-file', 'README.md');
   await find('README.md'); await waitGate(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
-  await button('Mark reviewed').click(); await releaseGate(); await page.waitForTimeout(150);
-  check('late inspection cannot replace newer file, mode or review state', (await page.locator('.inspector-file-heading').innerText()).includes('src/App.tsx') && await button('Reviewed').count() === 1 && await page.getByRole('tab', { name: 'Git diff', exact: true }).getAttribute('aria-selected') === 'true');
+  await releaseGate(); await page.waitForTimeout(150);
+  check('late inspection cannot replace newer file or mode', (await page.locator('.inspector-file-heading').innerText()).includes('src/App.tsx') && await page.getByRole('tab', { name: 'Git diff', exact: true }).getAttribute('aria-selected') === 'true');
   await find('long.txt'); await page.getByLabel('File content', { exact: true }).waitFor();
   const code = page.getByLabel('File content', { exact: true }); await code.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await page.getByText('line 6000', { exact: true }).waitFor();
@@ -292,15 +275,15 @@ try {
   await find('transient/removed.txt'); await page.getByLabel('Git diff content', { exact: true }).waitFor();
   await rm(path.join(repo, 'transient'), { recursive: true });
   await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
-  check('removed priority file and folder do not trap refresh on stale inventory', !(await page.locator('.inline-error').allTextContents()).some(text => text.includes('Showing the last successful map')) && (await page.locator('.map-summary').innerText()).startsWith('0 files'));
+  check('removed selected file and folder do not trap refresh on stale inventory', !(await page.locator('.inline-error').allTextContents()).some(text => text.includes('Showing the last successful map')) && (await page.locator('.map-summary').innerText()).startsWith('0 files'));
   await page.locator('.map-inspector .inline-error').filter({ hasText: 'File is not in this workspace’s Git inventory. Refresh the map.' }).waitFor();
-  check('removed selected file has an explicit inspection error', await button('Mark reviewed').count() === 0);
+  check('removed folder shows an empty map rather than root', await page.getByRole('heading', { name: 'No files here', exact: true }).isVisible());
   await find('src/App.tsx');
   // Geometry can settle before inspection IPC returns. Capture loaded content,
   // not the transient "Reading file…" state, in compact-reader evidence.
   await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await page.getByText('Unstaged · index → working tree', { exact: true }).waitFor();
-  await page.getByLabel('Git diff content', { exact: true }).filter({ hasText: 'Updated after review' }).waitFor();
+  await page.getByLabel('Git diff content', { exact: true }).filter({ hasText: 'Updated after edit' }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540)); await page.waitForFunction(() => innerWidth === 760);
   await framed('compact map fits alongside sidebar');
   check('compact layout stays side-by-side without workspace overflow', await page.evaluate(() => {
@@ -334,8 +317,8 @@ try {
   await gateResponse('inspect-file', 'README.md'); await button('Refresh repository map').click(); await waitGate();
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main', exact: true }).click();
   await page.locator('.map-tile').first().waitFor(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
-  await page.getByRole('tab', { name: 'Whole file', exact: true }).click(); await button('Mark reviewed').click(); await releaseGate(); await page.waitForTimeout(150);
-  check('late inspection from previous workspace preserves new content and review', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after review') && await button('Reviewed').count() === 1 && await page.locator('.inline-error').count() === 0);
+  await page.getByRole('tab', { name: 'Whole file', exact: true }).click(); await releaseGate(); await page.waitForTimeout(150);
+  check('late inspection from previous workspace preserves new content', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Updated after edit') && await page.locator('.inline-error').count() === 0);
   // An actual IPC rejection must remain visible with the last successful map,
   // and recovery must clear it without resetting navigation or reader state.
   await app.evaluate(({ ipcMain }) => {
@@ -344,7 +327,7 @@ try {
   });
   await button('Refresh repository map').click();
   await page.locator('.repo-map-view > .inline-error').filter({ hasText: 'Showing the last successful map.' }).waitFor();
-  check('snapshot failure is explicit and keeps the prior map', await button('Modified file src/App.tsx').count() === 1 && await button('Reviewed').isDisabled());
+  check('snapshot failure is explicit and keeps the prior map', await button('Modified file src/App.tsx').count() === 1);
   await screenshot('map-refresh-error');
   await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', globalThis.mapSnapshotHandler); delete globalThis.mapSnapshotHandler; });
   await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
@@ -353,7 +336,7 @@ try {
   await rootButton().click();
   await page.getByLabel('Only changes', { exact: true }).check(); await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
   check('clean workspace has explicit empty filtered state', await page.locator('.map-tile').count() === 0);
-  await button('Toggle agent tracker').click(); check('tracker opens independently of files', await page.getByRole('heading', { name: 'Map agent tracker not connected' }).isVisible());
+  await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor();
   await button('Close inspector').focus(); await page.keyboard.press('Escape');
   check('Escape closes inspector and returns focus to map', await sidebar.count() === 0 && await page.locator('.map-viewport').evaluate(el => document.activeElement === el));
   check('no renderer exceptions', errors.length === 0);

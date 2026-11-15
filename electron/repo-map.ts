@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { repoPathSchema, type FileInspection, type GitStatus, type RepoFile, type RepoSnapshot, type LineStats, type SnapshotHint } from '../src/shared';
+import { repoPathSchema, type FileInspection, type GitStatus, type RepoFile, type RepoSnapshot, type LineStats } from '../src/shared';
 import { git } from './git';
 import { measureSizes } from './repo-map-size';
 
@@ -19,7 +19,11 @@ export async function inventoryGit(root: string, args: string[]) {
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
     });
     return stdout;
-  } catch { throw new Error('Repository inventory exceeds the 16 MiB / 15 second limit, or Git is unavailable.'); }
+  } catch (error) {
+    const failure = error as { code?: number; stdout?: string };
+    if (args[0] === 'grep' && failure.code === 1 && failure.stdout === '') return '';
+    throw new Error('Repository inventory exceeds the 16 MiB / 15 second limit, or Git is unavailable.');
+  }
 }
 
 export function parseNumstat(output: string): Map<string, LineStats | null> {
@@ -39,7 +43,7 @@ export function parseNumstat(output: string): Map<string, LineStats | null> {
   return result;
 }
 
-export async function repoSnapshot(root: string, status: GitStatus, withStats = true, hint?: SnapshotHint): Promise<RepoSnapshot> {
+export async function repoSnapshot(root: string, status: GitStatus, withStats = true): Promise<RepoSnapshot> {
   const listed = await inventoryGit(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
   const paths = new Set(listed.split('\0').filter(Boolean));
   // Staged deletions are no longer in the index, but must remain navigable.
@@ -97,9 +101,9 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
     else if (failed) { file.lines = null; file.lineNotice = 'Git line counts unavailable'; }
     else { file.lines = counts.get(file.path) ?? (counts.has(file.path) ? null : { added: 0, removed: 0 }); if (file.lines === null) file.lineNotice = 'Binary file'; }
   }
-  const sizes = await measureSizes(root, files, hint, unborn);
+  await measureSizes(root, files, unborn);
   const unknown = files.filter(file => file.status && file.lines == null).length;
-  return { ...status, files, ...sizes, statsNotice: unknown ? `${unknown} changed file(s) have unavailable line counts; totals include known counts only.` : '' };
+  return { ...status, files, statsNotice: unknown ? `${unknown} changed file(s) have unavailable line counts; totals include known counts only.` : '' };
 }
 
 async function boundedGit(root: string, args: string[]) {

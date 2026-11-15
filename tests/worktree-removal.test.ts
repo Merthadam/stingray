@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, access, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, access, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GitService, git } from '../electron/git';
@@ -43,6 +43,37 @@ test('missing upstream needs acknowledgement and removal keeps branch and commit
     await assert.rejects(access(f.w.path));
     assert.equal((await git(f.repo, ['rev-parse', 'refs/heads/feature/remove'])).trim(), f.base);
     await access(path.join(f.repo, 'file.txt'));
+  } finally { await f.cleanup(); }
+});
+
+test('the code-graph cache does not block removal; it is cleaned after the graph is released', async () => {
+  const f = await fixture(); const calls: string[] = [];
+  try {
+    const service = new GitService(f.service.store, () => false, {
+      beforeRemove: async id => { calls.push('release ' + id); }, removeFailed: id => { calls.push('failed ' + id); } });
+    await mkdir(path.join(f.w.path, '.codegraph'));
+    await writeFile(path.join(f.w.path, '.codegraph', '.gitignore'), '*\n!.gitignore\n');
+    await writeFile(path.join(f.w.path, '.codegraph', 'codegraph.db'), 'index');
+    const review = await service.reviewRemoval(f.w.id);
+    assert.deepEqual(review.blockers, []);
+    // The index keeps changing while the review is open; that must not invalidate consent.
+    await writeFile(path.join(f.w.path, '.codegraph', 'codegraph.db-wal'), 'wal');
+    await service.removeWorkspace(f.w.id, f.w.branch, { token: review.token, acknowledge: true });
+    assert.deepEqual(calls, ['release ' + f.w.id]);
+    await assert.rejects(access(f.w.path));
+  } finally { await f.cleanup(); }
+});
+
+test('a .codegraph that is not a real directory, or user files next to it, still block removal', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.root, 'elsewhere'));
+    await symlink(path.join(f.root, 'elsewhere'), path.join(f.w.path, '.codegraph'));
+    assert.match((await f.service.reviewRemoval(f.w.id)).blockers.join(' '), /1 untracked entries/);
+    await rm(path.join(f.w.path, '.codegraph'));
+    await mkdir(path.join(f.w.path, '.codegraph')); await writeFile(path.join(f.w.path, '.codegraph', 'codegraph.db'), 'index');
+    await writeFile(path.join(f.w.path, 'notes.txt'), 'user work');
+    assert.match((await f.service.reviewRemoval(f.w.id)).blockers.join(' '), /0 tracked changes, 1 untracked entries, 0 ignored entries/);
   } finally { await f.cleanup(); }
 });
 

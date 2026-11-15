@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { reviewPushStatus, removalToken } from './worktree-removal';
 import { removalConsentSchema, type RemovalConsent, type RemovalReview } from '../src/shared';
 import { Store } from './store';
-import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type SnapshotHint, type RepoSnapshot, snapshotHintSchema } from '../src/shared';
+import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type RepoSnapshot } from '../src/shared';
 import { cloneGit } from './clone';
 import { repoSnapshot, inspectFile } from './repo-map';
 import { readGitLines } from './git-lines';
@@ -36,9 +36,13 @@ export function parseStatus(output: string) {
   }
   return changes;
 }
+const CACHE_DIR = '.codegraph';
+const isCacheDirectory = (root: string) => lstat(path.join(root, CACHE_DIR)).then(s => s.isDirectory(), () => false);
 export class GitService {
   private pending: Promise<unknown> = Promise.resolve();
-  constructor(readonly store: Store, private hasTerminals: (id: string) => boolean = () => false) {}
+  constructor(readonly store: Store, private hasTerminals: (id: string) => boolean = () => false,
+    // Removal hooks: stop writers to the code-graph cache (<worktree>/.codegraph) first; undo if removal fails.
+    private hooks: { beforeRemove(id: string): Promise<void>; removeFailed(id: string): void } = { beforeRemove: async () => {}, removeFailed: () => {} }) {}
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.pending.then(action, action); this.pending = next.catch(() => undefined); return next;
   }
@@ -134,20 +138,23 @@ export class GitService {
     const branch = (await git(w.path, ['branch', '--show-current'])).trim();
     const head = (await git(w.path, ['rev-parse', '--verify', 'HEAD'])).trim();
     const dirty = await git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored']);
-    const changes = parseStatus(dirty);
+    // Stingray's regenerable code-graph cache is not user work: its untracked/ignored files don't block removal and are
+    // cleaned right before it. Tracked files under it and a .codegraph that is not a real directory still block.
+    const cache = await isCacheDirectory(w.path);
+    const changes = parseStatus(dirty).filter(c => !(cache && (c.status === '??' || c.status === '!!') && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
     const blockers: string[] = [];
     if (this.hasTerminals(id)) blockers.push('Close every terminal in this workspace first.');
     if (!branch) blockers.push('Detached HEAD: attach these commits to a branch before removing the worktree.');
     else if (branch !== w.branch) blockers.push(`The checked-out branch changed. Restore ${w.branch} before removing this worktree.`);
     if (record.split('\0').some(row => row === 'locked' || row.startsWith('locked '))) blockers.push('This worktree is locked. Unlock it yourself only after checking why.');
-    if (dirty) {
+    if (changes.length) {
       const untracked = changes.filter(c => c.status === '??').length;
       const ignored = changes.filter(c => c.status === '!!').length;
       blockers.push(`Worktree has modified, untracked, or ignored files: ${changes.length - untracked - ignored} tracked changes, ${untracked} untracked entries, ${ignored} ignored entries. Nothing will be deleted.`);
     }
     const { push, identity } = branch ? await reviewPushStatus(args => git(w.path, args), branch)
       : { push: { kind: 'unknown' as const, message: 'Detached HEAD has no branch upstream.' }, identity: 'detached' };
-    return { branch: w.branch, blockers, push, token: removalToken({ id, path: w.path, branch, head, dirty, blockers, push, identity }) };
+    return { branch: w.branch, blockers, push, token: removalToken({ id, path: w.path, branch, head, dirty: JSON.stringify(changes), blockers, push, identity }) };
   }
   removeWorkspace(id: string, confirmation: string, consent?: RemovalConsent) {
     return this.serial(async () => {
@@ -169,7 +176,11 @@ export class GitService {
       if ((review.push.kind === 'unknown' || review.push.ahead > 0) && !parsedConsent.data.acknowledge) {
         throw new Error('Acknowledge the unpushed or unknown push status before removal. The branch and commits will be kept.');
       }
-      await git(repo.path, ['worktree', 'remove', '--', w.path]);
+      await this.hooks.beforeRemove(id);
+      try {
+        if (await isCacheDirectory(w.path)) await git(w.path, ['clean', '-f', '-d', '-x', '-q', '--', CACHE_DIR + '/']);
+        await git(repo.path, ['worktree', 'remove', '--', w.path]);
+      } catch (error) { this.hooks.removeFailed(id); throw error; }
       state.workspaces = state.workspaces.filter(x => x.id !== id);
       await this.store.save(state);
       return state;
@@ -184,22 +195,17 @@ export class GitService {
     const changes = parseStatus(output);
     return { branch: branch.trim() || 'detached HEAD', changes, lines: await readGitLines(w.path, changes) };
   }
-  async repoSnapshot(id: string, hint?: SnapshotHint) {
-    if (hint) snapshotHintSchema.parse(hint);
+  async repoSnapshot(id: string) {
     const w = await this.workspace(id);
     const root = await realpath(w.path);
     let job = snapshotsInFlight.get(root);
     if (!job) {
-      job = (async () => repoSnapshot(root, await this.status(id), true, hint))();
+      job = (async () => repoSnapshot(root, await this.status(id), true))();
       snapshotsInFlight.set(root, job);
     }
     try {
       // Concurrent requests share one entire status/inventory/count operation.
-      // A newer focus hint is handled on the next normal refresh, not queued.
-      const result = await job;
-      if (hint?.file && !result.files.some(file => file.path === hint.file)) throw new Error('Priority file is not in workspace inventory');
-      if (hint?.scope && !result.files.some(file => file.path.startsWith(hint.scope + '/'))) throw new Error('Priority scope is not in workspace inventory');
-      return result;
+      return await job;
     } finally { if (snapshotsInFlight.get(root) === job) snapshotsInFlight.delete(root); }
   }
   async inspectFile(id: string, relative: string) {

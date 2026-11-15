@@ -15,13 +15,11 @@ function sameFile(a: RepoFile, b: RepoFile) {
     x?.state === y?.state && x?.source === y?.source &&
     (x?.state === 'known' ? x.textLines : x?.reason) === (y?.state === 'known' ? y.textLines : y?.reason);
 }
-// Per-batch work counters and the rotating revalidation flag are diagnostics,
-// not content changes. The UI describes all measurements as cached; it never
-// claims an unchecked file is fresh. Preserve references on an idle poll.
+// Preserve references on an idle poll.
 export function reconcileSnapshot(previous: RepoSnapshot | null, next: RepoSnapshot): RepoSnapshot {
   if (!previous) return next;
   const files = previous.files.length === next.files.length && previous.files.every((file, i) => sameFile(file, next.files[i])) ? previous.files : next.files;
-  if (files === previous.files && sameGitStatus(previous, next) && previous.sizeNotice === next.sizeNotice && previous.statsNotice === next.statsNotice) return previous;
+  if (files === previous.files && sameGitStatus(previous, next) && previous.statsNotice === next.statsNotice) return previous;
   return { ...next, files };
 }
 
@@ -35,18 +33,18 @@ export function fileKind(status: string): FileKind {
   if (status === '??' || status.includes('A')) return 'added';
   return status.trim() ? 'modified' : 'clean';
 }
-export type Totals = { total: number; changed: number; added: number; removed: number; unknown: number; weight: number; textLines: number; unknownSizes: number; staleSizes: number };
+export type Totals = { total: number; changed: number; added: number; removed: number; unknown: number; weight: number; textLines: number; unknownSizes: number };
 export type MapNode = Totals & { path: string; name: string; file?: RepoFile; children: MapNode[] };
-const empty = (): Totals => ({ total: 0, changed: 0, added: 0, removed: 0, unknown: 0, weight: 0, textLines: 0, unknownSizes: 0, staleSizes: 0 });
+const empty = (): Totals => ({ total: 0, changed: 0, added: 0, removed: 0, unknown: 0, weight: 0, textLines: 0, unknownSizes: 0 });
 export function aggregate(nodes: Totals[]): Totals {
   return nodes.reduce((sum, node) => ({ total: sum.total + node.total, changed: sum.changed + node.changed,
     added: sum.added + node.added, removed: sum.removed + node.removed, unknown: sum.unknown + node.unknown,
-    weight: sum.weight + node.weight, textLines: sum.textLines + node.textLines, unknownSizes: sum.unknownSizes + node.unknownSizes, staleSizes: sum.staleSizes + node.staleSizes }), empty());
+    weight: sum.weight + node.weight, textLines: sum.textLines + node.textLines, unknownSizes: sum.unknownSizes + node.unknownSizes }), empty());
 }
 function add(target: Totals, value: Totals) {
   target.total += value.total; target.changed += value.changed; target.added += value.added;
   target.removed += value.removed; target.unknown += value.unknown;
-  target.weight += value.weight; target.textLines += value.textLines; target.unknownSizes += value.unknownSizes; target.staleSizes += value.staleSizes;
+  target.weight += value.weight; target.textLines += value.textLines; target.unknownSizes += value.unknownSizes;
 }
 export function buildRepoTree(files: RepoFile[]): MapNode {
   const root: MapNode = { path: '', name: 'Repository', children: [], ...empty() };
@@ -56,8 +54,9 @@ export function buildRepoTree(files: RepoFile[]): MapNode {
     const changed = fileKind(file.status) !== 'clean' ? 1 : 0;
     const known = file.size?.state === 'known';
     const textLines = file.size?.state === 'known' ? file.size.textLines : 0;
+    // Quantized area keeps small line edits from reflowing the map.
     const totals: Totals = { total: 1, changed, added: file.lines?.added || 0, removed: file.lines?.removed || 0, unknown: changed && file.lines == null ? 1 : 0,
-      weight: Math.max(1, textLines), textLines, unknownSizes: known ? 0 : 1, staleSizes: file.size?.stale ? 1 : 0 };
+      weight: 2 ** Math.round(Math.log2(Math.max(1, textLines))), textLines, unknownSizes: known ? 0 : 1 };
     let parent = root; let path = ''; add(parent, totals);
     for (let i = 0; i < parts.length - 1; i++) {
       path = path ? path + '/' + parts[i] : parts[i];
@@ -75,11 +74,11 @@ export function buildRepoTree(files: RepoFile[]): MapNode {
   }
   return root;
 }
-export function findFolder(root: MapNode, path: string): MapNode {
+export function findFolder(root: MapNode, path: string): MapNode | undefined {
   let node = root;
   for (const part of path.split('/').filter(Boolean)) {
     const next = node.children.find(child => !child.file && child.name === part);
-    if (!next) return root;
+    if (!next) return undefined;
     node = next;
   }
   return node;

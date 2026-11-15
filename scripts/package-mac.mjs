@@ -23,16 +23,19 @@ try {
   for (const name of ['dist', 'dist-electron', 'THIRD_PARTY_NOTICES.md']) {
     await cp(path.join(root, name), path.join(stage, name), { recursive: true });
   }
-  // Renderer and main JS dependencies are bundled. Only node-pty remains external at runtime.
-  for (const name of ['node-pty', 'node-addon-api']) {
+  // Renderer and main JS dependencies are bundled. Only node-pty, web-tree-sitter and CodeGraph remain external at runtime.
+  for (const name of ['node-pty', 'node-addon-api', 'web-tree-sitter', '@colbymchenry/codegraph', '@colbymchenry/codegraph-darwin-arm64']) {
     await cp(path.join(root, 'node_modules', name), path.join(stage, 'node_modules', name), { recursive: true });
   }
   const ptyPrebuilds = path.join(stage, 'node_modules/node-pty/prebuilds');
   const { readdir } = await import('node:fs/promises');
   for (const name of await readdir(ptyPrebuilds)) if (name !== 'darwin-arm64') await rm(path.join(ptyPrebuilds, name), { recursive: true });
   await chmod(path.join(ptyPrebuilds, 'darwin-arm64/spawn-helper'), 0o755);
+  // CodeGraph is loaded as a library (npm-sdk.js -> lib/dist/index.js); its CLI launcher and bundled Node runtime (~115 MB) are unused.
+  for (const name of ['codegraph-darwin-arm64/node', 'codegraph-darwin-arm64/bin']) await rm(path.join(stage, 'node_modules/@colbymchenry', name), { recursive: true });
   await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: manifest.name, productName: 'Stingray', version: manifest.version,
-    main: manifest.main, description: manifest.description, dependencies: { 'node-pty': manifest.dependencies['node-pty'] } }, null, 2));
+    main: manifest.main, description: manifest.description, dependencies: { 'node-pty': manifest.dependencies['node-pty'], 'web-tree-sitter': manifest.dependencies['web-tree-sitter'],
+      '@colbymchenry/codegraph': manifest.dependencies['@colbymchenry/codegraph'], '@colbymchenry/codegraph-darwin-arm64': manifest.dependencies['@colbymchenry/codegraph'] } }, null, 2));
   const licenses = path.join(stage, 'dependency-licenses'); await mkdir(licenses);
   for (const name of [...Object.keys(manifest.dependencies), 'scheduler', 'node-addon-api']) {
     const directory = path.join(root, 'node_modules', name);
