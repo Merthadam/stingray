@@ -8,8 +8,8 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { EditorId, EditorSettings } from '../src/views';
 
-export const EDITOR_IDS = ['vscode', 'cursor', 'zed', 'system'] as const satisfies readonly EditorId[];
-const CLIS: Record<Exclude<EditorId, 'system'>, { command: string; bundle: string }> = {
+export const EDITOR_IDS = ['repo-map', 'vscode', 'cursor', 'zed', 'system'] as const satisfies readonly EditorId[];
+const CLIS: Record<Exclude<EditorId, 'system' | 'repo-map'>, { command: string; bundle: string }> = {
   vscode: { command: 'code', bundle: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' },
   cursor: { command: 'cursor', bundle: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor' },
   zed: { command: 'zed', bundle: '/Applications/Zed.app/Contents/MacOS/cli' },
@@ -57,9 +57,10 @@ export class EditorService {
   }
 
   async settings(): Promise<EditorSettings> {
-    const available: EditorId[] = [...(await this.detect()).keys(), 'system'];
+    const external: EditorId[] = [...(await this.detect()).keys(), 'system'];
+    const available: EditorId[] = ['repo-map', ...external];
     const saved = await this.saved();
-    return { selected: saved && available.includes(saved) ? saved : available[0]!, available };
+    return { selected: saved && available.includes(saved) ? saved : external[0]!, available };
   }
 
   async select(editor: EditorId): Promise<EditorSettings> {
@@ -72,8 +73,9 @@ export class EditorService {
 
   /** Open a worktree-relative file (at a 1-based line when given) in the selected editor; falls back to the default text editor. */
   async openSource(root: string, file: string, line: number | null): Promise<void> {
-    const target = await resolveSource(root, file);
     const { selected } = await this.settings();
+    if (selected === 'repo-map') throw new Error('Repo Map source links must be opened by the renderer.');
+    const target = await resolveSource(root, file);
     const cli = selected === 'system' ? undefined : (await this.detect()).get(selected);
     if (cli) {
       const at = line ? `${target}:${line}` : target;

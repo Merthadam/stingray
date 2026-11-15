@@ -74,7 +74,7 @@ const repoViews = (): ViewSummary[] => [
 ];
 const savedViews = new Map<string, { summary: ViewSummary; input: SaveViewInput }>();
 const viewStates = new Map<string, ViewLocalState>();
-let editor: EditorSettings = { selected: 'vscode', available: ['vscode', 'cursor', 'system'] };
+let editor: EditorSettings = { selected: 'vscode', available: ['repo-map', 'vscode', 'cursor', 'system'] };
 const CORE_TABLES = new Set(['users', 'organizations', 'memberships']);
 const demoDiagnostics = (extra: Partial<ViewDiagnostics> = {}): ViewDiagnostics =>
   ({ rules: [], graph: null, unresolved: [], limits: { filesScanned: 48, matches: 0, truncated: false }, ms: 42, ...extra });
@@ -172,7 +172,6 @@ export const demoAPI: DesktopAPI = {
     changes: demoFiles.filter(file => file.status),
     files: demoFiles,
     statsNotice: 'Simulated demo counts, not a real repository. Desktop counts use Git.',
-    sizeNotice: 'Synthetic varied text-line sizes for layout demonstration; not measured repository content.',
   }),
   inspectFile: async (_id, path) => {
     const file = demoFiles.find(file => file.path === path);

@@ -21,8 +21,9 @@ const write = (key: string, value: string) => { try { localStorage.setItem(key, 
 
 type Loaded = { id: string; result: ViewResult | null; error: string; loading: boolean };
 
-export function ViewsTab({ workspace }: { workspace: Workspace }) {
+export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onOpenInMap: (file: string, line: number | null) => void }) {
   const ws = workspace.id;
+  const active = useRef(false);
   const [list, setList] = useState<ViewSummary[] | null>(null);
   const [listError, setListError] = useState('');
   const [selected, setSelected] = useState<string | null>(() => read(selectedKey(ws)));
@@ -59,7 +60,7 @@ export function ViewsTab({ workspace }: { workspace: Workspace }) {
     }
   }, [ws]);
 
-  useEffect(() => { void loadList(); }, [loadList]);
+  useEffect(() => { active.current = true; void loadList(); return () => { active.current = false; }; }, [loadList]);
   useEffect(() => { if (selected) write(selectedKey(ws), selected); }, [ws, selected]);
   useEffect(() => api.onViewsChanged(event => {
     if (event.workspaceId !== ws) return;
@@ -97,9 +98,14 @@ export function ViewsTab({ workspace }: { workspace: Workspace }) {
     clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY);
   }, [flush]);
-  const onOpenSource = useCallback((file: string, line: number | null) => {
-    api.openSource(ws, file, line).catch(e => setActionError((e as Error).message));
-  }, [ws]);
+  const onOpenSource = useCallback(async (file: string, line: number | null) => {
+    try {
+      const settings = await api.editorSettings();
+      if (!active.current) return;
+      if (settings.selected === 'repo-map') onOpenInMap(file, line);
+      else await api.openSource(ws, file, line);
+    } catch (e) { setActionError((e as Error).message); }
+  }, [ws, onOpenInMap]);
 
   const toggleCollapsed = () => setCollapsed(v => { write(COLLAPSED_KEY, v ? '0' : '1'); return !v; });
   const result = view?.id === current ? view?.result ?? null : null;

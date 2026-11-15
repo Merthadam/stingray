@@ -3,7 +3,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import type { EditorId, EditorSettings } from '../views';
 
-const EDITOR_LABELS: Record<EditorId, string> = { vscode: 'VS Code', cursor: 'Cursor', zed: 'Zed', system: 'System default' };
+const EDITOR_LABELS: Record<EditorId, string> = { 'repo-map': 'Repo Map (Stingray)', vscode: 'VS Code', cursor: 'Cursor', zed: 'Zed', system: 'System default' };
 
 /** "Open in: VS Code ▾" — where source links open; stored in app data by the main process. */
 export function EditorPicker() {
@@ -22,7 +22,7 @@ export function EditorPicker() {
     setOpen(false);
     try { setSettings(await api.setEditor(editor)); setError(''); } catch (e) { setError((e as Error).message); }
   };
-  const options = settings ? [...new Set<EditorId>([...settings.available, 'system'])] : [];
+  const options = settings ? [...new Set<EditorId>(['repo-map', ...settings.available, 'system'])] : [];
   return <div className="views-editor-picker" ref={root}>
     <button className="views-tool" aria-haspopup="menu" aria-expanded={open} disabled={!settings} title={error || 'Editor for source links'}
       onClick={() => setOpen(v => !v)}>Open in: {settings ? EDITOR_LABELS[settings.selected] : '…'}<ChevronDown size={12} /></button>

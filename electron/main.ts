@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { idSchema, urlSchema, repoPathSchema, snapshotHintSchema, removalConsentSchema } from '../src/shared';
+import { idSchema, urlSchema, repoPathSchema, removalConsentSchema } from '../src/shared';
 import { Store } from './store';
 import { GitService } from './git';
 import { Terminals } from './terminals';
@@ -126,7 +126,7 @@ app.whenReady().then(async () => {
     return state;
   });
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
-  handle('repo-snapshot', z.tuple([idSchema, snapshotHintSchema.optional()]), (id, hint) => git.repoSnapshot(id, hint));
+  handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
   // Static parse only; concurrent requests for the same workspace share one scan.
   const dbScans = new Map<string, Promise<DbSchemaResult>>();

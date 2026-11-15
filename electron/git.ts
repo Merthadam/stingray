@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { reviewPushStatus, removalToken } from './worktree-removal';
 import { removalConsentSchema, type RemovalConsent, type RemovalReview } from '../src/shared';
 import { Store } from './store';
-import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type SnapshotHint, type RepoSnapshot, snapshotHintSchema } from '../src/shared';
+import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type RepoSnapshot } from '../src/shared';
 import { cloneGit } from './clone';
 import { repoSnapshot, inspectFile } from './repo-map';
 import { readGitLines } from './git-lines';
@@ -195,22 +195,17 @@ export class GitService {
     const changes = parseStatus(output);
     return { branch: branch.trim() || 'detached HEAD', changes, lines: await readGitLines(w.path, changes) };
   }
-  async repoSnapshot(id: string, hint?: SnapshotHint) {
-    if (hint) snapshotHintSchema.parse(hint);
+  async repoSnapshot(id: string) {
     const w = await this.workspace(id);
     const root = await realpath(w.path);
     let job = snapshotsInFlight.get(root);
     if (!job) {
-      job = (async () => repoSnapshot(root, await this.status(id), true, hint))();
+      job = (async () => repoSnapshot(root, await this.status(id), true))();
       snapshotsInFlight.set(root, job);
     }
     try {
       // Concurrent requests share one entire status/inventory/count operation.
-      // A newer focus hint is handled on the next normal refresh, not queued.
-      const result = await job;
-      if (hint?.file && !result.files.some(file => file.path === hint.file)) throw new Error('Priority file is not in workspace inventory');
-      if (hint?.scope && !result.files.some(file => file.path.startsWith(hint.scope + '/'))) throw new Error('Priority scope is not in workspace inventory');
-      return result;
+      return await job;
     } finally { if (snapshotsInFlight.get(root) === job) snapshotsInFlight.delete(root); }
   }
   async inspectFile(id: string, relative: string) {

@@ -31,6 +31,8 @@ export default function App() {
   const [previewReveal, setPreviewReveal] = useState(0);
   const [split, setSplit] = useState(false);
   const [tab, setTab] = useState<'workspace' | 'changes' | 'views'>('workspace');
+  const [mapTarget, setMapTarget] = useState<{ path: string; line: number | null; nonce: number } | null>(null);
+  const mapNonce = useRef(0);
   const [modal, setModal] = useState<'open' | 'create' | 'remove' | 'close-terminal' | 'about' | null>(null);
   const [closeId, setCloseId] = useState('');
   const [branch, setBranch] = useState('');
@@ -46,6 +48,7 @@ export default function App() {
   const pendingStatuses = useRef(new Map<string, Promise<GitStatus>>());
   const selection = resolveSelection(state, navigation);
   const selected = selection?.workspaceId || '';
+  useEffect(() => { setMapTarget(null); }, [selected]);
   const status = gitResult.id === selected ? gitResult.status : null;
   const statusError = gitResult.id === selected ? gitResult.error : '';
   const workspace = state.workspaces.find(w => w.id === selected);
@@ -182,8 +185,8 @@ export default function App() {
             </section>
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
-          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} terminals={workspaceTerminals} onStatus={next => { ++statusSequence.current; setStatusBusy(false); setGitResult({ id: workspace.id, status: next, error: '' }); }} onPreview={() => { setShowBrowser(true); setTab('workspace'); }} />}
-          {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} />}
+          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} onStatus={next => { ++statusSequence.current; setStatusBusy(false); setGitResult({ id: workspace.id, status: next, error: '' }); }} />}
+          {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} onOpenInMap={(path, line) => { setMapTarget({ path, line, nonce: ++mapNonce.current }); setTab('changes'); }} />}
         </>}
       </main>
     </div>

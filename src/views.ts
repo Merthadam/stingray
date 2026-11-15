@@ -108,10 +108,10 @@ export interface ViewLocalState {
   expanded: string[];          // node ids whose long field lists are expanded (max 500)
 }
 
-export type EditorId = 'vscode' | 'cursor' | 'zed' | 'system';
+export type EditorId = 'repo-map' | 'vscode' | 'cursor' | 'zed' | 'system';
 export interface EditorSettings {
   selected: EditorId;          // 'system' = the OS default app (no line number)
-  available: EditorId[];       // detected on this machine; always includes 'system'
+  available: EditorId[];       // detected on this machine; always includes 'repo-map' and 'system'
 }
 
 /** "Save as view…": a new repo view file derived from a shown view. */

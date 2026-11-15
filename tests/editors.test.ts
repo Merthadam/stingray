@@ -29,11 +29,11 @@ function service(data: string, executables: string[], overrides: Partial<EditorD
 
 test('EditorService detects CLIs on PATH, standard folders and app bundles', async t => {
   const { data } = await fixture(t);
-  assert.deepEqual(await service(data, []).editors.settings(), { selected: 'system', available: ['system'] });
+  assert.deepEqual(await service(data, []).editors.settings(), { selected: 'system', available: ['repo-map', 'system'] });
   const { editors } = service(data, ['/opt/homebrew/bin/cursor', '/Applications/Zed.app/Contents/MacOS/cli', '/Users/me/.local/bin/code']);
   assert.deepEqual([...(await editors.detect())], [
     ['vscode', '/Users/me/.local/bin/code'], ['cursor', '/opt/homebrew/bin/cursor'], ['zed', '/Applications/Zed.app/Contents/MacOS/cli']]);
-  assert.deepEqual(await editors.settings(), { selected: 'vscode', available: ['vscode', 'cursor', 'zed', 'system'] });
+  assert.deepEqual(await editors.settings(), { selected: 'vscode', available: ['repo-map', 'vscode', 'cursor', 'zed', 'system'] });
   // PATH wins over the bundle.
   const onPath = service(data, ['/bin/zed', '/Applications/Zed.app/Contents/MacOS/cli']).editors;
   assert.equal((await onPath.detect()).get('zed'), '/bin/zed');
@@ -42,7 +42,7 @@ test('EditorService detects CLIs on PATH, standard folders and app bundles', asy
 test('EditorService persists the selected editor and ignores an unavailable choice', async t => {
   const { data } = await fixture(t);
   const { editors } = service(data, ['/usr/local/bin/code', '/usr/local/bin/zed']);
-  assert.deepEqual(await editors.select('zed'), { selected: 'zed', available: ['vscode', 'zed', 'system'] });
+  assert.deepEqual(await editors.select('zed'), { selected: 'zed', available: ['repo-map', 'vscode', 'zed', 'system'] });
   assert.equal((await service(data, ['/usr/local/bin/code', '/usr/local/bin/zed']).editors.settings()).selected, 'zed');
   assert.equal((await service(data, ['/usr/local/bin/code']).editors.settings()).selected, 'vscode');
   await assert.rejects(editors.select('vim' as never));
@@ -106,4 +106,14 @@ test('EditorService launches real CLIs without a shell and falls back on a non-z
   await editors.select('zed');
   await editors.openSource(root, 'app/models.py', 4);
   assert.deepEqual(opened, [['-t', path.join(root, 'app/models.py')]]);
+});
+
+
+test('EditorService persists Repo Map without launching an external editor', async t => {
+  const { root, data } = await fixture(t);
+  const { editors, calls } = service(data, []);
+  assert.deepEqual(await editors.select('repo-map'), { selected: 'repo-map', available: ['repo-map', 'system'] });
+  assert.equal((await service(data, []).editors.settings()).selected, 'repo-map');
+  await assert.rejects(editors.openSource(root, 'app/models.py', 1), /Repo Map.*renderer/);
+  assert.deepEqual(calls, []);
 });
