@@ -10,6 +10,7 @@ import type { DbSchemaResult } from '../../src/db-schema';
 import type { DiagramEdge, DiagramNode, GraphStatus, SymbolRef, ViewResult, ViewWarning } from '../../src/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
+import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, ResolvedView } from './rules/types';
 import { tablesView, type ViewFileEntry } from './view-file';
 
@@ -18,6 +19,7 @@ export const MAX_WARNINGS = 200;
 export interface ComputeDeps {
   evaluate: (view: ResolvedView) => Promise<EvaluateOutput>;
   sqlalchemy?: () => Promise<DbSchemaResult>;
+  sql?: () => Promise<DbSchemaResult>;
   findSymbols: (queries: SymbolQuery[]) => Promise<(SymbolRef | null)[]>;
   graph: GraphStatus;
   workspaceId?: string;
@@ -32,10 +34,11 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   const { view, summary } = entry;
   // Views with only builtins (e.g. a plain sqlalchemy tables view) do not need the engine.
   const evaluated = view.rules.length > 0 || view.graph !== null;
-  const [output, schema] = await Promise.all([
+  const [output, schemas] = await Promise.all([
     evaluated ? deps.evaluate(view) : EMPTY,
-    view.builtins.includes('sqlalchemy') && deps.sqlalchemy ? deps.sqlalchemy() : null,
+    Promise.all(TS_EXTRACTORS.filter(name => view.builtins.includes(name) && deps[name]).map(name => deps[name]!())),
   ]);
+  const schema = schemas.length ? combineSchemas(schemas) : null;
   const tables = schema ? tablesView(databaseView(schema, deps.graph), summary, view) : null;
   const merged = tables ? mergeTables(output, tables) : { nodes: output.nodes, edges: output.edges };
   const warnings: ViewWarning[] = [...output.warnings, ...tables?.warnings ?? []];
@@ -79,4 +82,11 @@ export async function linkSymbols(result: ViewResult, findSymbols: ComputeDeps['
   const symbols = await findSymbols(queries.filter(q => q !== null));
   let found = 0;
   return { ...result, nodes: result.nodes.map((n, i) => (queries[i] ? { ...n, symbol: symbols[found++] ?? null } : n)) };
+}
+
+/** Preserve extractor groups (and their edge identities) when composing the Database view. */
+export function combineSchemas(schemas: DbSchemaResult[]): DbSchemaResult {
+  return { workspaceId: schemas[0]?.workspaceId ?? '', scannedAt: Math.max(0, ...schemas.map(s => s.scannedAt)),
+    filesScanned: schemas.reduce((n, s) => n + s.filesScanned, 0), filesParsed: schemas.reduce((n, s) => n + s.filesParsed, 0),
+    truncated: schemas.some(s => s.truncated), groups: schemas.flatMap(s => s.groups), warnings: schemas.flatMap(s => s.warnings).slice(0, MAX_WARNINGS) };
 }

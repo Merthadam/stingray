@@ -56,6 +56,9 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
     await writeFile(path.join(root, '.stingray/views/x.json'), '{}');
     await until('view file change', () => seen.some(c => c.files.includes('.stingray/views/x.json')));
 
+    await writeFile(path.join(root, 'schema.sql'), 'CREATE TABLE watched (id INT);');
+    await until('SQL file change with live child', () => seen.some(c => c.files.includes('schema.sql')));
+
     // A crash turns the graph unavailable, then the host respawns the child on its own.
     children[0].kill('SIGKILL');
     await state(graph, 'unavailable');

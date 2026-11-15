@@ -41,6 +41,7 @@ function harness(root: string, overrides: Partial<CliDeps> = {}) {
     openGraph: async () => ({ api: null, status: { state: 'unavailable', message: 'no .codegraph index' }, close: () => { calls.closed++; } }),
     grammarDir: () => '/grammars',
     dbSchema: async () => { throw new Error('not used'); },
+    sqlSchema: async () => { throw new Error('not used'); },
     skillFile: path.resolve('agents/skills/stingray-views/SKILL.md'), version: '9.9.9', ...overrides,
   };
   return { deps, out, err, calls, run: (...argv: string[]) => runCli(argv, deps) };
@@ -66,6 +67,7 @@ test('views-cli: --version, help prints SKILL.md, sets lists the TypeScript extr
   assert.equal(h.out[1], await readFile('agents/skills/stingray-views/SKILL.md', 'utf8'));
   assert.match(h.out[1], /^---\nname: stingray-views\ndescription: /);
   assert.match(h.out[2], /^sqlalchemy {2}/);
+  assert.match(h.out[3], /^sql {2}SQL DDL/);
 });
 
 test('views-cli check: evaluates with the worktree root, prints diagnostics and the diagram, exits 0', async () => {
@@ -201,10 +203,13 @@ test('build-electron bundles views-cli.cjs and copies the skills dir; the bundle
   const root = await repo();
   try {
     await writeFile(path.join(root, 'models.py'), 'from sqlalchemy.orm import DeclarativeBase\nclass Base(DeclarativeBase):\n    pass\nclass User(Base):\n    __tablename__ = "users"\n');
-    await writeFile(path.join(root, '.stingray/views/flow.yaml'), 'version: 1\nname: Mixed\nkind: tables\nuse: [sqlalchemy]\nrules:\n' +
+    await writeFile(path.join(root, 'schema.sql'), 'CREATE TABLE sql_users (id INT PRIMARY KEY);');
+    await writeFile(path.join(root, '.stingray/views/flow.yaml'), 'version: 1\nname: Mixed\nkind: tables\nuse: [sqlalchemy, sql]\nrules:\n' +
       '  - { id: cls, language: python, query: "(class_definition name: (identifier) @n)", emit: { node: { id: "@n", detail: "class @n" } } }\n');
     const text = execFileSync('node', ['dist-electron/views-cli.cjs', 'check', path.join(root, '.stingray/views/flow.yaml')], { encoding: 'utf8' });
     assert.match(text, /^ {2}users — User · class User$/m);
+    assert.match(text, /sql_users/);
+    assert.match(text, /id: INT \[PK\]/);
     assert.match(text, /^ {2}Base · class Base$/m);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -110,8 +110,9 @@ test('computeView filters membership and links symbols only when the graph is re
 
 test('extraction is cached across views until a python file changes', async t => {
   const { root, host, service } = await setup(t);
-  const first = await service.computeView('ws', root, 'database');
-  assert.equal((await service.computeView('ws', root, 'core')).computedAt, first.computedAt);
+  await service.computeView('ws', root, 'database');
+  const first = await service.computeView('ws', root, 'core');
+  assert.equal((await service.computeView('ws', root, 'audit')).computedAt, first.computedAt);
   await writeFile(path.join(root, 'app/models/tag.py'), model('Tag', 'tags'));
   host.graphs.get('ws')!.change('app/models/tag.py');
   const again = await service.computeView('ws', root, 'core');
@@ -268,8 +269,33 @@ test('changes re-queue rule views by scope and rule files, graph views on any co
   await service.listViews('ws', root);
   const graph = host.graphs.get('ws')!;
   const after = async (...files: string[]) => { events.length = 0; graph.change(...files); await settle(150, events); return events.map(e => e.viewIds); };
-  assert.deepEqual(await after('app/flows/a.ts'), [['calls', 'flow', 'steps']]);
-  assert.deepEqual(await after('app/other.ts'), [['calls', 'flow']]);
-  assert.deepEqual(await after('lib/x.ts'), [['calls']]);
+  assert.deepEqual(await after('app/flows/a.ts'), [['calls', 'database', 'flow', 'steps']]);
+  assert.deepEqual(await after('app/other.ts'), [['calls', 'database', 'flow']]);
+  assert.deepEqual(await after('lib/x.ts'), [['calls', 'database']]);
   assert.deepEqual(await after('app/flows/b.py'), [['audit', 'calls', 'core', 'database', 'flow', 'steps']]);
+});
+
+
+test('SQL extractor merges with SQLAlchemy and invalidates cached DDL on SQL and embedded-code changes', async t => {
+  const { root, host, events, service } = await setup(t);
+  await writeFile(path.join(root, '.stingray/views/sql.yaml'), 'version: 1\nname: SQL\nkind: tables\nuse: [sql]\n');
+  await writeFile(path.join(root, '.stingray/views/all.yaml'), 'version: 1\nname: All\nkind: tables\nuse: [sqlalchemy, sql]\n');
+  await writeFile(path.join(root, 'schema.sql'), 'CREATE TABLE raw (id INT PRIMARY KEY);');
+  const all = await service.computeView('ws', root, 'all');
+  assert.deepEqual(all.nodes.map(n => n.label).sort(), ['audit', 'posts', 'raw', 'users']);
+  assert.deepEqual((await service.computeView('ws', root, 'database')).nodes.map(n => n.label).sort(), all.nodes.map(n => n.label).sort());
+  assert.equal(host.graphs.get('ws')!.evaluated.length, 0);
+  const sql = await service.computeView('ws', root, 'sql');
+  await writeFile(path.join(root, 'schema.sql'), 'CREATE TABLE changed (id INT PRIMARY KEY);');
+  assert.equal((await service.computeView('ws', root, 'sql')).computedAt, sql.computedAt);
+  host.graphs.get('ws')!.change('schema.sql');
+  await settle(30, events);
+  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'sql']);
+  assert.deepEqual((await service.computeView('ws', root, 'sql')).nodes.map(n => n.label), ['changed']);
+  events.length = 0;
+  await writeFile(path.join(root, 'embedded.ts'), 'const ddl = `CREATE TABLE embedded (id INT)`;');
+  host.graphs.get('ws')!.change('embedded.ts');
+  await settle(30, events);
+  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'sql']);
+  assert.deepEqual((await service.computeView('ws', root, 'sql')).nodes.map(n => n.label).sort(), ['changed', 'embedded']);
 });
