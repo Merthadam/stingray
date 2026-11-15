@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { applySqlConstraints, parseSqlDdl } from '../electron/sql-ddl';
+
+function tables(sql: string) {
+  const result = parseSqlDdl(sql, 'schema.sql');
+  assert.deepEqual(result.warnings, []);
+  return result.operations.filter(op => op.kind === 'create').map(op => op.table);
+}
+
+test('sql-ddl: SQLite comments, quoted identifiers, defaults, checks, generated columns and composite PK', () => {
+  const [table] = tables(`-- CREATE TABLE ignored (x);
+CREATE TEMP TABLE IF NOT EXISTS "main".[order] (
+  [a] INTEGER NOT NULL,
+  \`b\` VARCHAR(255) NULL,
+  "odd""name" NUMERIC(10, 2) DEFAULT (round(1, 2)) CHECK (a IN (1, 2)),
+  n TEXT DEFAULT 'PRIMARY KEY, NOT NULL; --' COLLATE NOCASE UNIQUE,
+  computed INT GENERATED ALWAYS AS (a + 1) STORED,
+  CONSTRAINT pk PRIMARY KEY (a,b), CHECK (a > 0), UNIQUE (a, b)
+) WITHOUT ROWID, STRICT; /* trailing */
+CREATE INDEX idx ON "order" (n); INSERT INTO "order" VALUES ('a;b');`);
+  assert.equal(table.fullName, 'main.order');
+  assert.equal(table.line, 2);
+  assert.deepEqual(table.columns.map(c => [c.name, c.type, c.primaryKey, c.nullable, c.unique]), [
+    ['a', 'INTEGER', true, false, null], ['b', 'VARCHAR(255)', true, false, null],
+    ['odd"name', 'NUMERIC(10,2)', false, null, null], ['n', 'TEXT', false, null, true], ['computed', 'INT', false, null, null],
+  ]);
+  assert.equal(table.columns[0].line, 3);
+});
+
+test('sql-ddl: PostgreSQL qualified names, composite FK and nullable states', () => {
+  const [table] = tables(`CREATE TABLE public.events (
+    id BIGINT PRIMARY KEY, owner INTEGER, tenant INTEGER NULL,
+    stamp TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    CONSTRAINT fk FOREIGN KEY (owner, tenant) REFERENCES auth.users(id, tenant) ON DELETE SET NULL ON UPDATE NO ACTION
+  );`);
+  assert.deepEqual(table.columns.map(c => c.nullable), [false, null, true, null]);
+  assert.equal(table.columns[3].type, 'TIMESTAMP WITH TIME ZONE');
+  assert.deepEqual(table.columns.slice(1, 3).map(c => c.foreignKeys[0].target), ['auth.users.id', 'auth.users.tenant']);
+  assert.equal(table.columns[1].foreignKeys[0].ondelete, 'SET NULL');
+  assert.equal(table.columns[1].foreignKeys[0].onupdate, 'NO ACTION');
+});
+
+test('sql-ddl: MySQL options, auto increment and inline references without target columns', () => {
+  const [table] = tables('CREATE TEMPORARY TABLE `items` (`id` INT PRIMARY KEY AUTO_INCREMENT, parent INT REFERENCES `parents` ON DELETE CASCADE, name TEXT, UNIQUE KEY names (name), KEY parent_idx (parent)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
+  assert.equal(table.columns.length, 3);
+  assert.equal(table.columns[1].foreignKeys[0].referencedColumn, null);
+  assert.equal(table.columns[2].unique, true);
+});
+
+test('sql-ddl: ALTER ADD COLUMN and ADD CONSTRAINT FOREIGN KEY preserve statement order', () => {
+  const result = parseSqlDdl(`CREATE TABLE t (id INT PRIMARY KEY);
+ALTER TABLE t ADD COLUMN parent INTEGER NOT NULL;
+ALTER TABLE t ADD CONSTRAINT parent_fk FOREIGN KEY (parent) REFERENCES p(id);
+ALTER TABLE t ADD title TEXT DEFAULT '';
+DROP TABLE ignored;`);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.operations.map(op => op.kind), ['create', 'alter', 'alter', 'alter']);
+  const first = result.operations[0]; assert.equal(first.kind, 'create');
+  if (first.kind !== 'create') return;
+  for (const op of result.operations.slice(1)) if (op.kind === 'alter') {
+    first.table.columns.push(...op.columns); applySqlConstraints(first.table, op.constraints);
+  }
+  assert.deepEqual(first.table.columns.map(c => c.name), ['id', 'parent', 'title']);
+  assert.equal(first.table.columns[1].foreignKeys[0].target, 'p.id');
+});
+
+test('sql-ddl: garbage and malformed statements warn without throwing and recover at semicolons', () => {
+  const result = parseSqlDdl('nonsense !!!; CREATE TABLE broken (a INT; CREATE TABLE good (id INT); CREATE TABLE bad (a INT, FOREIGN KEY (a) REFERENCES t(a,b)); /* unfinished');
+  assert.equal(result.operations.length, 1);
+  assert.equal(result.warnings.length, 4);
+  assert.ok(result.warnings.every(w => w.message.length > 0));
+  assert.equal(parseSqlDdl('garbage;'.repeat(250)).warnings.length, 200);
+  assert.doesNotThrow(() => parseSqlDdl("CREATE TABLE x (id TEXT DEFAULT 'unfinished"));
+});
+
+test('sql-ddl: key is a valid unquoted SQLite column, not a MySQL index', () => {
+  const [table] = tables('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
+  assert.deepEqual(table.columns.map(c => [c.name, c.primaryKey]), [['key', true], ['value', false]]);
+});

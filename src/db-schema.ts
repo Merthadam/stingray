@@ -1,10 +1,14 @@
 // Main <-> renderer contract for the Database tab.
-// Results come from static parsing of Python source only; repository code is never executed.
+// Results come from static parsing of Python models and SQL DDL; repository code is never executed.
 
 export interface DbForeignKey {
   target: string;               // literal as written, e.g. "users.id" or "auth.users.id"
-  targetTable: string | null;   // DbTable.fullName in the same group, or null if not found
+  targetTable: string | null;   // DbTable.fullName in targetGroup (default: same group), or null if not found
   ondelete: string | null;
+  onupdate?: string | null;
+  targetGroup?: string;         // explicit group for cross-file SQL foreign keys
+  referencedTable?: string;     // SQL target before resolution (may omit the referenced column)
+  referencedColumn?: string | null;
 }
 
 export interface DbColumn {
@@ -16,7 +20,8 @@ export interface DbColumn {
   unique: boolean | null;
   foreignKeys: DbForeignKey[];
   inheritedFrom: string | null; // mixin/abstract class name, else null
-  line: number;                 // 1-based; in DbTable.file unless inheritedFrom is set
+  file?: string;                // SQL ALTER columns can originate in a different migration file
+  line: number;                 // 1-based; in file or DbTable.file unless inheritedFrom is set
 }
 
 export interface DbRelationship {
@@ -53,8 +58,8 @@ export interface DbWarning { file: string; line: number | null; message: string 
 export interface DbSchemaResult {
   workspaceId: string;
   scannedAt: number;            // Date.now() when the scan finished
-  filesScanned: number;         // .py files read
-  filesParsed: number;          // .py files that passed the SQLAlchemy prefilter and were parsed
+  filesScanned: number;         // candidate source files read
+  filesParsed: number;          // source files that passed the extractor prefilter and were parsed
   truncated: boolean;           // an entry/file cap was hit
   groups: DbBaseGroup[];        // sorted by file, then name; [] = no models found
   warnings: DbWarning[];        // capped at 200
