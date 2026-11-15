@@ -4,13 +4,13 @@ import { open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Language, Parser, type Node } from 'web-tree-sitter';
 import type { DbBaseGroup, DbSchemaResult, DbWarning } from '../src/db-schema';
-import { applySqlConstraints, parseSqlDdl } from './sql-ddl';
+import { applySqlConstraints, parseSqlDdl, sameSqlName } from './sql-ddl';
 import { codegraphGrammarDir, GRAMMAR_FILES, initTreeSitter } from './views/rules/grammars';
 
 const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'venv', 'site-packages', 'dist', 'dist-electron', 'build']);
 const MAX_ENTRIES = 20000, MAX_FILES = 5000, MAX_FILE_BYTES = 1024 * 1024, MAX_WARNINGS = 200;
 export const isSqlSource = (file: string) => /\.(sql|ts|tsx|js|mjs|cjs|py)$/i.test(file);
-const PREFILTER = /create\s+(?:(?:temp|temporary)\s+)?table/i;
+const PREFILTER = /\b(?:create\s+(?:(?:temp|temporary)\s+)?table|alter\s+table)\b/i;
 
 /** Decode literal escapes without evaluation, retaining a source line for every decoded character. */
 function literal(text: string, startLine: number, python: boolean): { sql: string; lines: number[] } | null {
@@ -71,7 +71,8 @@ export async function extractSqlSchema(workspaceId: string, root: string, gramma
         group.tables.push(op.table);
       } else {
         const candidates = [...groups.filter(g => g.id === groupId), ...groups.filter(g => g.id !== groupId)];
-        const table = candidates.flatMap(g => g.tables).find(t => t.fullName === op.table);
+        const tables = candidates.flatMap(g => g.tables);
+        const table = tables.find(t => t.fullName === op.table) ?? tables.find(t => sameSqlName(t.fullName, op.table));
         if (!table) { warn(file, op.line, `ALTER TABLE ${op.table}: table not found`); continue; }
         for (const column of op.columns) {
           if (table.columns.some(c => c.name === column.name)) warn(file, column.line, `Duplicate column ${column.name} on ${table.fullName}`);
@@ -110,13 +111,15 @@ export async function extractSqlSchema(workspaceId: string, root: string, gramma
         filesParsed++;
         try {
           const visit = (node: Node) => {
-            if (node.type === 'string' || node.type === 'template_string') {
-              if (!/\b(create\s+(?:(?:temp|temporary)\s+)?table|alter\s+table)\b/i.test(node.text)) return;
-              if (node.namedChildren.some(c => c?.type === 'template_substitution' || c?.type === 'interpolation')) {
+            if (node.type === 'string' || node.type === 'template_string' || node.type === 'concatenated_string') {
+              if (!PREFILTER.test(node.text)) return;
+              // Python implicit concatenation ("CREATE TABLE t (" "id INT)") is one SQL value.
+              const parts = node.type === 'concatenated_string' ? node.namedChildren.filter(c => c?.type === 'string') : [node];
+              if (parts.some(p => p?.namedChildren.some(c => c?.type === 'template_substitution' || c?.type === 'interpolation'))) {
                 warn(file, node.startPosition.row + 1, 'Skipped SQL string with substitutions'); return;
               }
-              const value = literal(node.text, node.startPosition.row + 1, language === 'python');
-              if (value) parse(value.sql, file, value.lines);
+              const values = parts.map(p => p && literal(p.text, p.startPosition.row + 1, language === 'python'));
+              if (values.every(v => v)) parse(values.map(v => v!.sql).join(''), file, values.flatMap(v => v!.lines));
               return;
             }
             for (const child of node.namedChildren) if (child) visit(child);
@@ -131,15 +134,16 @@ export async function extractSqlSchema(workspaceId: string, root: string, gramma
     const candidates = [group, ...groups.filter(g => g !== group)];
     let found: { group: DbBaseGroup; table: typeof table } | undefined;
     for (const g of candidates) {
-      const target = g.tables.find(t => t.fullName === fk.referencedTable) ??
-        g.tables.find(t => !fk.referencedTable?.includes('.') && t.name === fk.referencedTable);
+      const ref = fk.referencedTable ?? '';
+      const target = g.tables.find(t => t.fullName === ref) ?? g.tables.find(t => sameSqlName(t.fullName, ref)) ??
+        g.tables.find(t => !ref.includes('.') && sameSqlName(t.name, ref));
       if (target) { found = { group: g, table: target }; break; }
     }
     if (!found) continue;
     fk.targetTable = found.table.fullName; fk.targetGroup = found.group.id;
     // REFERENCES t without a column targets its primary key when it is unambiguous.
-    const primary = found.table.columns.filter(c => c.primaryKey);
-    if (fk.referencedColumn === null && primary.length === 1) fk.referencedColumn = primary[0].name;
+    const primary = found.table.columns.filter(c => c.primaryKey), column = fk.referencedColumn ?? (primary.length === 1 ? primary[0].name : null);
+    fk.referencedColumn = column && (found.table.columns.find(c => sameSqlName(c.name, column))?.name ?? column);
   }
   groups.sort((a, b) => a.id < b.id ? -1 : 1);
   for (const group of groups) group.tables.sort((a, b) => a.fullName < b.fullName ? -1 : 1);

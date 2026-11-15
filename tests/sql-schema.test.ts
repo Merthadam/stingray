@@ -82,3 +82,15 @@ test('sql-schema: same-file targets win over other SQL groups, implicit referenc
   assert.equal(view.edges[0].to, 'sql:b.sql#parents'); assert.equal(view.edges[0].toField, 'id');
   assert.deepEqual(view.warnings, []);
 });
+
+test('sql-schema: names resolve case-insensitively, Python implicit concatenation and ALTER-only sources are read', async t => {
+  const root = await repo(t, {
+    'a.py': 'ddl = ("CREATE TABLE Users ("\n       "ID INT PRIMARY KEY)")',
+    'b.ts': 'export const up = "ALTER TABLE users ADD team INT REFERENCES USERS(id)";',
+  });
+  const result = await extractSqlSchema('w', root);
+  assert.deepEqual(result.warnings, []);
+  const view = databaseView(result);
+  assert.deepEqual(view.nodes[0].fields.map(f => [f.label, f.source?.file, f.source?.line]), [['ID', 'a.py', 2], ['team', 'b.ts', 1]]);
+  assert.deepEqual(view.edges.map(e => [e.to, e.toField]), [['sql:a.py#Users', 'ID']]);
+});
