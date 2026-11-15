@@ -2,11 +2,12 @@
 // Electron's main process on macOS gets a minimal PATH, so standard install folders and app bundles are checked too.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { access, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import type { EditorId, EditorSettings } from '../src/views';
+import { database } from './database';
 
 export const EDITOR_IDS = ['repo-map', 'vscode', 'cursor', 'zed', 'system'] as const satisfies readonly EditorId[];
 const CLIS: Record<Exclude<EditorId, 'system' | 'repo-map'>, { command: string; bundle: string }> = {
@@ -37,9 +38,9 @@ const launch = (file: string, args: string[]) => new Promise<void>((resolve, rej
 
 export class EditorService {
   private readonly deps: EditorDeps;
-  private readonly file: string;
+  private readonly directory: string;
   constructor(directory: string, deps: Partial<EditorDeps> & Pick<EditorDeps, 'showItemInFolder'>) {
-    this.file = path.join(directory, 'editor.json');
+    this.directory = directory;
     this.deps = { env: process.env, isExecutable, launch, ...deps };
   }
 
@@ -64,10 +65,8 @@ export class EditorService {
   }
 
   async select(editor: EditorId): Promise<EditorSettings> {
-    const text = JSON.stringify(settingsSchema.parse({ selected: editor }));
-    await mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
-    await writeFile(this.file + '.tmp', text, { mode: 0o600 });
-    await rename(this.file + '.tmp', this.file);
+    const { selected } = settingsSchema.parse({ selected: editor });
+    database(this.directory).prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('editor', selected);
     return this.settings();
   }
 
@@ -87,7 +86,10 @@ export class EditorService {
   }
 
   private async saved(): Promise<EditorId | null> {
-    try { return settingsSchema.parse(JSON.parse(await readFile(this.file, 'utf8'))).selected; } catch { return null; }
+    try {
+      const row = database(this.directory).prepare('SELECT value FROM settings WHERE key = ?').get('editor') as { value: string } | undefined;
+      return row ? settingsSchema.parse({ selected: row.value }).selected : null;
+    } catch { return null; }
   }
 }
 

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { idSchema, urlSchema, repoPathSchema, removalConsentSchema } from '../src/shared';
 import { Store } from './store';
+import { closeDatabase } from './database';
 import { GitService } from './git';
 import { Terminals } from './terminals';
 import { openTerminalLink } from './terminal-links';
@@ -216,5 +217,5 @@ let cleanedUp = false;
 app.on('will-quit', event => {
   if (cleanedUp) return;
   event.preventDefault(); terminals.closeAll();
-  void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { cleanedUp = true; app.quit(); });
+  void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { closeDatabase(app.getPath('userData')); cleanedUp = true; app.quit(); });
 });
