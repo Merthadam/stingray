@@ -5,6 +5,7 @@ import type { Workspace } from './shared';
 import type { ViewKind, ViewLocalState, ViewResult, ViewSummary } from './views';
 import { EMPTY_LOCAL_STATE } from './views-ui/types';
 import { ErDiagram } from './views-ui/ErDiagram';
+import { FlowDiagram } from './views-ui/FlowDiagram';
 import { TextViewFallback } from './views-ui/TextViewFallback';
 import { DiagnosticsDrawer } from './views-ui/DiagnosticsDrawer';
 import { SaveViewDialog } from './views-ui/SaveViewDialog';
@@ -119,6 +120,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     <EditorPicker />
   </>;
 
+  const Diagram = result?.kind === 'flow' ? FlowDiagram : ErDiagram;
   let main;
   if (!list) main = listError ? <Empty title="Couldn’t list the views" detail={listError} onRetry={() => void loadList()} />
     : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /><p>Loading views…</p></div>;
@@ -134,9 +136,9 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     {view?.error && <div className="inline-error views-banner" role="alert">{view.error} · Showing the last result.
       <button className="secondary" onClick={() => void loadView(summary.id)}>Retry</button></div>}
     <div className="views-content">
-      {result.kind !== 'tables' ? <TextViewFallback result={result} toolbar={tools} />
+      {result.kind !== 'tables' && result.kind !== 'flow' ? <TextViewFallback result={result} toolbar={tools} />
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
-          <ErDiagram key={`${ws}:${current}`} result={result} initialState={local.state} onStateChange={onStateChange}
+          <Diagram key={`${ws}:${current}`} result={result} initialState={local.state} onStateChange={onStateChange}
             onOpenSource={onOpenSource} onSaveAs={setSaveAs} toolbarExtra={tools} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}
     </div>
