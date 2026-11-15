@@ -10,7 +10,7 @@ import type { GraphStatus, ViewSummary, ViewWarning } from '../src/views';
 import type { Evaluate, FileProvider, GraphApi } from './views/rules/types';
 import { computeView } from './views/compute';
 import { formatText } from '../src/views-text';
-import { BUILTIN_SETS, TS_EXTRACTORS } from './views/sets';
+import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from './views/sets';
 import { listViewFiles, loadViewPath } from './views/view-file';
 
 type LoadedView = Awaited<ReturnType<typeof loadViewPath>>;
@@ -26,6 +26,7 @@ export interface CliDeps {
   openGraph: (root: string) => Promise<OpenedGraph>;
   grammarDir: () => string;
   dbSchema: (root: string) => Promise<DbSchemaResult>; // the `sqlalchemy` extractor
+  sqlSchema: (root: string) => Promise<DbSchemaResult>;
   skillFile: string;
   version: string;
 }
@@ -66,7 +67,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
       if (rest.length) return usage();
-      for (const name of TS_EXTRACTORS) deps.out(`${name}  SQLAlchemy models as tables (TypeScript extractor)`);
+      for (const name of TS_EXTRACTORS) deps.out(`${name}  ${EXTRACTOR_DESCRIPTIONS[name]}`);
       for (const [name, set] of Object.entries(BUILTIN_SETS).sort(([a], [b]) => a.localeCompare(b))) deps.out(`${name}${set.preview ? '  (preview)' : ''}  ${set.description}`);
       return 0;
     }
@@ -108,7 +109,7 @@ async function check(input: string, json: boolean, deps: CliDeps): Promise<numbe
   let result;
   try {
     result = await computeView({ ...loaded, view: loaded.view }, {
-      graph: graph.status, sqlalchemy: () => deps.dbSchema(root),
+      graph: graph.status, sqlalchemy: () => deps.dbSchema(root), sql: () => deps.sqlSchema(root),
       evaluate: view => deps.evaluate({ view, files: deps.createFileProvider(root), graph: api, graphStatus: graph.status, grammarDir: deps.grammarDir() }),
       findSymbols: async queries => queries.map(q => {
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
@@ -175,12 +176,14 @@ async function main() {
   process.env.CODEGRAPH_TELEMETRY = '0'; process.env.CODEGRAPH_NO_UPDATE_CHECK = '1';
   const [{ evaluate }, { codegraphGrammarDir }, { createFileProvider }, { extractDbSchema }] = await Promise.all([
     import('./views/rules/engine'), import('./views/rules/grammars'), import('./views/rules/files'), import('./db-schema')]);
+  const { extractSqlSchema } = await import('./sql-schema');
   let version = '';
   try { version = JSON.parse(await readFile(path.join(__dirname, '../package.json'), 'utf8')).version; } catch { /* unknown */ }
   const deps: CliDeps = {
     cwd: process.cwd(), out: text => process.stdout.write(text + '\n'), err: text => process.stderr.write(text + '\n'),
     loadViewPath, listViews: listViewFiles, evaluate, createFileProvider, openGraph, grammarDir: codegraphGrammarDir,
     dbSchema: root => extractDbSchema('cli', root, path.join(__dirname, 'tree-sitter-python.wasm')),
+    sqlSchema: root => extractSqlSchema('cli', root),
     skillFile: path.join(__dirname, 'skills/stingray-views/SKILL.md'), version,
   };
   let code: number;

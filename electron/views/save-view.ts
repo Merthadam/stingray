@@ -27,7 +27,7 @@ async function viewsDir(root: string) {
 }
 
 async function baseDocument(root: string, basedOn: string): Promise<Document> {
-  if (basedOn === 'database') return new Document({ version: 1, name: '', kind: 'tables', use: ['sqlalchemy'] });
+  if (basedOn === 'database') return new Document({ version: 1, name: '', kind: 'tables', use: ['sqlalchemy', 'sql'] });
   if (!VIEW_SLUG.test(basedOn)) throw new Error(`Unknown view: ${basedOn}`);
   const file = `${VIEWS_DIR}/${basedOn}.yaml`;
   let read;

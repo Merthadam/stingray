@@ -87,11 +87,11 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
     start() {
       this.active = true;
       this.setStatus('starting', null);
-      // CodeGraph's watcher only reports source files, so view files are watched here.
+      // CodeGraph only reports indexed sources; view files and SQL DDL need this watcher too.
       try {
         const watcher = this.watcher = watch(this.root, { recursive: true }, (_event, filename) => {
           const file = filename?.toString().replaceAll('\\', '/');
-          if (!file || !(file.startsWith('.stingray/') || (!child && !ignoredDirs.has(file.split('/')[0])))) return;
+          if (!file || !(file.startsWith('.stingray/') || (/\.sql$/i.test(file) && !file.split('/').some(dir => ignoredDirs.has(dir))) || (!child && !ignoredDirs.has(file.split('/')[0])))) return;
           this.changed.add(file); clearTimeout(this.timer);
           this.timer = setTimeout(() => { const files = [...this.changed]; this.changed.clear(); this.emit(files); }, debounceMs);
         });

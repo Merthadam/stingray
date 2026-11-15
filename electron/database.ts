@@ -19,38 +19,44 @@ const legacyViewStateSchema = z.strictObject({
   views: z.record(z.string().max(400), z.strictObject({ updatedAt: z.number(), state: viewLocalStateSchema })),
 });
 
-/** Primary key column. */
-const PK = (type = 'TEXT') => `${type} PRIMARY KEY`;
-/** Foreign key to `table`.id; rows go with their parent. */
-const FK = (table: string, type = 'TEXT NOT NULL') => `${type} REFERENCES ${table}(id) ON DELETE CASCADE`;
-
-// Tables of migration 1: `column: definition`; quoted keys are table constraints. Never edit a shipped schema: add
-// SCHEMA_V2 (columns/tables to add) with a new migration. .stingray/views/persisted-state.yaml reads these objects.
-const SCHEMA_V1: Record<string, Record<string, string>> = {
-  repos: { id: PK(), name: 'TEXT NOT NULL', path: 'TEXT NOT NULL', position: 'INTEGER NOT NULL' },
-  workspaces: {
-    id: PK(), repo_id: FK('repos'), name: 'TEXT NOT NULL', branch: 'TEXT NOT NULL', path: 'TEXT NOT NULL',
-    managed: 'INTEGER NOT NULL CHECK (managed IN (0, 1))', preview_url: "TEXT NOT NULL DEFAULT ''", position: 'INTEGER NOT NULL',
-  },
-  view_state: {
-    workspace_id: FK('workspaces'), view_id: 'TEXT NOT NULL',
-    hidden: 'TEXT NOT NULL', positions: 'TEXT NOT NULL', expanded: 'TEXT NOT NULL', // JSON, always read whole
-    updated_at: 'INTEGER NOT NULL', 'PRIMARY KEY': '(workspace_id, view_id)',
-  },
-  settings: { key: PK(), value: 'TEXT NOT NULL' },
-};
-
-const createTables = (db: DatabaseSync, tables: Record<string, Record<string, string>>) => {
-  for (const [table, columns] of Object.entries(tables)) {
-    db.exec(`CREATE TABLE ${table} (${Object.entries(columns).map(([name, definition]) => `${name} ${definition}`).join(', ')}) STRICT`);
-  }
-};
+// Never edit a shipped schema: add SCHEMA_V2 with a new migration.
+const SCHEMA_V1 = `
+CREATE TABLE repos (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL,
+  position INTEGER NOT NULL
+) STRICT;
+CREATE TABLE workspaces (
+  id TEXT PRIMARY KEY,
+  repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  path TEXT NOT NULL,
+  managed INTEGER NOT NULL CHECK (managed IN (0, 1)),
+  preview_url TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL
+) STRICT;
+CREATE TABLE view_state (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  view_id TEXT NOT NULL,
+  hidden TEXT NOT NULL, -- hidden, positions and expanded are JSON, always read whole
+  positions TEXT NOT NULL,
+  expanded TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (workspace_id, view_id)
+) STRICT;
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) STRICT;
+CREATE INDEX workspaces_repo ON workspaces(repo_id);
+`;
 
 type Migration = (db: DatabaseSync, directory: string, imported: string[]) => void;
 const MIGRATIONS: Migration[] = [
   (db, directory, imported) => {
-    createTables(db, SCHEMA_V1);
-    db.exec('CREATE INDEX workspaces_repo ON workspaces(repo_id)');
+    db.exec(SCHEMA_V1);
     importLegacyJson(db, directory, imported);
   },
 ];

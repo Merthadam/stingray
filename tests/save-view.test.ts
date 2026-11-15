@@ -30,14 +30,14 @@ test('saveViewAs writes a tables view from the builtin database view', async t =
   assert.match(text, /users: \{ x: 10, y: -20.5 \}/);
   const def = parseViewYaml(text, result.file);
   assert.equal(def.name, 'Core tables'); assert.equal(def.kind, 'tables');
-  assert.deepEqual(def.use.map(u => u.name), ['sqlalchemy']);
+  assert.deepEqual(def.use.map(u => u.name), ['sqlalchemy', 'sql']);
   assert.deepEqual(def.exclude, ['audit']);
   assert.deepEqual(def.layout, { positions: { users: { x: 10, y: -20.5 } } });
   // Readable as a view and carrying its layout.
   assert.deepEqual((await readViewFile(root, 'core-tables'))?.layout, { positions: { users: { x: 10, y: -20.5 } } });
 
   const plain = await saveViewAs(root, { name: 'Plain', basedOn: 'database', exclude: [], layout: null });
-  assert.equal(await read(root, plain.file), 'version: 1\nname: Plain\nkind: tables\nuse:\n  - sqlalchemy\n');
+  assert.equal(await read(root, plain.file), 'version: 1\nname: Plain\nkind: tables\nuse:\n  - sqlalchemy\n  - sql\n');
 });
 
 test('saveViewAs copies a repo view keeping comments, merging exclude and replacing layout', async t => {

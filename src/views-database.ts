@@ -5,7 +5,7 @@ import type { DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, ViewResult, V
 
 export const DATABASE_VIEW: ViewSummary = {
   id: 'database', name: 'Database', kind: 'tables',
-  description: 'SQLAlchemy models in this worktree, read statically', builtin: true, file: null, error: null,
+  description: 'SQLAlchemy models and SQL tables in this worktree, read statically', builtin: true, file: null, error: null,
 };
 
 const MAX_WARNINGS = 200;
@@ -20,6 +20,7 @@ export function databaseView(result: DbSchemaResult, graph: GraphStatus = { stat
   const nodeId = (groupId: string, fullName: string) => `${groupId}#${fullName}`;
   let foreignKeys = 0, relationships = 0;
 
+  const groupTables = new Map(result.groups.map(g => [g.id, new Map(g.tables.map(t => [t.fullName, t]))]));
   for (const group of result.groups) {
     groups.push({
       id: group.id, label: group.name,
@@ -43,25 +44,26 @@ export function databaseView(result: DbSchemaResult, graph: GraphStatus = { stat
             .filter(Boolean).join(' · ') || null;
           return {
             id: c.attribute, label: c.name, type: c.type, badges, detail,
-            source: c.inheritedFrom === null ? { file: table.file, line: c.line } : null,
+            source: c.inheritedFrom === null ? { file: c.file ?? table.file, line: c.line } : null,
           };
         }),
       });
 
       for (const column of table.columns) {
-        const source = column.inheritedFrom === null ? { file: table.file, line: column.line } : null;
+        const source = column.inheritedFrom === null ? { file: column.file ?? table.file, line: column.line } : null;
         column.foreignKeys.forEach((fk, index) => {
-          const target = fk.targetTable === null ? undefined : tables.get(fk.targetTable);
+          const targetGroup = fk.targetGroup ?? group.id;
+          const target = fk.targetTable === null ? undefined : groupTables.get(targetGroup)?.get(fk.targetTable);
           if (!target) {
             warn({ file: source?.file ?? null, line: source?.line ?? null,
               message: `Foreign key ${fk.target} on ${table.model}.${column.attribute}: target table not found` });
             return;
           }
-          const targetName = fk.target.split('.').pop();
+          const targetName = fk.referencedColumn === undefined ? fk.target.split('.').pop() : fk.referencedColumn;
           edges.push({
             id: `fk:${id}:${column.attribute}:${index}`, kind: 'foreign-key', style: 'solid', certain: true,
             from: id, fromField: column.attribute,
-            to: nodeId(group.id, target.fullName),
+            to: nodeId(targetGroup, target.fullName),
             toField: target.columns.find(c => c.name === targetName)?.attribute ?? null,
             label: fk.ondelete ? `on delete ${fk.ondelete}` : null, source,
           });

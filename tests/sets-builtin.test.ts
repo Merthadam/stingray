@@ -7,7 +7,7 @@ import { evaluate } from '../electron/views/rules/engine';
 import { createFileProvider } from '../electron/views/rules/files';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 import { parseRuleFileYaml } from '../electron/views/rules/schema';
-import { BUILTIN_SETS } from '../electron/views/sets';
+import { BUILTIN_SETS, TS_EXTRACTORS, EXTRACTOR_DESCRIPTIONS } from '../electron/views/sets';
 
 const fixtures = path.join(import.meta.dirname, 'fixtures/views');
 const KINDS: Record<string, ViewKind> = { alembic: 'timeline', langgraph: 'flow', terraform: 'graph', cdk: 'graph' };
@@ -77,4 +77,9 @@ test('cdk: stacks, constructs grouped by stack, grants, props and dependencies',
     'Api ..> Handler', 'Api -> Exports', 'ApiStack ..> Trips', 'ApiStack ..> Uploads', 'ApiStack -> DataStack',
     'ExportWorker ..> Uploads [grantPut]', 'ExportWorker -> Exports [grantConsumeMessages]',
     'Handler ..> Trips [grantReadWriteData]', 'Handler -> Exports [grantSendMessages]', 'Uploads ..> AccessLogs'].sort());
+});
+
+test('TypeScript extractor sets include SQL with a distinct description', () => {
+  assert.deepEqual(TS_EXTRACTORS, ['sqlalchemy', 'sql']);
+  assert.match(EXTRACTOR_DESCRIPTIONS.sql, /SQL DDL/);
 });
