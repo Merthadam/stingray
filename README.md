@@ -92,6 +92,7 @@ npm start
 - `npm run dev`: builds the Electron main/preload files, starts Vite on `127.0.0.1:5178`, then launches Electron. Renderer changes hot-reload; main/preload changes require restarting this command.
 - `npm run dev:ui`: starts **only a simulated browser demo**, at `http://127.0.0.1:5178/`. It cannot access real repositories or execute shell commands. Its preview uses a restricted iframe, not the native browser engine's workspace sessions.
 - Port 5178 is strict: stop your own existing demo/dev server before starting another. Neither command automatically finds a different port.
+- `scripts/test-env.sh up [--ref origin/main] [--repo PATH] [--detach]`: disposable Docker/Colima test environment (Linux Electron under Xvfb) with a Chrome DevTools endpoint on `127.0.0.1:9222`; `scripts/test-env.sh down --all` removes it. Use this instead of packaged candidate copies. See `.agents/skills/run-local/SKILL.md`.
 
 ## Use
 
