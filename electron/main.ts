@@ -12,6 +12,15 @@ import { PortService } from './ports';
 import { PullRequestService } from './pull-requests';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
+import { extractDbSchema } from './db-schema';
+import type { DbSchemaResult } from '../src/db-schema';
+import { ViewService } from './views';
+import { createCodeGraphProcessHost } from './codegraph-process';
+import { installLauncher } from './views/launcher';
+import { saveViewAs } from './views/save-view';
+import { positionsSchema } from './views/rules/schema';
+import { ViewStateStore, viewLocalStateSchema } from './view-state';
+import { EDITOR_IDS, EditorService } from './editors';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -25,15 +34,22 @@ let quitting = false;
 let cloning = false;
 let openingLink = false;
 const store = new Store(app.getPath('userData'));
+const viewState = new ViewStateStore(app.getPath('userData'));
+const editors = new EditorService(app.getPath('userData'), { showItemInFolder: file => shell.showItemInFolder(file) });
 const activity = new ActivityService(snapshot => { if (win && !win.isDestroyed()) win.webContents.send('activity-event', snapshot); });
 const activityShell = new ActivityShell();
 let visibleTerminals = new Set<string>();
 const terminals = new Terminals(event => { if (win && !win.isDestroyed()) win.webContents.send('terminal-event', event); }, activity, activityShell);
-const git = new GitService(store, id => terminals.hasWorkspace(id));
+const git = new GitService(store, id => terminals.hasWorkspace(id), {
+  // Stop the worktree's code graph (its .codegraph cache) before the folder is cleaned and removed.
+  beforeRemove: id => views.release(id), removeFailed: id => views.reopen(id),
+});
 const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
 const pullRequests = new PullRequestService();
+const views = new ViewService({ host: createCodeGraphProcessHost(), grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
+  emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
 
 function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
   ipcMain.handle(name, (event, ...args) => {
@@ -51,10 +67,15 @@ function lockSession(partition: string) {
   guest.on('will-download', event => event.preventDefault());
 }
 app.whenReady().then(async () => {
+  // `stingray-views` for agents in Stingray terminals; views-cli.cjs sits next to codegraph-worker.cjs (asar is off).
+  // Installed before the zsh proxies, which keep its directory on PATH after the user's rc files.
+  const viewsBin = path.join(app.getPath('userData'), 'bin');
+  await installLauncher({ binDir: viewsBin, execPath: process.execPath, cliPath: path.join(__dirname, 'views-cli.cjs') })
+    .then(() => { terminals.viewsBin = viewsBin; }, error => console.error('Could not install stingray-views:', error));
   try {
     if (process.platform !== 'win32') {
       await activity.start();
-      await activityShell.prepare(activity.directory, path.join(__dirname, 'pi-extension.js'));
+      await activityShell.prepare(activity.directory, path.join(__dirname, 'pi-extension.js'), terminals.viewsBin);
     }
   } catch { activityShell.startup = ''; await activity.close(); }
   win = new BrowserWindow({
@@ -99,10 +120,40 @@ app.whenReady().then(async () => {
   });
   handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
   handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
-  handle('remove-workspace', z.tuple([idSchema, z.string().max(200), removalConsentSchema]), (id, confirmation, consent) => git.removeWorkspace(id, confirmation, consent));
+  handle('remove-workspace', z.tuple([idSchema, z.string().max(200), removalConsentSchema]), async (id, confirmation, consent) => {
+    const state = await git.removeWorkspace(id, confirmation, consent);
+    await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
+    return state;
+  });
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
   handle('repo-snapshot', z.tuple([idSchema, snapshotHintSchema.optional()]), (id, hint) => git.repoSnapshot(id, hint));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
+  // Static parse only; concurrent requests for the same workspace share one scan.
+  const dbScans = new Map<string, Promise<DbSchemaResult>>();
+  handle('db-schema', z.tuple([idSchema]), (id: string) => {
+    let scan = dbScans.get(id);
+    if (!scan) {
+      scan = git.workspace(id).then(w => extractDbSchema(id, w.path, path.join(__dirname, 'tree-sitter-python.wasm')))
+        .finally(() => dbScans.delete(id));
+      dbScans.set(id, scan);
+    }
+    return scan;
+  });
+  handle('views', z.tuple([idSchema]), async (id: string) => views.listViews(id, (await git.workspace(id)).path));
+  // ViewService shares concurrent computations of the same view.
+  handle('view', z.tuple([idSchema, z.string().regex(/^[a-z0-9-]{1,64}$/)]), async (id: string, viewId: string) =>
+    views.computeView(id, (await git.workspace(id)).path, viewId));
+  const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
+  handle('view-state', z.tuple([idSchema, viewIdSchema]), (id: string, viewId: string) => viewState.get(id, viewId));
+  handle('save-view-state', z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), (id, viewId, state) => viewState.set(id, viewId, state));
+  handle('save-view-as', z.tuple([idSchema, z.strictObject({
+    name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
+    layout: z.strictObject({ positions: positionsSchema }).nullable(),
+  })]), async (id, input) => saveViewAs((await git.workspace(id)).path, input));
+  handle('editor-settings', z.tuple([]), () => editors.settings());
+  handle('set-editor', z.tuple([z.enum(EDITOR_IDS)]), editor => editors.select(editor));
+  handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
+    editors.openSource((await git.workspace(id)).path, file, line));
   handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
   handle('containers', z.tuple([]), () => containers.list());
   handle('ports', z.tuple([]), () => ports.list());
@@ -165,5 +216,5 @@ let cleanedUp = false;
 app.on('will-quit', event => {
   if (cleanedUp) return;
   event.preventDefault(); terminals.closeAll();
-  void activity.close().finally(() => { cleanedUp = true; app.quit(); });
+  void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { cleanedUp = true; app.quit(); });
 });

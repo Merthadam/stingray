@@ -8,14 +8,14 @@ import * as pty from 'node-pty';
 import { ActivityShell, shellQuote } from '../electron/activity-shell';
 
 const exec = promisify(execFile);
-async function fixture() {
+async function fixture(views = '') {
   const root = await mkdtemp('/tmp/stingray-shell-');
   const home = path.join(root, "home space ' quote"), bin = path.join(root, 'real bin'), bridge = path.join(root, 'bridge');
   await Promise.all([mkdir(home), mkdir(bin), mkdir(bridge)]);
   const record = path.join(root, 'args.json');
   await writeFile(path.join(bin, 'pi'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify({args:process.argv.slice(2), marker:process.env.MARKER, run:process.env.STINGRAY_PI_RUN, zdot:process.env.ZDOTDIR}));`, { mode: 0o700 });
   const extension = path.join(root, "extension '; echo BAD; '.js");
-  const shell = new ActivityShell(); await shell.prepare(bridge, extension);
+  const shell = new ActivityShell(); await shell.prepare(bridge, extension, views && path.join(root, views));
   const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TERM: 'xterm-256color', STINGRAY_PI_RUN: 'inherited-parent', STINGRAY_PI_PID: '1' };
   const run = (command: string, tty = true): Promise<{ stdout: string }> => {
     const options = { env: { ...env, ...shell.environment('/bin/zsh', env) }, cwd: root };
@@ -79,4 +79,18 @@ test('maintenance, no extensions, noninteractive, explicit paths and missing Pi 
     const result = await f.run(`export PATH=${shellQuote(f.shell.bin + ':/usr/bin:/bin')}; pi; print status=$?`);
     assert.match(result.stdout, /Pi is not installed/); assert.match(result.stdout, /status=127/);
   } finally { await f.close(); }
+});
+
+test('the stingray-views bin stays first on PATH after rc files rebuild it, only when installed', async () => {
+  for (const views of ["views bin ' q", '']) {
+    const f = await fixture(views);
+    try {
+      const viewsBin = path.join(f.root, views);
+      // The rc file drops our directories and re-adds the views bin late: it moves up front again, once.
+      await writeFile(path.join(f.home, '.zshrc'), `export PATH=${shellQuote(f.env.PATH + (views ? ':' + viewsBin : ''))}\n`);
+      const { stdout } = await f.run('print -r -- "PATH=$PATH"');
+      const expected = [f.shell.bin, ...(views ? [viewsBin] : []), f.bin, '/usr/bin', '/bin'].join(':');
+      assert.ok(stdout.includes(`PATH=${expected}\r`), stdout);
+    } finally { await f.close(); }
+  }
 });

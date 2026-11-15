@@ -5,9 +5,14 @@ import type { TerminalEvent, TerminalInfo } from '../src/shared';
 import type { ActivityService } from './activity';
 import type { ActivityShell } from './activity-shell';
 
+/** PATH with `dir` first and no other copy of it; unchanged when `dir` is empty. */
+export const prependPath = (value: string | undefined, dir: string) =>
+  dir ? [dir, ...(value ?? '').split(':').filter(p => p && p !== dir)].join(':') : value ?? '';
+
 type Entry = TerminalInfo & { process: pty.IPty };
 export class Terminals {
   private entries = new Map<string, Entry>();
+  viewsBin = ''; // directory of the `stingray-views` launcher, set by main once installed
   constructor(private send: (event: TerminalEvent) => void, private activity?: ActivityService, private activityShell?: ActivityShell) {}
   list(): TerminalInfo[] {
     return [...this.entries.values()].map(({ process: _, ...info }) => info);
@@ -22,6 +27,7 @@ export class Terminals {
     // Do not pass Electron's control environment into child shells.
     const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) =>
       value !== undefined && !key.startsWith('ELECTRON_') && !key.startsWith('STINGRAY_') && key !== 'NODE_OPTIONS')) as Record<string, string>;
+    if (this.viewsBin) env.PATH = prependPath(env.PATH, this.viewsBin);
     const id = randomUUID();
     const shellEnv = this.activityShell?.environment(shell, env) ?? {};
     const attached = Boolean(shellEnv.ZDOTDIR && this.activity?.endpoint);

@@ -1,4 +1,7 @@
 import type { DesktopAPI, State, TerminalInfo, TerminalEvent, RepoFile } from './shared';
+import type { DbColumn, DbSchemaResult } from './db-schema';
+import type { DiagramEdge, DiagramNode, EditorSettings, SaveViewInput, ViewDiagnostics, ViewLocalState, ViewResult, ViewSummary } from './views';
+import { DATABASE_VIEW, databaseView } from './views-database';
 const repoId = '00000000-0000-4000-8000-000000000001';
 const mainId = '00000000-0000-4000-8000-000000000002';
 const demoContent = (path: string) => path.endsWith('.tsx') ? 'export function Button() {\n  return <button className="primary">Continue</button>;\n}\n' : '// Simulated file contents for the browser demo.\n';
@@ -17,6 +20,113 @@ const demoFiles: RepoFile[] = [
   added: file.status && !file.status.includes('D') ? demoContent(file.path).split('\n').length - 1 : 0,
   removed: file.status && file.status !== '??' ? 1 : 0,
 } }));
+const column = (name: string, type: string | null, line: number, extra: Partial<DbColumn> = {}): DbColumn =>
+  ({ name, attribute: name, type, primaryKey: false, nullable: true, unique: false, foreignKeys: [], inheritedFrom: null, line, ...extra });
+const fk = (target: string, targetTable: string | null, ondelete: string | null = null) => [{ target, targetTable, ondelete }];
+const timestamps = [column('created_at', 'DateTime', 9, { nullable: false, inheritedFrom: 'TimestampMixin' }), column('updated_at', 'DateTime', 10, { nullable: null, inheritedFrom: 'TimestampMixin' })];
+const demoDbSchema = (workspaceId: string): DbSchemaResult => ({
+  workspaceId, scannedAt: Date.now(), filesScanned: 48, filesParsed: 6, truncated: false,
+  groups: [{
+    id: 'app/db/base.py:Base', name: 'Base', file: 'app/db/base.py', line: 7, tables: [
+      { name: 'memberships', schema: null, fullName: 'memberships', model: 'Membership', file: 'app/models/organization.py', line: 31, columns: [
+        column('user_id', 'Uuid', 33, { primaryKey: true, nullable: false, foreignKeys: fk('users.id', 'users', 'CASCADE') }),
+        column('organization_id', 'Uuid', 34, { primaryKey: true, nullable: false, foreignKeys: fk('organizations.id', 'organizations', 'CASCADE') }),
+        column('role', 'String(32)', 35, { nullable: false }), ...timestamps,
+      ], relationships: [] },
+      { name: 'organizations', schema: null, fullName: 'organizations', model: 'Organization', file: 'app/models/organization.py', line: 12, columns: [
+        column('id', 'Uuid', 14, { primaryKey: true, nullable: false }), column('slug', 'String(64)', 15, { nullable: false, unique: true }),
+        column('display_name', 'String(255)', 16, { nullable: false }), ...timestamps,
+      ], relationships: [{ name: 'members', targetModel: 'User', targetTable: 'users', collection: true, backPopulates: 'organizations', secondary: 'memberships', line: 18 }] },
+      { name: 'posts', schema: null, fullName: 'posts', model: 'Post', file: 'app/models/post.py', line: 9, columns: [
+        column('id', 'Integer', 11, { primaryKey: true, nullable: false }),
+        column('author_id', 'Uuid', 12, { nullable: false, foreignKeys: fk('users.id', 'users', 'SET NULL') }),
+        column('legacy_category_id', 'Integer', 13, { foreignKeys: fk('categories.id', null) }),
+        { ...column('body', 'Text', 14), attribute: 'content' }, ...timestamps,
+      ], relationships: [{ name: 'author', targetModel: 'User', targetTable: 'users', collection: false, backPopulates: 'posts', secondary: null, line: 16 }] },
+      { name: 'users', schema: null, fullName: 'users', model: 'User', file: 'app/models/user.py', line: 10, columns: [
+        column('id', 'Uuid', 12, { primaryKey: true, nullable: false }), column('email', 'String(320)', 13, { nullable: false, unique: true }),
+        column('name', 'String(120)', 14), column('is_active', null, 15, { nullable: null, unique: null }), ...timestamps,
+      ], relationships: [
+        { name: 'posts', targetModel: 'Post', targetTable: 'posts', collection: true, backPopulates: 'author', secondary: null, line: 17 },
+        { name: 'organizations', targetModel: 'Organization', targetTable: 'organizations', collection: true, backPopulates: 'members', secondary: 'memberships', line: 18 },
+        { name: 'sessions', targetModel: null, targetTable: null, collection: null, backPopulates: null, secondary: null, line: 19 },
+      ] },
+    ],
+  }, {
+    id: 'analytics/models.py:AnalyticsBase', name: 'AnalyticsBase', file: 'analytics/models.py', line: 5, tables: [
+      { name: 'events', schema: 'analytics', fullName: 'analytics.events', model: 'Event', file: 'analytics/models.py', line: 9, columns: [
+        column('id', 'BigInteger', 11, { primaryKey: true, nullable: false }), column('name', 'String(80)', 12, { nullable: false }),
+        column('session_id', 'Uuid', 13, { foreignKeys: fk('analytics.sessions.id', 'analytics.sessions') }), column('payload', 'JSON', 14),
+      ], relationships: [{ name: 'session', targetModel: 'Session', targetTable: 'analytics.sessions', collection: false, backPopulates: null, secondary: null, line: 16 }] },
+      { name: 'sessions', schema: 'analytics', fullName: 'analytics.sessions', model: 'Session', file: 'analytics/models.py', line: 19, columns: [
+        column('id', 'Uuid', 21, { primaryKey: true, nullable: false }), column('started_at', 'DateTime', 22, { nullable: false }),
+      ], relationships: [] },
+    ],
+  }],
+  warnings: [{ file: 'app/models/user.py', line: 15, message: 'Column type is computed at runtime; shown as unknown.' }],
+});
+// Sample views for the browser demo: a repo tables view, a flow with diagnostics and an invalid view file. Deterministic.
+const repoViews = (): ViewSummary[] => [
+  { id: 'core', name: 'Core tables', kind: 'tables', description: 'Users, organizations and memberships', builtin: false, file: '.stingray/views/core.yaml', error: null },
+  { id: 'agent-flow', name: 'Agent flow', kind: 'flow', description: 'LangGraph steps of the agent', builtin: false, file: '.stingray/views/agent-flow.yaml', error: null },
+  { id: 'broken', name: 'broken.yaml', kind: 'tables', description: '', builtin: false, file: '.stingray/views/broken.yaml',
+    error: 'line 3: kind: must be one of tables, flow, timeline, graph' },
+];
+const savedViews = new Map<string, { summary: ViewSummary; input: SaveViewInput }>();
+const viewStates = new Map<string, ViewLocalState>();
+let editor: EditorSettings = { selected: 'vscode', available: ['vscode', 'cursor', 'system'] };
+const CORE_TABLES = new Set(['users', 'organizations', 'memberships']);
+const demoDiagnostics = (extra: Partial<ViewDiagnostics> = {}): ViewDiagnostics =>
+  ({ rules: [], graph: null, unresolved: [], limits: { filesScanned: 48, matches: 0, truncated: false }, ms: 42, ...extra });
+const flowNode = (id: string, label: string, line: number, extra: Partial<DiagramNode> = {}): DiagramNode => ({
+  id: `agent/graph/builder.py:builder:${id}`, label, kind: 'step', subtitle: null, group: 'agent/graph/builder.py:builder', fields: [],
+  source: { file: 'agent/graph/builder.py', line }, symbol: null, role: null, order: null, detail: null, ...extra,
+});
+const flowEdge = (from: string, to: string, line: number, extra: Partial<DiagramEdge> = {}): DiagramEdge => ({
+  id: `${from}->${to}`, from: `agent/graph/builder.py:builder:${from}`, to: `agent/graph/builder.py:builder:${to}`, fromField: null, toField: null,
+  kind: 'next', style: 'solid', certain: true, label: null, source: { file: 'agent/graph/builder.py', line }, ...extra,
+});
+const branch = { kind: 'branch', style: 'dashed', certain: false } as const;
+function demoView(workspaceId: string, viewId: string): ViewResult {
+  const saved = savedViews.get(viewId);
+  if (saved) {
+    const base = demoView(workspaceId, saved.input.basedOn), excluded = new Set(saved.input.exclude);
+    const nodes = base.nodes.filter(n => !excluded.has(n.label)), ids = new Set(nodes.map(n => n.id));
+    return { ...base, ...saved.summary, nodes, edges: base.edges.filter(e => ids.has(e.from) && ids.has(e.to)), layout: saved.input.layout ?? base.layout };
+  }
+  if (viewId === DATABASE_VIEW.id) return databaseView(demoDbSchema(workspaceId));
+  const summary = repoViews().find(v => v.id === viewId);
+  if (!summary || summary.error) throw new Error(summary ? summary.error! : `Unknown view: ${viewId}`);
+  if (viewId === 'core') {
+    const db = databaseView(demoDbSchema(workspaceId));
+    const nodes = db.nodes.filter(n => CORE_TABLES.has(n.label)), ids = new Set(nodes.map(n => n.id));
+    return { ...db, ...summary, nodes, groups: db.groups.filter(g => nodes.some(n => n.group === g.id)), edges: db.edges.filter(e => ids.has(e.from) && ids.has(e.to)),
+      diagnostics: demoDiagnostics({ limits: { filesScanned: 12, matches: 0, truncated: false } }) };
+  }
+  const nodes = [
+    flowNode('START', 'START', 12, { kind: 'terminal', role: 'start' }), flowNode('chat', 'chat', 9, { detail: 'ConversationNode(adapter)' }),
+    flowNode('plan', 'plan', 10, { detail: 'plan_node' }), flowNode('summarize', 'summarize', 11, { detail: 'summarize' }),
+    flowNode('END', 'END', 18, { kind: 'terminal', role: 'end' }),
+  ];
+  const edges = [
+    flowEdge('START', 'chat', 12, { ...branch, label: 'chat' }), flowEdge('START', 'plan', 12, { ...branch, label: 'plan' }),
+    flowEdge('plan', 'summarize', 17, { ...branch, label: 'done' }), flowEdge('plan', 'plan', 17, { ...branch, label: 'retry' }),
+    flowEdge('chat', 'END', 18), flowEdge('summarize', 'END', 19),
+  ];
+  const rule = (id: string, matches: number, emitted: number, ms: number) =>
+    ({ rule: `builtin/langgraph#${id}`, language: 'python', filesScanned: 31, matches, emitted, skipped: 0, errors: [], warnings: [], ms });
+  return {
+    ...summary, workspaceId, computedAt: Date.now(), truncated: false, layout: null,
+    groups: [{ id: 'agent/graph/builder.py:builder', label: 'builder', source: { file: 'agent/graph/builder.py', line: 8 } }], nodes, edges,
+    warnings: [], stats: { filesScanned: 31, nodes: nodes.length, edges: edges.length }, graph: { state: 'ready', message: null },
+    diagnostics: demoDiagnostics({
+      rules: [rule('nodes', 3, 3, 14), rule('edges', 2, 2, 9), rule('conditional-edges', 4, 4, 11),
+        { ...rule('send', 0, 0, 3), warnings: [{ file: '.stingray/views/agent-flow.yaml', line: 6, message: 'Rule matched nothing in 31 files' }] }],
+      unresolved: [{ rule: 'builtin/langgraph#edges', value: 'route_after_plan', file: 'agent/graph/builder.py', line: 17 }],
+      limits: { filesScanned: 31, matches: 9, truncated: false }, ms: 37,
+    }),
+  };
+}
 const initial: State = {
   version: 1, repos: [{ id: repoId, name: 'stingray', path: '/demo/stingray' }],
   workspaces: [
@@ -75,6 +185,25 @@ export const demoAPI: DesktopAPI = {
       revision: 'demo-' + path,
     };
   },
+  // Fixed sample schema: the browser demo never reads or parses repository files.
+  dbSchema: async id => { await new Promise(resolve => setTimeout(resolve, 400)); return demoDbSchema(id); },
+  views: async () => [DATABASE_VIEW, ...repoViews(), ...[...savedViews.values()].map(v => v.summary)],
+  view: async (id, viewId) => { await new Promise(resolve => setTimeout(resolve, 400)); return demoView(id, viewId); },
+  viewState: async (id, viewId) => structuredClone(viewStates.get(`${id}:${viewId}`) ?? null),
+  saveViewState: async (id, viewId, local) => { viewStates.set(`${id}:${viewId}`, structuredClone(local)); },
+  saveViewAs: async (_id, input) => {
+    const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+    if (!slug) throw new Error('Use letters or digits in the view name.');
+    const file = `.stingray/views/${slug}.yaml`;
+    if (slug === DATABASE_VIEW.id || repoViews().some(v => v.id === slug) || savedViews.has(slug)) throw new Error(`${file} already exists. Choose another name.`);
+    const base = [DATABASE_VIEW, ...repoViews()].find(v => v.id === input.basedOn) ?? savedViews.get(input.basedOn)?.summary;
+    if (!base || base.error) throw new Error(`Unknown view: ${input.basedOn}`);
+    savedViews.set(slug, { summary: { ...base, id: slug, name: input.name, builtin: false, file, description: `Based on ${base.name}` }, input: structuredClone(input) });
+    return { id: slug, file };
+  },
+  editorSettings: async () => structuredClone(editor),
+  setEditor: async selected => { editor = { ...editor, selected }; return structuredClone(editor); },
+  openSource: async (id, file, line) => { console.info('Demo: would open', file, line, 'in', editor.selected, 'for workspace', id); },
   pullRequest: async id => {
     await new Promise(resolve => setTimeout(resolve, 700));
     const branch = state.workspaces.find(w => w.id === id)?.branch || 'unknown';
@@ -88,6 +217,7 @@ export const demoAPI: DesktopAPI = {
   activityView: async () => undefined,
   acknowledgeActivity: async () => undefined,
   onActivity: () => () => {},
+  onViewsChanged: () => () => {},
   terminals: async () => structuredClone(terminalList),
   createTerminal: async workspaceId => {
     if (terminalList.length >= 24) throw new Error('Terminal limit reached.');

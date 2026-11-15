@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopAPI, TerminalEvent } from '../src/shared';
 import type { ActivitySnapshot } from '../src/activity';
+import type { ViewsChangedEvent } from '../src/views';
 const api: DesktopAPI = {
   mode: 'desktop',
   state: () => ipcRenderer.invoke('state'),
@@ -14,6 +15,20 @@ const api: DesktopAPI = {
   gitStatus: id => ipcRenderer.invoke('git-status', id),
   repoSnapshot: (id, hint) => ipcRenderer.invoke('repo-snapshot', id, hint),
   inspectFile: (id, path) => ipcRenderer.invoke('inspect-file', id, path),
+  dbSchema: id => ipcRenderer.invoke('db-schema', id),
+  views: id => ipcRenderer.invoke('views', id),
+  view: (id, viewId) => ipcRenderer.invoke('view', id, viewId),
+  onViewsChanged: listener => {
+    const handler = (_event: unknown, payload: ViewsChangedEvent) => listener(payload);
+    ipcRenderer.on('views-changed', handler);
+    return () => ipcRenderer.removeListener('views-changed', handler);
+  },
+  viewState: (id, viewId) => ipcRenderer.invoke('view-state', id, viewId),
+  saveViewState: (id, viewId, state) => ipcRenderer.invoke('save-view-state', id, viewId, state),
+  saveViewAs: (id, input) => ipcRenderer.invoke('save-view-as', id, input),
+  editorSettings: () => ipcRenderer.invoke('editor-settings'),
+  setEditor: editor => ipcRenderer.invoke('set-editor', editor),
+  openSource: (id, file, line) => ipcRenderer.invoke('open-source', id, file, line),
   pullRequest: (id, refresh) => ipcRenderer.invoke('pull-request', id, refresh),
   containers: () => ipcRenderer.invoke('containers'),
   ports: () => ipcRenderer.invoke('ports'),

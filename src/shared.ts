@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { ActivitySnapshot } from './activity';
+import type { DbSchemaResult } from './db-schema';
+import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
 
 export const idSchema = z.string().uuid();
 export const urlSchema = z.string().max(2048).refine((value) => {
@@ -84,6 +86,19 @@ export interface DesktopAPI {
   gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string, hint?: SnapshotHint): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;
+  dbSchema(workspaceId: string): Promise<DbSchemaResult>;
+  views(workspaceId: string): Promise<ViewSummary[]>;
+  view(workspaceId: string, viewId: string): Promise<ViewResult>;
+  onViewsChanged(listener: (event: ViewsChangedEvent) => void): () => void;
+  /** Local (app data) state of a view in a worktree; null when none saved yet. */
+  viewState(workspaceId: string, viewId: string): Promise<ViewLocalState | null>;
+  saveViewState(workspaceId: string, viewId: string, state: ViewLocalState): Promise<void>;
+  /** Writes .stingray/views/<slug>.yaml; rejects if that file exists. */
+  saveViewAs(workspaceId: string, input: SaveViewInput): Promise<SaveViewResult>;
+  editorSettings(): Promise<EditorSettings>;
+  setEditor(editor: EditorId): Promise<EditorSettings>;
+  /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
+  openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
   pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
   containers(): Promise<ContainerInfo[]>;
   ports(): Promise<WorkspacePort[]>;
