@@ -55,7 +55,7 @@ test('langgraph: steps with handlers, START/END roles, labelled conditional bran
     ['chat', null, 'ConversationNode', 'ConversationNode(adapter)'], ['plan', null, 'plan_node', 'plan_node'],
     ['summarize', null, 'summarize', null], ['START', 'start', null, null], ['END', 'end', null, null]]);
   assert.deepEqual(edges, [
-    'START ..> chat [chat]', 'START ..> plan [plan]', 'chat -> END', 'plan ..> plan [retry]', 'plan ..> summarize [done]', 'summarize -> END'].sort());
+    'START ..> chat [else]', 'START ..> plan [1. needs_plan]', 'chat -> END', 'plan ..> plan [retry]', 'plan ..> summarize [done]', 'summarize -> END'].sort());
 });
 
 test('terraform: resources, data sources, modules and outputs with reference edges', async () => {
