@@ -123,9 +123,9 @@ try {
   check('Escape restores focus to the badge', await chip.evaluate(el => el === document.activeElement));
   check('sidebar has no nested buttons', await page.locator('.workspace-entry button button').count() === 0);
   // Move away first: Escape can close a popover while the pointer is still over its trigger.
-  await page.locator('.workspace-heading h1').hover();
+  await page.locator('.title-crumb h1').hover();
   await chip.hover(); await dialog('main').waitFor();
-  await page.locator('.workspace-heading h1').click(); await dialog('main').waitFor({state:'hidden'});
+  await page.locator('.title-crumb h1').click(); await dialog('main').waitFor({state:'hidden'});
   check('hover opens details and outside click dismisses them');
   await page.getByRole('button',{name:'Close preview',exact:true}).click();
   popover = await openDetails('main');

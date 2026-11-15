@@ -81,7 +81,7 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 760, minHeight: 540, title: 'Stingray',
     backgroundColor: '#151110', titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 15 },
+    trafficLightPosition: { x: 16, y: 14 },
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true, webSecurity: true },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

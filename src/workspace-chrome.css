@@ -1,0 +1,52 @@
+/* Minimal workspace chrome: identity + view tabs live in the titlebar, the sidebar collapses to a rail,
+   terminal/browser tools share one row, and the terminal footer is merged into the statusbar. */
+.titlebar{height:40px;min-height:40px;gap:6px;padding-right:10px}
+.window-space{width:78px}
+.titlebar button,.title-crumb{-webkit-app-region:no-drag}
+.titlebar-toggle{min-width:26px;min-height:26px}
+.title-crumb{display:flex;align-items:center;gap:7px;min-width:0;padding-left:4px;font-size:12px;user-select:text}
+.title-crumb>svg{color:var(--accent);flex-shrink:0}
+.title-crumb h1{font-size:12px;font-weight:580;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title-crumb>span{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}
+.title-tabs{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:2px;background:#141110;border:1px solid var(--border);border-radius:7px}
+.title-tabs>button{height:24px;padding:0 10px;font-size:11px;color:var(--muted);border-radius:5px;gap:6px}
+.title-tabs>button.active{background:var(--active);color:var(--text)}
+.title-tabs>button.active>svg{color:var(--accent)}
+
+/* Sidebar: trimmed when open, 48px rail when collapsed */
+.app-body>.sidebar{width:236px;padding:8px 8px 0;transition:width .16s ease}
+.app-body>.sidebar.collapsed{width:48px;padding:8px 0}
+.sidebar .project-current{display:flex;justify-content:flex-start;gap:8px;width:100%;margin:0 0 8px;padding:6px 8px;color:var(--text)}
+.sidebar .project-current>svg{color:var(--muted)}
+.sidebar .project-current .project-mark{width:22px;height:22px;border-radius:5px}
+.sidebar .project-current strong{font-size:13px;font-weight:580;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar .section-label{padding:16px 6px 6px}
+.section-action{min-width:20px;min-height:20px;padding:2px}
+.sidebar .projects{padding-bottom:10px}
+.sidebar-rail{display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;overflow-y:auto;overflow-x:hidden}
+.rail-separator{width:20px;height:1px;background:var(--border);margin:4px 0;flex-shrink:0}
+.rail-workspace{position:relative;width:32px;height:32px;padding:0;flex-shrink:0}
+.rail-workspace>span{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:6px;font:600 10px ui-monospace,monospace;color:var(--muted)}
+.rail-workspace.selected>span{color:var(--accent);border-color:#5a3a2a;background:#261d18}
+.rail-workspace.selected:before{content:"";position:absolute;left:-8px;top:8px;bottom:8px;width:2px;background:var(--accent);border-radius:2px}
+.rail-dot{position:absolute;right:1px;top:1px;width:7px;height:7px;border-radius:50%;background:var(--green);border:1.5px solid var(--sidebar)}
+
+/* Terminal bar holds every workspace tool */
+.terminal-tabs{height:34px;min-height:34px}
+.terminal-tab{height:33px}
+.terminal-add{margin:0 4px;min-width:24px;min-height:24px;align-self:center;flex-shrink:0}
+.tool-separator{width:1px;height:16px;background:var(--border);align-self:center;margin:0 4px}
+.danger-icon:hover:not(:disabled){color:#ef9a8f}
+.terminal-empty{inset:34px 0 0}
+
+/* Browser toolbar aligned with the terminal bar */
+.browser-toolbar{height:34px;min-height:34px;padding:0 6px;background:#171311}
+.browser-toolbar .address{height:24px}
+
+.statusbar>span:last-child>span{display:flex;align-items:center;gap:5px}
+.status-link{padding:0 2px;font-size:10px;color:var(--muted);gap:4px;border-radius:3px}
+.status-link:hover:not(:disabled){color:var(--text)}
+
+@media(max-width:1100px){.app-body>.sidebar{width:216px}}
+@media(max-width:900px){.title-crumb>span{display:none}}
+@media(max-width:760px){.app-body>.sidebar{width:190px}.title-tabs{position:static;transform:none;margin-left:auto}.title-tabs>button{padding:0 7px}.title-tabs>button>svg{display:none}.statusbar>span:last-child>:nth-child(-n+2){display:none}}

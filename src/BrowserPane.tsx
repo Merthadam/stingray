@@ -52,18 +52,17 @@ export function BrowserPane({ workspace, onNavigate, onClose, revealRequest = 0 
     try { await onNavigate(value); setAddress(value); setUrl(value); } catch (e) { setError((e as Error).message); }
   }
   return <section ref={pane} className="browser-pane" aria-label="Browser preview">
-    <div className="pane-heading"><span><Globe size={14} /> Browser preview</span><button className="icon" title="Close preview" aria-label="Close preview" onClick={onClose}><X size={14} /></button></div>
     <form className="browser-toolbar" onSubmit={navigate}>
       <button type="button" className="icon" aria-label="Go back" disabled={!history.back} onClick={() => guest.current?.goBack()}><ArrowLeft size={14} /></button>
       <button type="button" className="icon" aria-label="Go forward" disabled={!history.forward} onClick={() => guest.current?.goForward()}><ArrowRight size={14} /></button>
       <button type="button" className="icon" aria-label="Reload preview" disabled={!url} onClick={() => { setError(''); if (guest.current) guest.current.reload(); else setReload(x => x + 1); }}><RotateCw size={14} /></button>
-      <label className="address"><Globe size={13} /><input aria-label="Preview URL" placeholder="http://localhost:3000" value={address} onChange={e => setAddress(e.target.value)} /></label>
+      <label className="address" title={api.mode === 'desktop' ? 'Workspace-isolated session · permissions and popups blocked' : 'Demo iframe · no desktop privileges'}><Globe size={12} /><input aria-label="Preview URL" placeholder="http://localhost:3000" value={address} onChange={e => setAddress(e.target.value)} /></label>
       <button type="submit" className="icon" aria-label="Load preview">{loading ? <LoaderCircle size={14} className="spin" /> : <ArrowRight size={14} />}</button>
+      <button type="button" className="icon" title="Close preview · ⌘ B" aria-label="Close preview" onClick={onClose}><X size={14} /></button>
     </form>
     {error && <div className="inline-error" role="alert">{error} Use Reload preview to retry.</div>}
     {loading && !error && <div className="preview-loading" role="status"><LoaderCircle size={12} className="spin" />{waiting ? 'Still waiting for the server… Check its terminal output.' : 'Loading preview…'}</div>}
     {!url ? <div className="preview-empty"><div className="empty-orbit"><Globe size={28} /></div><h2>Your app, right here.</h2><p>Start your dev server in a terminal,<br />then enter its address above.</p><div className="preview-hint"><ShieldCheck size={13} /> Isolated from your terminal and files</div></div>
       : api.mode === 'desktop' ? <div className="guest-host" ref={host} /> : <iframe key={url + reload} title="Browser demo preview" className="demo-frame" src={url} onLoad={() => setLoading(false)} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" />}
-    <div className="preview-footer"><ShieldCheck size={12} /><span>{api.mode === 'desktop' ? 'Workspace-isolated session · permissions and popups blocked' : 'Demo iframe · no desktop privileges'}</span></div>
   </section>;
 }
