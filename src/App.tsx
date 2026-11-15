@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, Monitor, Network, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import type { GitStatus, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
 import { TerminalPane } from './TerminalPane';
@@ -18,6 +18,12 @@ import { aggregateActivity } from './activity';
 import { navigationKey, parseSelection, resolveSelection, type ProjectSelection } from './project-navigation';
 
 const emptyState: State = { version: 1, repos: [], workspaces: [] };
+const drawerKey = 'stingray.sidebar';
+/** Two-letter badge for the collapsed sidebar rail, e.g. feature/browser -> "br". */
+export function railLabel(name: string) {
+  const last = name.split('/').filter(Boolean).pop() || name;
+  return (last.replace(/^(feature|feat|fix|chore|docs)[-_]/i, '') || last).slice(0, 2).toLowerCase();
+}
 export default function App() {
   const [state, setState] = useState<State>(emptyState);
   const [navigation, setNavigation] = useState<ProjectSelection>(() => {
@@ -28,6 +34,11 @@ export default function App() {
   const [activeTerminals, setActiveTerminals] = useState<Record<string, string>>({});
   const [query, setQuery] = useState('');
   const [showBrowser, setShowBrowser] = useState(true);
+  const [drawer, setDrawer] = useState(() => { try { return localStorage.getItem(drawerKey) !== 'closed'; } catch { return true; } });
+  useEffect(() => { try { localStorage.setItem(drawerKey, drawer ? 'open' : 'closed'); } catch { /* Drawer state is optional. */ } }, [drawer]);
+  const pendingSearchFocus = useRef(false);
+  const focusSearch = () => { if (drawer || !repo) search.current?.focus(); else { pendingSearchFocus.current = true; setDrawer(true); } };
+  useEffect(() => { if (drawer && pendingSearchFocus.current) { pendingSearchFocus.current = false; search.current?.focus(); } }, [drawer]);
   const [previewReveal, setPreviewReveal] = useState(0);
   const [split, setSplit] = useState(false);
   const [tab, setTab] = useState<'workspace' | 'changes' | 'views'>('workspace');
@@ -119,7 +130,8 @@ export default function App() {
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || modal) return;
-      if (e.key.toLowerCase() === 'k') { e.preventDefault(); search.current?.focus(); }
+      if (e.key.toLowerCase() === 'k') { e.preventDefault(); focusSearch(); }
+      if (e.key === '\\') { e.preventDefault(); setDrawer(v => !v); }
       if (e.key.toLowerCase() === 't') { e.preventDefault(); void newTerminal(); }
       if (e.key.toLowerCase() === 'b' && workspace) { e.preventDefault(); setShowBrowser(v => !v); }
     };
@@ -136,17 +148,36 @@ export default function App() {
   }
   function openModal(value: typeof modal) { setError(''); setBranch(''); setModal(value); }
   function openRemoval(target: Workspace) { if (!busy) { setRemovalTarget(target); openModal('remove'); } }
+  const viewTabs = workspace && !initializing && !loadFailed && <div className="title-tabs" role="tablist" aria-label="Workspace views">
+    <button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={13} /> Workspace</button>
+    <button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={13} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button>
+    <button role="tab" aria-selected={tab === 'views'} className={tab === 'views' ? 'active' : ''} onClick={() => setTab('views')}><Network size={13} /> Views</button>
+  </div>;
+  const piState = api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable';
   return <div className="app-shell">
-    <header className="titlebar"><div className="window-space" /><span className="window-title">Stingray</span><span className="title-meta"><Monitor size={12} /> Local workspace</span></header>
+    <header className="titlebar"><div className="window-space" />
+      <button className="icon titlebar-toggle" aria-label={drawer ? 'Hide sidebar' : 'Show sidebar'} aria-expanded={drawer} title={(drawer ? 'Hide' : 'Show') + ' sidebar · ⌘ \\'} onClick={() => setDrawer(v => !v)}>{drawer ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}</button>
+      {workspace && !initializing && !loadFailed ? <div className="title-crumb" title={workspace.path}><GitBranch size={13} /><h1>{workspace.name}</h1><span>{repo?.name}<ChevronRight size={10} />{workspace.managed ? 'Worktree' : 'Repository'}</span></div> : <span className="window-title">Stingray</span>}
+      {viewTabs}
+    </header>
     {api.mode === 'demo' && <div className="demo-banner"><span>Browser demo</span> Workspaces, terminals and PR states are simulated. Run the desktop app for real Git and shell access.</div>}
     <div className="app-body">
-      <aside className="sidebar">
-        <div className="brand"><img src="./stingray.svg" alt="" /><strong>stingray</strong><span className="version">0.1</span></div>
-        {repo ? <>
-          <button className="project-back" disabled={busy} onClick={allProjects}><ArrowLeft size={14} /> All projects</button>
-          <div className="project-current"><span className="project-mark"><FolderGit2 size={18} /></span><strong>{repo.name}</strong></div>
+      <aside className={'sidebar ' + (drawer ? '' : 'collapsed')}>
+        {!drawer ? <nav className="sidebar-rail" aria-label="Collapsed sidebar">
+          {repo ? <>
+            <button className="icon" aria-label="All projects" title="All projects" disabled={busy} onClick={allProjects}><ArrowLeft size={15} /></button>
+            <button className="icon" aria-label="Find a workspace" title="Find a workspace · ⌘ K" onClick={focusSearch}><Search size={15} /></button>
+            <span className="rail-separator" />
+            {projectWorkspaces.map(w => <button key={w.id} className={'rail-workspace ' + (selected === w.id ? 'selected' : '')} aria-label={w.name} aria-current={selected === w.id ? 'page' : undefined} title={w.name} disabled={busy}
+              onClick={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}>
+              <span>{railLabel(w.name)}</span>{terminals.some(t => t.workspaceId === w.id && !t.exited) && <i className="rail-dot" />}
+            </button>)}
+            <button className="icon" aria-label="New worktree" title="New worktree" disabled={busy} onClick={() => openModal('create')}><Plus size={15} /></button>
+          </> : <button className="icon toggled" aria-label="Projects" title="Projects" onClick={() => setProjectQuery('')}><LayoutGrid size={15} /></button>}
+        </nav> : repo ? <>
+          <button className="project-current" aria-label="All projects" title="All projects" disabled={busy} onClick={allProjects}><ArrowLeft size={13} /><span className="project-mark"><FolderGit2 size={14} /></span><strong>{repo.name}</strong></button>
           <label className="search"><Search size={14} /><input ref={search} aria-label="Find a workspace" placeholder="Find a workspace…" value={query} onChange={e => setQuery(e.target.value)} /><kbd>⌘ K</kbd></label>
-          <div className="section-label">WORKSPACES <span>{projectWorkspaces.length}</span></div>
+          <div className="section-label">WORKSPACES <button className="icon section-action" aria-label="New worktree" title="New worktree" disabled={busy} onClick={() => openModal('create')}><Plus size={13} /></button></div>
           <nav className="projects" aria-label="Project workspaces">{filteredWorkspaces.map(w =>
             <div key={w.id} className={'workspace-entry ' + (selected === w.id ? 'selected' : '')}
               onClick={event => {
@@ -163,25 +194,18 @@ export default function App() {
                 <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
               </WorkspaceStatus>
             </div>)}{!filteredWorkspaces.length && <div className="sidebar-empty">No matching workspaces.</div>}</nav>
-          <div className="sidebar-actions"><button disabled={busy} onClick={() => openModal('create')}><Plus size={15} /> New worktree</button></div>
         </> : <><button className="project-home-selected" onClick={() => setProjectQuery('')} aria-current="page"><LayoutGrid size={16} />Projects<span>{state.repos.length}</span></button><div className="project-sidebar-note">A place for each repository.<br />A workspace for each idea.</div></>}
-        <div className="sidebar-bottom"><div className="local-card"><span className="local-indicator" /><div>On your machine<small>{api.mode === 'demo' ? 'Simulated GitHub states.' : 'GitHub via your gh login.'}</small></div><ShieldCheck size={15} /></div><button onClick={() => openModal('about')}><CircleHelp size={15} /> Help & shortcuts <ArrowUpRight size={13} /></button></div>
       </aside>
       <main className="main">
         {error && !modal && <div className="error-banner" role="alert"><span>{error}</span><button className="icon" aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
         {initializing || loadFailed || !workspace ? <ProjectHome state={state} terminals={terminals} query={projectQuery} setQuery={setProjectQuery} searchRef={search} loading={initializing} failed={loadFailed} onOpen={openProject} onAdd={() => openModal('open')} onRetry={() => void load()} /> : <>
-          <div className="workspace-header"><div className="workspace-heading"><span className="branch-icon"><GitBranch size={19} /></span><div><h1>{workspace.name}</h1><p>{repo?.name}<ChevronRight size={11} />{workspace.managed ? 'Worktree' : 'Repository'}</p></div></div>
-            <div className="header-actions"><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={16} /></button>{workspace.managed && <button className="icon" aria-label="Remove worktree" title="Remove worktree" disabled={busy} onClick={() => openRemoval(workspace)}><Trash2 size={15} /></button>}<button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={15} /> New terminal</button></div>
-          </div>
-          <div className="workspace-tabs" role="tablist" aria-label="Workspace views"><button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={14} /> Workspace</button><button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={14} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button><button role="tab" aria-selected={tab === 'views'} className={tab === 'views' ? 'active' : ''} onClick={() => setTab('views')}><Network size={14} /> Views</button><span className="workspace-path" title={workspace.path}>{workspace.path}</span></div>
           <div className={'workspace-content ' + (showBrowser ? 'with-browser' : '')} style={{ display: tab === 'workspace' ? 'flex' : 'none' }}>
             <section className="terminal-area" aria-label="Terminals">
-              <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}</div><div className="terminal-tools"><button className="icon" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button></div></div>
+              <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}<button className="icon terminal-add" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button></div><div className="terminal-tools"><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={14} /></button>{workspace.managed && <><span className="tool-separator" /><button className="icon danger-icon" aria-label="Remove worktree" title="Remove worktree" disabled={busy} onClick={() => openRemoval(workspace)}><Trash2 size={14} /></button></>}</div></div>
               {!workspaceTerminals.length && <div className="terminal-empty"><TerminalSquare size={30} strokeWidth={1.2} /><h2>Make room for your next idea.</h2><p>Open a shell in <strong>{workspace.name}</strong>.<br />Run Pi, Claude Code, Codex, or any installed CLI.</p><button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /> Open terminal</button><span className="shortcut-hint">or press <kbd>⌘ T</kbd></span></div>}
               <div className={'terminal-grid ' + (split && workspaceTerminals.length > 1 ? 'split' : '')}>
                 {terminals.filter(t => projectWorkspaces.some(w => w.id === t.workspaceId)).map(t => <TerminalPane key={t.id} info={t} visible={t.workspaceId === selected && visibleTerminalIds.includes(t.id) && tab === 'workspace'} onError={setErrorMessage} onObserve={activity.acknowledge} />)}
               </div>
-              <div className="terminal-footer"><span><span className="activity-dot" /> {workspaceTerminals.filter(t => !t.exited).length} running</span><span className="pi-terminal-state" title="Pi 1.5.0 tracking attaches to typed pi commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Claude/Codex tracking is not supported. Shell liveness is not agent activity.">{api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable'}</span></div>
             </section>
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
@@ -190,7 +214,8 @@ export default function App() {
         </>}
       </main>
     </div>
-    <footer className="statusbar"><span><span className="local-indicator" /> {api.mode === 'desktop' ? 'Local workspace' : 'Simulated demo'}<span className="status-divider">/</span>{repo?.name || 'Projects home'}</span><span>{workspace && <><GitBranch size={11} />{status?.branch || workspace.branch}<span className="status-divider">/</span></>}<ShieldCheck size={11} /> Stingray 0.1.0</span></footer>
+    <footer className="statusbar"><span><span className="local-indicator" />{workspace && !initializing && !loadFailed ? <>{workspaceTerminals.filter(t => !t.exited).length} running<span className="status-divider">/</span><span className="pi-terminal-state" title="Pi 1.5.0 tracking attaches to typed pi commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Claude/Codex tracking is not supported. Shell liveness is not agent activity.">{piState}</span><span className="status-divider">/</span><GitBranch size={11} />{status?.branch || workspace.branch}</> : repo?.name || 'Projects home'}</span>
+      <span><span title={api.mode === 'demo' ? 'Simulated GitHub states.' : 'GitHub via your gh login.'}><ShieldCheck size={11} /> {api.mode === 'desktop' ? 'On your machine' : 'Simulated demo'}</span><span className="status-divider">/</span><button className="status-link" onClick={() => openModal('about')}><CircleHelp size={11} /> Help</button><span className="status-divider">/</span>Stingray 0.1.0</span></footer>
     {modal && <Modal title={{ open: 'Add project', create: 'Create a worktree', remove: 'Remove this worktree?', 'close-terminal': 'Close terminal?', about: 'Built for focused work.' }[modal]} busy={busy} onClose={() => { setModal(null); setError(''); }}>
       {api.mode === 'demo' && <p className="info-box">Browser demo: actions here are simulated. No local files or processes will change.</p>}
       {error && <div className="inline-error" role="alert">{error}</div>}

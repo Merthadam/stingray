@@ -65,9 +65,9 @@ try {
   check('real repository opened through UI', main.path.endsWith('/fixture-project'));
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
   await page.waitForFunction(() => innerWidth === 760);
-  check('compact empty terminal does not overlap its footer', await page.evaluate(() => {
+  check('compact empty terminal does not overlap the statusbar', await page.evaluate(() => {
     const hint = document.querySelector('.shortcut-hint').getBoundingClientRect();
-    const footer = document.querySelector('.terminal-footer').getBoundingClientRect();
+    const footer = document.querySelector('.statusbar').getBoundingClientRect();
     return hint.bottom <= footer.top && document.documentElement.scrollWidth <= innerWidth;
   }));
   await page.screenshot({ path: path.join(evidence, 'desktop-compact-empty.png') });
