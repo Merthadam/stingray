@@ -21,7 +21,14 @@ function tokenize(sql: string, startLine: number, sourceLines?: number[]): { tok
       continue;
     }
     const start = i, at = sourceLines?.[i] ?? line, quote = sql[i];
-    if (['\'', '"', '`', '['].includes(quote)) {
+    // PostgreSQL dollar-quoted bodies ($$ ... $$, $fn$ ... $fn$) can contain semicolons.
+    const dollar = quote === '$' ? sql.slice(i).match(/^\$(?:[A-Za-z_]\w*)?\$/)?.[0] : undefined;
+    if (dollar) {
+      const end = sql.indexOf(dollar, i + dollar.length);
+      if (end < 0) errors.push({ line: at, message: 'Unterminated SQL quoted value' });
+      while (i < (end < 0 ? sql.length : end + dollar.length)) advance();
+      tokens.push({ text: sql.slice(start, i), value: sql.slice(start + dollar.length, end < 0 ? i : end), line: at, kind: 'string' });
+    } else if (['\'', '"', '`', '['].includes(quote)) {
       const end = quote === '[' ? ']' : quote;
       advance(); let value = '', closed = false;
       while (i < sql.length) {
@@ -56,7 +63,8 @@ class Reader {
     return t.value;
   }
   qualified(): string { let name = this.name(); while (this.take('.')) name += '.' + this.name(); return name; }
-  list(): string[] { this.expect('('); const names = [this.name()]; while (this.take(',')) names.push(this.name()); this.expect(')'); return names; }
+  // Each entry's leading name; ASC/DESC, COLLATE and MySQL prefix lengths after it are ignored.
+  list(): string[] { return split(this.block(), ',').map(part => new Reader(part).name()); }
   block(): Token[] {
     this.expect('('); const start = this.i; let depth = 1;
     while (this.i < this.tokens.length) {
@@ -111,8 +119,10 @@ function definition(tokens: Token[], file: string): { column?: DbColumn; constra
     return { constraint: { kind: 'foreign', columns, references } };
   }
   if (r.take('CHECK')) { r.block(); return {}; }
-  // MySQL secondary indexes are not columns.
-  if ((r.peek('KEY') || r.peek('INDEX')) && (tokens[r.i + 1]?.text === '(' || tokens[r.i + 2]?.text === '(')) return {};
+  // MySQL secondary indexes are not columns; `key VARCHAR(255)` is (index lists start with a name, not a number).
+  if ((r.peek('FULLTEXT') || r.peek('SPATIAL')) && /^(KEY|INDEX)$/i.test(tokens[r.i + 1]?.value ?? '')) r.i++;
+  const open = tokens[r.i + 1]?.text === '(' ? r.i + 1 : tokens[r.i + 2]?.text === '(' ? r.i + 2 : -1, first = tokens[open + 1];
+  if ((r.peek('KEY') || r.peek('INDEX')) && open >= 0 && first && ['word', 'identifier'].includes(first.kind) && !/^\d/.test(first.value)) return {};
   const name = r.name(), typeStart = r.i;
   while (r.i < tokens.length && !(tokens[r.i].kind === 'word' && CONSTRAINTS.has(tokens[r.i].value.toUpperCase()))) {
     if (r.peek('(')) r.block(); else r.i++;
@@ -132,18 +142,20 @@ function definition(tokens: Token[], file: string): { column?: DbColumn; constra
       else { if (r.peek('-') || r.peek('+')) r.i++; if (r.i >= tokens.length) throw new Error('Missing DEFAULT expression'); r.i++; if (r.peek('(')) r.block(); }
     } else if (r.take('CHECK')) r.block();
     else if (r.take('GENERATED')) {
-      // Skip the generated expression, not subsequent constraints.
-      while (r.i < tokens.length && !r.peek('(')) r.i++;
-      r.block(); r.take('STORED') || r.take('VIRTUAL');
+      // GENERATED {ALWAYS | BY DEFAULT} AS (expr) [STORED] or AS IDENTITY [(options)]; later constraints still apply.
+      while (['ALWAYS', 'BY', 'DEFAULT', 'AS'].some(w => r.take(w))) { /* keywords only */ }
+      if (r.peek('(')) { r.block(); r.take('STORED') || r.take('VIRTUAL'); }
     } else if (r.peek('(')) r.block();
     else r.i++;
   }
   if (column.primaryKey) column.nullable = false;
   return { column };
 }
+// Unquoted SQL identifiers are case-insensitive; exact matches win.
+export const sameSqlName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export function applySqlConstraints(table: DbTable, constraints: Constraint[]) {
   for (const constraint of constraints) constraint.columns.forEach((name, i) => {
-    const column = table.columns.find(c => c.name === name);
+    const column = table.columns.find(c => c.name === name) ?? table.columns.find(c => sameSqlName(c.name, name));
     if (!column) throw new Error(`Constraint column ${name} not found on ${table.fullName}`);
     if (constraint.kind === 'primary') { column.primaryKey = true; column.nullable = false; }
     if (constraint.kind === 'unique' && constraint.columns.length === 1) column.unique = true;
@@ -168,6 +180,8 @@ export function parseSqlDdl(sql: string, file = '', startLine = 1, sourceLines?:
         if (!r.take('TABLE')) continue;
         const ifNotExists = r.take('IF'); if (ifNotExists) { r.expect('NOT'); r.expect('EXISTS'); }
         const fullName = r.qualified(), parts = fullName.split('.');
+        // CREATE TABLE ... AS SELECT / PARTITION OF / OF type declare no columns of their own.
+        if (r.peek('AS') || r.peek('PARTITION') || r.peek('OF')) continue;
         const table: DbTable = { name: parts.pop()!, schema: parts.join('.') || null, fullName, model: fullName, file,
           line: statement[0].line, columns: [], relationships: [] };
         const constraints: Constraint[] = [];
@@ -178,11 +192,18 @@ export function parseSqlDdl(sql: string, file = '', startLine = 1, sourceLines?:
         applySqlConstraints(table, constraints);
         operations.push({ kind: 'create', table, ifNotExists });
       } else if (r.take('ALTER')) {
-        r.expect('TABLE'); const table = r.qualified();
-        if (!r.take('ADD')) continue;
-        r.take('COLUMN'); const def = definition(statement.slice(r.i), file);
-        operations.push({ kind: 'alter', table, columns: def.column ? [def.column] : [], constraints: def.constraint ? [def.constraint] : [], file, line: statement[0].line });
-      } else if (!['DROP', 'INSERT', 'UPDATE', 'DELETE', 'SELECT', 'PRAGMA', 'BEGIN', 'COMMIT', 'ROLLBACK', 'SET', 'COMMENT', 'GRANT', 'REVOKE'].some(s => r.peek(s))) {
+        r.expect('TABLE'); if (r.take('IF')) r.expect('EXISTS'); r.take('ONLY');
+        const table = r.qualified(), columns: DbColumn[] = [], constraints: Constraint[] = [];
+        // One statement can hold several comma-separated actions; only ADD changes the diagram.
+        for (const action of split(statement.slice(r.i), ',')) {
+          const a = new Reader(action);
+          if (!a.take('ADD')) continue;
+          a.take('COLUMN'); if (a.take('IF')) { a.expect('NOT'); a.expect('EXISTS'); }
+          const def = definition(action.slice(a.i), file);
+          if (def.column) columns.push(def.column); if (def.constraint) constraints.push(def.constraint);
+        }
+        if (columns.length || constraints.length) operations.push({ kind: 'alter', table, columns, constraints, file, line: statement[0].line });
+      } else if (!['DROP', 'INSERT', 'UPDATE', 'DELETE', 'SELECT', 'WITH', 'PRAGMA', 'BEGIN', 'START', 'COMMIT', 'END', 'ROLLBACK', 'SAVEPOINT', 'RELEASE', 'SET', 'USE', 'DO', 'TRUNCATE', 'COMMENT', 'GRANT', 'REVOKE', 'VACUUM', 'ANALYZE', 'EXPLAIN', 'REPLACE', 'MERGE', 'CALL', 'LOCK', 'REINDEX', 'ATTACH', 'DETACH'].some(s => r.peek(s))) {
         throw new Error('Unrecognized SQL statement');
       }
     } catch (error) { if (warnings.length < 200) warnings.push({ file, line: statement[0].line, message: `Could not parse SQL: ${(error as Error).message}` }); }
