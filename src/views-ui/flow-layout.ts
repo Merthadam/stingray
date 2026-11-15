@@ -43,7 +43,23 @@ export async function flowPositions(elk: ElkLayouter, result: ViewResult): Promi
     }
   };
   visit(graph, 0, 0);
+  orderBranches(result, positions);
   return positions;
+}
+
+// ELK's model-order options crash with nested hierarchies, so put branch targets in extractor order (router
+// condition order: 1., 2., ..., else) by swapping the x slots of same-layer siblings after layout.
+function orderBranches(result: ViewResult, positions: Positions) {
+  const bySource = new Map<string, string[]>();
+  for (const e of result.edges) if (e.kind === 'branch' && e.from !== e.to && positions[e.to]) {
+    const targets = bySource.get(e.from) ?? [];
+    if (!targets.includes(e.to)) bySource.set(e.from, [...targets, e.to]);
+  }
+  for (const targets of bySource.values()) {
+    if (targets.length < 2 || new Set(targets.map(id => positions[id].y)).size !== 1) continue;
+    const slots = targets.map(id => positions[id].x).sort((a, b) => a - b);
+    targets.forEach((id, i) => { positions[id] = { ...positions[id], x: slots[i] }; });
+  }
 }
 
 export function flowFrames(result: ViewResult, positions: Positions) {

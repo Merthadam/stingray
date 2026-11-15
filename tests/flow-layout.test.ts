@@ -55,3 +55,13 @@ test('flow frames follow stored or dragged absolute positions; labels are bounde
   assert.equal(shortEdgeLabel('else'), 'else');
   assert.equal(shortEdgeLabel('1. topic ∈ {stays, flights, cars, trains, ferries, cruises}').length, 38);
 });
+
+test('branch targets are placed left to right in router condition order', async () => {
+  const positions = await flowPositions(new ELK(), result);
+  const xs = ['stays', 'flights', 'cars', 'trains'].map(id => positions[id].x);
+  assert.deepEqual(xs, [...xs].sort((a, b) => a - b));
+  const reversed = { ...result, edges: [...result.edges].reverse() };
+  const back = await flowPositions(new ELK(), reversed);
+  const rx = ['trains', 'cars', 'flights', 'stays'].map(id => back[id].x);
+  assert.deepEqual(rx, [...rx].sort((a, b) => a - b));
+});
