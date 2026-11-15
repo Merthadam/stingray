@@ -1,0 +1,90 @@
+version: 1
+name: Persisted app state (JSON stores)
+description: >-
+  Stingray has no SQL database; its state lives in JSON files under userData (workspaces.json, view-state.json,
+  editor.json), each validated by a Zod schema. Tables are those schemas, rows their keys, edges nested schemas.
+kind: tables
+scope:
+  include: ["src/shared.ts", "electron/view-state.ts", "electron/editors.ts", "electron/store.ts"]
+rules:
+  - id: schema
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        (#any-of? @name "stateSchema" "repoSchema" "workspaceSchema" "fileSchema" "viewLocalStateSchema" "settingsSchema")
+        value: (call_expression
+          function: (member_expression object: (identifier) @z (#eq? @z "z"))))
+    emit: { node: { id: "@name", label: "@name", subtitle: "@file", kind: table, symbol: "@name" } }
+  - id: column
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        (#any-of? @name "stateSchema" "repoSchema" "workspaceSchema" "fileSchema" "viewLocalStateSchema" "settingsSchema")
+        value: (call_expression
+          function: (member_expression object: (identifier) @z (#eq? @z "z"))
+          arguments: (arguments (object (pair key: (property_identifier) @key value: (_) @type)))))
+    emit: { field: { node: "@name", id: "@key", label: "@key", type: "@type" } }
+  - id: uuid-badge
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        value: (call_expression
+          arguments: (arguments (object (pair key: (property_identifier) @key
+                                               value: (identifier) @v (#eq? @v "idSchema"))))))
+    emit: { field: { node: "@name", id: "@key", badges: ["uuid"] } }
+  - id: nested-array
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        value: (call_expression
+          arguments: (arguments (object (pair
+            key: (property_identifier) @key
+            value: (call_expression
+              function: (member_expression
+                object: (call_expression
+                  function: (member_expression property: (property_identifier) @fn (#eq? @fn "array"))
+                  arguments: (arguments . (identifier) @ref (#match? @ref "Schema$")))))))))) 
+    emit: { edge: { from: "@name", to: "@ref", label: "@key[]", kind: contains } }
+  - id: nested-record-value
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        value: (call_expression
+          arguments: (arguments (object (pair
+            key: (property_identifier) @key
+            value: (call_expression
+              function: (member_expression property: (property_identifier) @fn (#eq? @fn "record"))
+              arguments: (arguments (call_expression
+                arguments: (arguments (object (pair
+                  key: (property_identifier) @inner
+                  value: (identifier) @ref (#match? @ref "Schema$"))))))))))))
+    emit: { edge: { from: "@name", to: "@ref", label: "@key{}.@inner", kind: contains } }
+  - id: repo-fk
+    language: typescript
+    query: |
+      (variable_declarator
+        name: (identifier) @name
+        value: (call_expression
+          arguments: (arguments (object (pair key: (property_identifier) @key (#eq? @key "repoId"))))))
+    emit: { edge: { from: "@name", to: repoSchema, label: "repoId → id", kind: foreign-key } }
+  - id: file-store
+    language: typescript
+    query: |
+      (call_expression
+        function: (member_expression object: (identifier) @p (#eq? @p "path") property: (property_identifier) @j (#eq? @j "join"))
+        arguments: (arguments (_) . (string (string_fragment) @json (#match? @json "\\.json$"))))
+    emit: { node: { id: "store:@file", label: "@json", kind: file, subtitle: "userData/@json (written by @file)" } }
+  - id: file-schema
+    language: typescript
+    query: |
+      (call_expression
+        function: (member_expression object: (identifier) @schema (#match? @schema "Schema$")
+                                     property: (property_identifier) @p (#eq? @p "parse"))
+        arguments: (arguments . (call_expression
+          function: (member_expression object: (identifier) @j (#eq? @j "JSON")))))
+    emit: { edge: { from: "store:@file", to: "@schema", label: "validated by", kind: schema } }
