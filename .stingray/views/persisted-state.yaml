@@ -1,90 +1,46 @@
 version: 1
-name: Persisted app state (JSON stores)
+name: App database (stingray.db)
 description: >-
-  Stingray has no SQL database; its state lives in JSON files under userData (workspaces.json, view-state.json,
-  editor.json), each validated by a Zod schema. Tables are those schemas, rows their keys, edges nested schemas.
+  Stingray's SQLite database in userData: tables and columns from the SCHEMA_V* objects in electron/database.ts,
+  primary keys from PK(), foreign keys (ON DELETE CASCADE) from FK(...).
 kind: tables
 scope:
-  include: ["src/shared.ts", "electron/view-state.ts", "electron/editors.ts", "electron/store.ts"]
+  include: ["electron/database.ts"]
 rules:
-  - id: schema
+  - id: table
     language: typescript
     query: |
       (variable_declarator
-        name: (identifier) @name
-        (#any-of? @name "stateSchema" "repoSchema" "workspaceSchema" "fileSchema" "viewLocalStateSchema" "settingsSchema")
-        value: (call_expression
-          function: (member_expression object: (identifier) @z (#eq? @z "z"))))
-    emit: { node: { id: "@name", label: "@name", subtitle: "@file", kind: table, symbol: "@name" } }
+        name: (identifier) @schema (#match? @schema "^SCHEMA_V[0-9]+$")
+        value: (object (pair key: (property_identifier) @table value: (object))))
+    emit: { node: { id: "@table", label: "@table", kind: table, subtitle: "@schema" } }
   - id: column
     language: typescript
     query: |
       (variable_declarator
-        name: (identifier) @name
-        (#any-of? @name "stateSchema" "repoSchema" "workspaceSchema" "fileSchema" "viewLocalStateSchema" "settingsSchema")
-        value: (call_expression
-          function: (member_expression object: (identifier) @z (#eq? @z "z"))
-          arguments: (arguments (object (pair key: (property_identifier) @key value: (_) @type)))))
-    emit: { field: { node: "@name", id: "@key", label: "@key", type: "@type" } }
-  - id: uuid-badge
+        name: (identifier) @schema (#match? @schema "^SCHEMA_V[0-9]+$")
+        value: (object (pair key: (property_identifier) @table
+          value: (object (pair key: (property_identifier) @column
+            value: [(string (string_fragment) @def)
+                    (call_expression function: (identifier) @badge) @def])))))
+    emit: { field: { node: "@table", id: "@column", label: "@column", type: "@def", badges: ["@badge"] } }
+  - id: composite-key
     language: typescript
     query: |
       (variable_declarator
-        name: (identifier) @name
-        value: (call_expression
-          arguments: (arguments (object (pair key: (property_identifier) @key
-                                               value: (identifier) @v (#eq? @v "idSchema"))))))
-    emit: { field: { node: "@name", id: "@key", badges: ["uuid"] } }
-  - id: nested-array
+        name: (identifier) @schema (#match? @schema "^SCHEMA_V[0-9]+$")
+        value: (object (pair key: (property_identifier) @table
+          value: (object (pair key: (string (string_fragment) @k (#eq? @k "PRIMARY KEY"))
+                               value: (string (string_fragment) @cols))))))
+    emit: { field: { node: "@table", id: "primary-key", label: "PRIMARY KEY", type: "@cols", badges: ["PK"] } }
+  - id: foreign-key
     language: typescript
     query: |
       (variable_declarator
-        name: (identifier) @name
-        value: (call_expression
-          arguments: (arguments (object (pair
-            key: (property_identifier) @key
+        name: (identifier) @schema (#match? @schema "^SCHEMA_V[0-9]+$")
+        value: (object (pair key: (property_identifier) @table
+          value: (object (pair key: (property_identifier) @column
             value: (call_expression
-              function: (member_expression
-                object: (call_expression
-                  function: (member_expression property: (property_identifier) @fn (#eq? @fn "array"))
-                  arguments: (arguments . (identifier) @ref (#match? @ref "Schema$")))))))))) 
-    emit: { edge: { from: "@name", to: "@ref", label: "@key[]", kind: contains } }
-  - id: nested-record-value
-    language: typescript
-    query: |
-      (variable_declarator
-        name: (identifier) @name
-        value: (call_expression
-          arguments: (arguments (object (pair
-            key: (property_identifier) @key
-            value: (call_expression
-              function: (member_expression property: (property_identifier) @fn (#eq? @fn "record"))
-              arguments: (arguments (call_expression
-                arguments: (arguments (object (pair
-                  key: (property_identifier) @inner
-                  value: (identifier) @ref (#match? @ref "Schema$"))))))))))))
-    emit: { edge: { from: "@name", to: "@ref", label: "@key{}.@inner", kind: contains } }
-  - id: repo-fk
-    language: typescript
-    query: |
-      (variable_declarator
-        name: (identifier) @name
-        value: (call_expression
-          arguments: (arguments (object (pair key: (property_identifier) @key (#eq? @key "repoId"))))))
-    emit: { edge: { from: "@name", to: repoSchema, label: "repoId → id", kind: foreign-key } }
-  - id: file-store
-    language: typescript
-    query: |
-      (call_expression
-        function: (member_expression object: (identifier) @p (#eq? @p "path") property: (property_identifier) @j (#eq? @j "join"))
-        arguments: (arguments (_) . (string (string_fragment) @json (#match? @json "\\.json$"))))
-    emit: { node: { id: "store:@file", label: "@json", kind: file, subtitle: "userData/@json (written by @file)" } }
-  - id: file-schema
-    language: typescript
-    query: |
-      (call_expression
-        function: (member_expression object: (identifier) @schema (#match? @schema "Schema$")
-                                     property: (property_identifier) @p (#eq? @p "parse"))
-        arguments: (arguments . (call_expression
-          function: (member_expression object: (identifier) @j (#eq? @j "JSON")))))
-    emit: { edge: { from: "store:@file", to: "@schema", label: "validated by", kind: schema } }
+              function: (identifier) @fn (#eq? @fn "FK")
+              arguments: (arguments . (string (string_fragment) @target))))))))
+    emit: { edge: { from: "@table", to: "@target", label: "@column → id (cascade)", kind: foreign-key } }
