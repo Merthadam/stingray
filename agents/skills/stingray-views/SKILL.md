@@ -52,7 +52,7 @@ layout: {}                             # reserved for the UI
 At least one of `use`, `rules`, `graph` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
 `**` (at most 3), `?`, `[...]`; no `{}`, `()`, `!`, `+`, `@`, `\`.
 
-`use` names a builtin set (see `stingray-views sets`; `sqlalchemy` is the builtin SQLAlchemy model extractor) or a
+`use` names a builtin set (see `stingray-views sets`; `sqlalchemy` extracts SQLAlchemy models; `sql` extracts SQL DDL from `.sql` files and literal strings in TS/JS/Python) or a
 shared rule file `.stingray/rules/<name>.yaml`:
 
 ```yaml
@@ -69,6 +69,7 @@ Pick the view `kind` listed for the set; narrow with `scope`, add inline `rules`
 | `use` | kind | extracts |
 | --- | --- | --- |
 | `sqlalchemy` | tables | SQLAlchemy models: tables, columns, foreign keys (TypeScript extractor, not rules) |
+| `sql` | tables | Static SQL DDL in `.sql` files and TS/JS/Python strings: tables, columns, primary and foreign keys (TypeScript extractor, not rules) |
 | `alembic` | timeline | one node per `**/versions/*.py` migration (label `rev: message`, alias = revision id), `down_revision -> revision` edges (merge tuples too; `down_revision = None` is the start), `op.*` table operations inside `upgrade()` as fields |
 | `langgraph` | flow | per `StateGraph(...)` variable: `add_node` steps (handler in subtitle/detail), `add_edge`, `add_conditional_edges` (dashed, labelled by path-map key; dict or list path maps), `set_entry_point`/`set_finish_point`, START/END with start/end roles |
 | `terraform` (preview) | graph | resources, `data.*`, `module.*`, `output.*` by address, grouped by file; edges for references in attributes (incl. `depends_on`, interpolations, lists, objects, nested blocks up to 2 levels) |
