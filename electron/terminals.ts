@@ -36,7 +36,7 @@ export class Terminals {
     try {
       child = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: 100, rows: 30, cwd, env: { ...env, ...shellEnv, ...activityEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' } });
     } catch (error) { this.activity?.unbind(id, true); throw error; }
-    const entry: Entry = { id, workspaceId, title: 'Terminal ' + (this.entries.size + 1), exited: false, buffer: '', sequence: 0, piTracking: attached ? 'available' : 'unavailable', process: child };
+    const entry: Entry = { id, workspaceId, title: 'Terminal ' + (this.entries.size + 1), exited: false, buffer: '', sequence: 0, cols: 100, rows: 30, piTracking: attached ? 'available' : 'unavailable', process: child };
     this.entries.set(entry.id, entry);
     child.onData(data => {
       entry.buffer = (entry.buffer + data).slice(-128 * 1024);
@@ -47,7 +47,11 @@ export class Terminals {
   }
   private get(id: string) { const t = this.entries.get(id); if (!t) throw new Error('Terminal not found.'); return t; }
   write(id: string, data: string) { const t = this.get(id); if (t.exited) throw new Error('This terminal has exited. Open a new one.'); t.process.write(data); }
-  resize(id: string, cols: number, rows: number) { const t = this.get(id); if (!t.exited) t.process.resize(cols, rows); }
+  resize(id: string, cols: number, rows: number) {
+    const t = this.get(id);
+    if (t.exited || (t.cols === cols && t.rows === rows)) return;
+    t.process.resize(cols, rows); t.cols = cols; t.rows = rows;
+  }
   close(id: string) { const t = this.get(id); this.activity?.unbind(id, true); if (!t.exited) t.process.kill(); this.entries.delete(id); }
   closeAll() { for (const id of this.entries.keys()) this.close(id); }
 }

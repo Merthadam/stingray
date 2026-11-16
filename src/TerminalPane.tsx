@@ -14,7 +14,10 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
   const onObserveRef = useRef(onObserve); onObserveRef.current = onObserve;
   const errorRef = useRef(onError); errorRef.current = onError;
   useEffect(() => {
+    // Start at the PTY's size, not xterm's 80x24 default: a pane mounted hidden (background tab/workspace)
+    // cannot be fitted, and output written into a grid of a different size than the PTY garbles TUIs.
     const terminal = new Terminal({
+      cols: info.cols ?? 80, rows: info.rows ?? 24,
       cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
       scrollback: 3000, allowProposedApi: false, macOptionClickForcesSelection: true,
       theme: { background: '#151110', foreground: '#eae8e6', cursor: '#e07850', selectionBackground: '#e0785040',
@@ -25,15 +28,22 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
       void api.openTerminalLink(info.id, uri).catch(e => errorRef.current(e.message));
     });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current!);
+    let fitted = false;
     const fitNow = () => {
-      if (!element.current?.clientWidth || !element.current?.clientHeight) return;
-      fit.fit();
-      void api.resizeTerminal(info.id, Math.min(500, Math.max(2, terminal.cols)), Math.min(300, Math.max(1, terminal.rows))).catch(e => errorRef.current(e.message));
+      if (disposed || !element.current?.clientWidth || !element.current?.clientHeight) return;
+      const dims = fit.proposeDimensions();
+      // Unmeasurable (e.g. fonts/renderer not ready): keep xterm and the PTY at their shared size.
+      if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return;
+      const cols = Math.min(500, Math.max(2, dims.cols)), rows = Math.min(300, Math.max(1, dims.rows));
+      if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows);
+      fitted = true;
+      void api.resizeTerminal(info.id, cols, rows).catch(e => errorRef.current(e.message));
     };
     fitRef.current = fitNow;
-    const observer = new ResizeObserver(fitNow); observer.observe(element.current!);
-    const input = terminal.onData(data => { void api.writeTerminal(info.id, data).catch(e => errorRef.current(e.message)); });
     let disposed = false;
+    const observer = new ResizeObserver(fitNow); observer.observe(element.current!);
+    void document.fonts?.ready.then(fitNow);
+    const input = terminal.onData(data => { void api.writeTerminal(info.id, data).catch(e => errorRef.current(e.message)); });
     let ready = false;
     let sequence = 0;
     let pendingWrites = 0;
@@ -65,6 +75,8 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
     void api.terminals().then(items => {
       if (disposed) return;
       const snapshot = items.find(t => t.id === info.id) ?? info;
+      // Not fitted yet (hidden): replay and render at the PTY's current size.
+      if (!fitted && snapshot.cols && snapshot.rows && (snapshot.cols !== terminal.cols || snapshot.rows !== terminal.rows)) terminal.resize(snapshot.cols, snapshot.rows);
       write(snapshot.buffer, true); sequence = snapshot.sequence; ready = true;
       pending.forEach(consume); pending.length = 0;
     }).catch(e => { if (!disposed) errorRef.current(e.message); });

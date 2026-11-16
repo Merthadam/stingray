@@ -68,7 +68,7 @@ export type ContainerInfo = {
   ports: { port: number; target: string; url: string }[];
 };
 export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
-export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; piTracking?: 'available' | 'unavailable' };
+export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
   mode: 'desktop' | 'demo';
