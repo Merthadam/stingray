@@ -34,6 +34,7 @@ const models = [
 await put('app/models.py', models);
 await put('agent/graph/builder.py', await readFile(fileURLToPath(new URL('./fixtures/views/langgraph/agent/graph/builder.py', import.meta.url)), 'utf8'));
 await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind: flow\nuse: [langgraph]\n');
+await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: graph\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
 
@@ -62,10 +63,23 @@ try {
   check('Database view draws the tables', await diagram.getByText('users', { exact: true }).count() > 0);
 
   await list.getByRole('button', { name: 'Agent flow' }).click();
+  const flow = page.getByTestId('flow-diagram');
+  await flow.getByRole('button', { name: 'Select transition 1. needs_plan' }).waitFor();
+  check('flow view draws steps and START/END', await flow.locator('.flow-card').count() === 5 && await flow.locator('.flow-pill').count() === 2);
+  check('flow view labels branches with router conditions', await flow.getByRole('button', { name: 'Select transition else' }).count() === 1
+    && await flow.getByRole('button', { name: 'Select transition retry' }).count() === 1);
+  check('flow view draws every transition', await flow.locator('.react-flow__edge').count() === 6);
+  await flow.getByRole('button', { name: 'Select transition 1. needs_plan' }).click();
+  check('clicking a branch shows its source', /agent\/graph\/builder\.py:\d+/.test(await page.getByRole('complementary', { name: 'Transition details' }).innerText()));
+  await page.getByRole('button', { name: /Diagnostics/ }).click();
+  check('flow diagnostics drawer lists rules', await page.getByRole('region', { name: 'Diagnostics' }).getByRole('heading', { name: /Rules/ }).isVisible());
+  await page.getByRole('button', { name: /Diagnostics/ }).click();
+
+  await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();
   const text = page.getByLabel('Text diagram');
-  check('flow view shows its text form', /^flow: \d+ nodes/.test(await text.innerText()) && (await text.innerText()).includes('summarize'));
-  await page.getByLabel('Search the text').fill('summarize');
+  check('graph view shows its text form', /^graph: \d+ nodes/.test(await text.innerText()) && (await text.innerText()).includes('plan'));
+  await page.getByLabel('Search the text').fill('plan');
   check('text search highlights matches', await text.locator('mark').count() > 0);
   await page.getByRole('button', { name: /Diagnostics/ }).click();
   const drawer = page.getByRole('region', { name: 'Diagnostics' });

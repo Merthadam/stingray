@@ -4,6 +4,7 @@ import type { DiagramEdge, DiagramNode, SourceRef } from '../views';
 
 interface Props {
   node: DiagramNode;
+  variant?: 'tables' | 'flow';
   nodes: Map<string, DiagramNode>;
   edges: DiagramEdge[];
   onSelect(id: string): void;
@@ -18,9 +19,9 @@ function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label:
 
 const fieldLabel = (node: DiagramNode | undefined, id: string | null) => id === null ? null : node?.fields.find(f => f.id === id)?.label ?? id;
 
-export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource }: Props) {
+export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, variant = 'tables' }: Props) {
   const relations = edges.filter(e => e.from === node.id || e.to === node.id);
-  return <aside className="er-inspector" aria-label={`Table ${node.label}`}>
+  return <aside className="er-inspector" aria-label={`${variant === 'tables' ? 'Table' : 'Step'} ${node.label}`}>
     <header>
       <div><strong>{node.label}</strong>{node.subtitle && <span>{node.subtitle}</span>}</div>
       <button className="icon" aria-label="Close inspector" onClick={onClose}><X size={14} /></button>
@@ -29,7 +30,8 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource 
       <code>{node.source.file}:{node.source.line}</code>
       <button aria-label={`Open ${node.label} in editor`} onClick={() => onOpenSource(node.source!.file, node.source!.line)}><ExternalLink size={12} />Open in editor</button>
     </div>}
-    <h4>Columns <span>{node.fields.length}</span></h4>
+    {variant === 'flow' && node.detail && <p className="flow-inspector-detail">{node.detail}</p>}
+    {variant === 'tables' && <><h4>Columns <span>{node.fields.length}</span></h4>
     <ul className="er-inspector-fields">
       {node.fields.map(f => <li key={f.id}>
         <div><span className="er-row-name">{f.label}</span>
@@ -38,8 +40,8 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource 
           {f.source && <OpenButton source={f.source} label={`${node.label}.${f.label}`} onOpenSource={onOpenSource} />}</div>
         {f.detail && <small>{f.detail}</small>}
       </li>)}
-    </ul>
-    <h4>Relations <span>{relations.length}</span></h4>
+    </ul></>}
+    <h4>{variant === 'tables' ? 'Relations' : 'Transitions'} <span>{relations.length}</span></h4>
     {!relations.length && <p className="er-inspector-empty">No relations.</p>}
     <ul className="er-inspector-relations">
       {relations.map(e => {

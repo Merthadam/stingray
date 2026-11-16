@@ -7,6 +7,7 @@ import type {
   DiagramEdge, DiagramField, DiagramGroup, DiagramNode, GraphStepDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
 } from '../../../src/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
+import { LangGraphRouters } from '../sets/langgraph-routers';
 import { runGraphStep } from './graph-steps';
 import { inScope } from './schema';
 import { renderTemplate, templateCaptures } from './template';
@@ -94,6 +95,10 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
 
     const nodes = new Map<string, NodeAcc>(), aliases = new Map<string, string>(), groups = new Map<string, DiagramGroup>();
     const edges: PendingEdge[] = [], fields: PendingField[] = [];
+    const routers = view.rules.some(r => r.source === 'builtin/langgraph') ? new LangGraphRouters(() => {
+      if (signal?.aborted || stopped) throw new Error('LangGraph router evaluation aborted');
+      if (performance.now() > deadline) throw new Error('LangGraph router evaluation time limit');
+    }, LIMITS.matchesPerView) : null;
 
     // ---- compile rules ----
     const compiled: Compiled[] = [];
@@ -237,6 +242,10 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
             }
             c.diag.ms += performance.now() - t0;
           }
+          if (routers && language === 'python' && !stopped) {
+            try { routers.collect(file, tree.rootNode); }
+            catch (e) { stop((e as Error).message); }
+          }
         } finally { tree.delete(); }
       }
     }
@@ -246,6 +255,23 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       if (c.query && !c.diag.matches && !c.diag.errors.length) c.diag.warnings.unshift({ file: c.sourced.file, line: c.sourced.line, message: 'Rule matched nothing' });
       c.diag.ms = Math.round(c.diag.ms);
     }
+
+    // Enrich before joins: inferred return targets get the same scope, unresolved-link and output limits as rule edges.
+    if (routers && !stopped) try {
+      for (const call of routers.branches()) {
+        for (let i = edges.length - 1; i >= 0; i--) {
+          const edge = edges[i];
+          if (edge.rule.startsWith('builtin/langgraph#') && edge.kind === 'branch' && edge.from === call.from
+            && edge.source.file === call.file && edge.source.line === call.line) edges.splice(i, 1);
+        }
+        for (const branch of call.branches) {
+          if (totalMatches >= LIMITS.matchesPerView) { stop(`Match cap hit (${LIMITS.matchesPerView} per view); the diagram is incomplete`); break; }
+          totalMatches++;
+          edges.push({ ...branch, from: call.from, rule: 'builtin/langgraph#branch', kind: 'branch', certain: false,
+            style: 'dashed', create: 'none', source: { file: call.file, line: call.line } });
+        }
+      }
+    } catch (e) { stop((e as Error).message); }
 
     // ---- graph step ----
     let graphDiag: GraphStepDiagnostic | null = null;

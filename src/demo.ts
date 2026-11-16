@@ -109,7 +109,7 @@ function demoView(workspaceId: string, viewId: string): ViewResult {
     flowNode('END', 'END', 18, { kind: 'terminal', role: 'end' }),
   ];
   const edges = [
-    flowEdge('START', 'chat', 12, { ...branch, label: 'chat' }), flowEdge('START', 'plan', 12, { ...branch, label: 'plan' }),
+    flowEdge('START', 'chat', 12, { ...branch, label: 'else' }), flowEdge('START', 'plan', 12, { ...branch, label: '1. needs_plan' }),
     flowEdge('plan', 'summarize', 17, { ...branch, label: 'done' }), flowEdge('plan', 'plan', 17, { ...branch, label: 'retry' }),
     flowEdge('chat', 'END', 18), flowEdge('summarize', 'END', 19),
   ];
