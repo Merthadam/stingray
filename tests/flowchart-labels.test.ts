@@ -13,6 +13,7 @@ test('splitWords splits snake_case, camelCase and acronyms', () => {
 test('words drops self/this/await and spells out operators, strings stay', () => {
   assert.equal(words('self.user.isActive && await this.canLogin()'), 'user is active and can login');
   assert.equal(words("role === 'admin' || x != 3"), "role is 'admin' or x is not 3");
+  assert.equal(words('keys.some(id => !ids.includes(id))'), 'keys some id not ids includes id');
 });
 
 test('decisionLabel: negation flips the branch, null checks become "has x?", length checks "x empty?"', () => {

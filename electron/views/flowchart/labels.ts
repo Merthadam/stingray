@@ -10,8 +10,8 @@ export const splitWords = (name: string) => name
   .replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
   .split(/[_\s$]+/).filter(Boolean).map(w => w.toLowerCase()).join(' ');
 
-const OPERATORS: Record<string, string> = { '===': 'is', '==': 'is', '!==': 'is not', '!=': 'is not', '&&': 'and', '||': 'or', '??': 'or', '!': 'not' };
-const TOKEN = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`)|([A-Za-z_$][\w$]*)|(\d+(?:\.\d+)?)|(===|!==|==|!=|<=|>=|&&|\|\||\?\?|[<>+\-*/%!])|\s+|./gs;
+const OPERATORS: Record<string, string> = { '=>': '', '===': 'is', '==': 'is', '!==': 'is not', '!=': 'is not', '&&': 'and', '||': 'or', '??': 'or', '!': 'not' };
+const TOKEN = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`)|([A-Za-z_$][\w$]*)|(\d+(?:\.\d+)?)|(=>|===|!==|==|!=|<=|>=|&&|\|\||\?\?|[<>+\-*/%!])|\s+|./gs;
 
 /** Code text as words: identifiers split, `self.`/`this.`/`await` dropped, operators spelled out, punctuation removed. */
 export function words(code: string): string {
@@ -20,7 +20,7 @@ export function words(code: string): string {
     if (str) out.push(str);
     else if (ident) { if (ident !== 'await') out.push(splitWords(ident) || ident); }
     else if (num) out.push(num);
-    else if (op) out.push(OPERATORS[op] ?? op);
+    else if (op) { if (OPERATORS[op] !== '') out.push(OPERATORS[op] ?? op); } // `=>` of an inline callback: dropped
   }
   return out.join(' ').trim();
 }
