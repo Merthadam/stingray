@@ -231,9 +231,15 @@ export class FlowchartBuilder {
         const steps = 'constructs' in loaded ? countSteps(loaded.constructs) : 0;
         if ('constructs' in loaded && steps > 0) {
           const fits = this.nodes.length + steps + 1 <= MAX_FLOWCHART_NODES;
-          if (f.level < this.step.depth && fits) { preds = await this.expand(symbol, loaded.constructs, into(certain), f); continue; }
-          if (!fits) this.truncated = true;
-          subtitle = `+${steps} steps (increase depth)`;
+          if (f.level < this.step.depth && fits) {
+            const nodes = this.nodes.length, groups = this.groups.length;
+            const out = await this.expand(symbol, loaded.constructs, into(certain), f);
+            if (this.nodes.length > nodes) { preds = out; continue; }
+            this.groups.length = groups; // the callee drew nothing (e.g. only library calls in a return): show the call instead
+          } else {
+            if (!fits) this.truncated = true;
+            subtitle = `+${steps} steps (increase depth)`;
+          }
         }
       }
       if (mode !== 'condition') preds = next(this.node(f, 'call', callLabel(call.callee), at, into(certain), { symbol, subtitle }));

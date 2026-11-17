@@ -402,3 +402,14 @@ test('python: while with a negated condition loops on No; break inside match lea
     '  (end) done · L1',
   ]);
 });
+
+test('a callee that draws nothing stays a call node instead of an empty group', async () => {
+  const files = { 'f.ts': `export function run(s: string) {
+  return fmt(s);
+}
+const fmt = (s: string) => s.trim();
+` };
+  const out = await run(files, ['run>fmt'], { start: { symbol: 'run' } });
+  assert.deepEqual(out.groups, []);
+  assert.deepEqual(out.text, ['  (start) run · L1', '  [call] fmt · L2', '  (end) fmt s · L2']);
+});
