@@ -10,7 +10,7 @@ import { TextViewFallback } from './views-ui/TextViewFallback';
 import { DiagnosticsDrawer } from './views-ui/DiagnosticsDrawer';
 import { SaveViewDialog } from './views-ui/SaveViewDialog';
 import { EditorPicker } from './views-ui/EditorPicker';
-import { diagnosticCount, pickView } from './views-tab-model';
+import { diagnosticCount, flowchartDepth, pickView } from './views-tab-model';
 import './views-tab.css';
 
 const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
@@ -34,6 +34,9 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const [diagnostics, setDiagnostics] = useState(false);
   const [saveAs, setSaveAs] = useState<ViewLocalState | null>(null);
   const [actionError, setActionError] = useState('');
+  // Flowchart depth overrides by view id: session-only, never written back to the view file.
+  const [depths, setDepths] = useState<Record<string, number>>({});
+  const depthsRef = useRef(depths); depthsRef.current = depths;
   const listSequence = useRef(0), viewSequence = useRef(0);
   const summary = list?.find(v => v.id === selected) ?? null;
   const current = summary && !summary.error ? summary.id : null; // the view to fetch
@@ -54,7 +57,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     const request = ++viewSequence.current;
     setView(v => v?.id === id ? { ...v, loading: true } : { id, result: null, error: '', loading: true });
     try {
-      const result = await api.view(ws, id);
+      const depth = depthsRef.current[id];
+      const result = await api.view(ws, id, depth === undefined ? undefined : { depth });
       if (request === viewSequence.current) setView({ id, result, error: '', loading: false });
     } catch (e) {
       if (request === viewSequence.current) setView(v => ({ id, result: v?.id === id ? v.result : null, error: (e as Error).message, loading: false }));
@@ -94,7 +98,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   useEffect(() => { window.addEventListener('pagehide', flush); return () => window.removeEventListener('pagehide', flush); }, [flush]);
   const readOnlyRef = useRef(false); readOnlyRef.current = !!local?.readOnly;
   const onStateChange = useCallback((state: ViewLocalState) => {
-    if (!currentRef.current || readOnlyRef.current) return;
+    // Layouts at an overridden depth are not saved: they would misplace the nodes of the file's depth.
+    if (!currentRef.current || readOnlyRef.current || depthsRef.current[currentRef.current] !== undefined) return;
     pending.current = { id: currentRef.current, state };
     clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY);
@@ -113,14 +118,23 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const loading = !!view?.loading;
   const issues = result ? diagnosticCount(result) : 0;
   const refresh = () => { void loadList(); if (current) void loadView(current); };
+  const chartDepth = current ? flowchartDepth(result, depths[current]) : null;
+  const changeDepth = (depth: number) => {
+    if (!current) return;
+    depthsRef.current = { ...depthsRef.current, [current]: depth };
+    setDepths(depthsRef.current); void loadView(current);
+  };
   const tools = <>
+    {chartDepth !== null && <label className="views-depth" title="Call levels expanded inline (this session only)">Depth
+      <input type="range" min={0} max={4} step={1} value={chartDepth} aria-label="Flowchart depth" onChange={e => changeDepth(Number(e.target.value))} />
+      <span aria-hidden="true">{chartDepth}</span></label>}
     <button className={'views-tool ' + (diagnostics ? 'toggled' : '')} aria-pressed={diagnostics} disabled={!result} onClick={() => setDiagnostics(v => !v)}>
       <Stethoscope size={13} /> Diagnostics{issues > 0 && <span className="views-count" aria-label={`${issues} issues`}>{issues}</span>}</button>
     <button className="icon" aria-label="Refresh view" title="Refresh view" onClick={refresh}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
     <EditorPicker />
   </>;
 
-  const Diagram = result?.kind === 'flow' ? FlowDiagram : ErDiagram;
+  const Diagram = result?.kind === 'flow' || result?.kind === 'flowchart' ? FlowDiagram : ErDiagram;
   let main;
   if (!list) main = listError ? <Empty title="Couldn’t list the views" detail={listError} onRetry={() => void loadList()} />
     : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /><p>Loading views…</p></div>;
@@ -136,9 +150,10 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     {view?.error && <div className="inline-error views-banner" role="alert">{view.error} · Showing the last result.
       <button className="secondary" onClick={() => void loadView(summary.id)}>Retry</button></div>}
     <div className="views-content">
-      {result.kind !== 'tables' && result.kind !== 'flow' ? <TextViewFallback result={result} toolbar={tools} />
+      {result.kind !== 'tables' && result.kind !== 'flow' && result.kind !== 'flowchart' ? <TextViewFallback result={result} toolbar={tools} />
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
-          <Diagram key={`${ws}:${current}`} result={result} initialState={local.state} onStateChange={onStateChange}
+          <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? ''}`} result={result}
+            initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}
             onOpenSource={onOpenSource} onSaveAs={setSaveAs} toolbarExtra={tools} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}
     </div>

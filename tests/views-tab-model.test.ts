@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diagnosticCount, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
+import { diagnosticCount, flowchartDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
 import type { DiagramNode, ViewResult, ViewSummary } from '../src/views';
 
 const node = (id: string, label: string): DiagramNode => ({ id, label, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });
@@ -26,6 +26,22 @@ test('diagnosticCount sums warnings, rule errors/warnings and the graph step err
     rules: [{ rule: 'view#a', language: 'python', filesScanned: 1, matches: 0, emitted: 0, skipped: 0, errors: [w], warnings: [w, w], ms: 1 }],
     graph: { started: 0, reached: 0, helpers: 0, truncated: false, error: 'not ready' }, unresolved: [], limits: { filesScanned: 1, matches: 0, truncated: false }, ms: 1,
   } })), 5);
+});
+
+const chartDiagnostics = (error: string | null) => ({ rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1,
+  flowchart: { start: 'login (app/auth.py:3)', depth: 2, functions: 2, nodes: 9, truncated: false, error } });
+
+test('diagnosticCount counts a flowchart error', () => {
+  assert.equal(diagnosticCount(result({ kind: 'flowchart', diagnostics: chartDiagnostics('start symbol not found: login') })), 1);
+  assert.equal(diagnosticCount(result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) })), 0);
+});
+
+test('flowchartDepth prefers the session override, else the computed depth; null for other kinds', () => {
+  const chart = result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) });
+  assert.equal(flowchartDepth(chart, undefined), 2);
+  assert.equal(flowchartDepth(chart, 0), 0);
+  assert.equal(flowchartDepth(result(), 3), null);
+  assert.equal(flowchartDepth(null, 3), null);
 });
 
 test('pickView keeps a stored view that still exists, else the first', () => {

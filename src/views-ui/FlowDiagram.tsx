@@ -5,15 +5,15 @@ import '@xyflow/react/dist/style.css';
 import './er-diagram.css';
 import './flow-diagram.css';
 import type { ErDiagramProps } from './types';
-import type { ViewLocalState } from '../views';
+import type { DiagramNode, ViewLocalState } from '../views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
 import { flowFrames, flowPositions, flowSize } from './flow-layout';
-import { FlowGroup, FlowNode } from './FlowNode';
+import { FlowGroup, FlowNode, FlowchartNode } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
 
-const nodeTypes = { step: FlowNode, frame: FlowGroup };
+const nodeTypes = { step: FlowNode, chart: FlowchartNode, frame: FlowGroup };
 const edgeTypes = { transition: FlowEdge };
 const EDGE_COLOR = '#a28b78';
 type Selection = { kind: 'node' | 'edge'; id: string } | null;
@@ -24,6 +24,8 @@ export function FlowDiagram(props: ErDiagramProps) {
 
 function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, toolbarExtra }: ErDiagramProps) {
   const flow = useReactFlow();
+  const chart = result.kind === 'flowchart';
+  const size = useCallback((n: DiagramNode) => flowSize(n, chart), [chart]);
   const [positions, setPositions] = useState<Positions>(() => ({ ...result.layout?.positions, ...initialState.positions }));
   const [selected, setSelected] = useState<Selection>(null);
   const [revision, setRevision] = useState(0);
@@ -54,24 +56,24 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
-      data: { label: f.group.label }, style: { width: f.width, height: f.height }, className: 'flow-frame',
+      data: { label: f.group.label, onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1,
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
-      id: n.id, type: 'step', position: positions[n.id], data: { node: n }, ...flowSize(n),
-      ariaLabel: `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
+      id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n }, ...size(n),
+      ariaLabel: chart ? `${n.kind} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
     })),
-  ], [result, positions, frames, selected]);
+  ], [result, positions, frames, selected, chart, size, onOpenSource]);
   const edges = useMemo<FlowTransition[]>(() => {
     const lanes = new Map<string, number>();
     return result.edges.filter(e => positions[e.from] && positions[e.to]).map(e => {
       const source = byId.get(e.from)!, target = byId.get(e.to)!;
-      const returning = positions[e.to].y <= positions[e.from].y + flowSize(source).height;
+      const returning = positions[e.to].y <= positions[e.from].y + size(source).height;
       const frame = frames.find(f => f.group.id === source.group);
       const key = source.group ?? e.from, lane = lanes.get(key) ?? 0;
       if (returning) lanes.set(key, lane + 1);
       const right = Math.max(frame ? frame.x + frame.width - 60 : 0,
-        positions[e.from].x + flowSize(source).width, positions[e.to].x + flowSize(target).width);
+        positions[e.from].x + size(source).width, positions[e.to].x + size(target).width);
       return {
         id: e.id, source: e.from, target: e.to, type: 'transition', label: e.label ?? undefined,
         sourceHandle: returning ? 'return-out' : 'out', targetHandle: returning ? 'return-in' : 'in',
@@ -82,7 +84,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
         data: { returnX: returning ? right + 30 + lane * 24 : undefined, onSelect: () => setSelected({ kind: 'edge', id: e.id }) },
       };
     });
-  }, [result, positions, byId, frames, selected]);
+  }, [result, positions, byId, frames, selected, size]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const moved: Positions = {};
@@ -94,7 +96,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const focusNode = (id: string) => {
     setSelected({ kind: 'node', id });
     const p = positions[id], n = byId.get(id);
-    if (p && n) void flow.setCenter(p.x + flowSize(n).width / 2, p.y + flowSize(n).height / 2, { zoom: Math.max(flow.getZoom(), 0.8), duration: 250 });
+    if (p && n) void flow.setCenter(p.x + size(n).width / 2, p.y + size(n).height / 2, { zoom: Math.max(flow.getZoom(), 0.8), duration: 250 });
   };
   const node = selected?.kind === 'node' ? byId.get(selected.id) : undefined;
   const edge = selected?.kind === 'edge' ? result.edges.find(e => e.id === selected.id) : undefined;

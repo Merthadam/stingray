@@ -52,6 +52,9 @@ export function DiagnosticsDrawer({ result, onOpenSource, onClose }: { result: V
         {d.graph && <><h4>Graph step</h4>
           <p>{d.graph.started} start symbols · {d.graph.reached} reached · {d.graph.helpers} helpers{d.graph.truncated ? ' · node cap hit' : ''}</p>
           {d.graph.error && <p className="views-diag-error">{d.graph.error}</p>}</>}
+        {d.flowchart && <><h4>Flowchart</h4>
+          <p>start {d.flowchart.start ?? '—'} · depth {d.flowchart.depth} · {d.flowchart.functions} functions · {d.flowchart.nodes} nodes{d.flowchart.truncated ? ' · node cap hit' : ''}</p>
+          {d.flowchart.error && <p className="views-diag-error">{d.flowchart.error}</p>}</>}
         <h4>Unresolved links <span>{d.unresolved.length}</span></h4>
         {d.unresolved.length ? <ul className="views-diag-list">{d.unresolved.map((u, i) => <li key={i}>
           <Location file={u.file} line={u.line} onOpenSource={onOpenSource} /> <code>{u.value}</code> <span className="views-muted">({u.rule})</span></li>)}</ul>

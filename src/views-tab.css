@@ -64,3 +64,6 @@
 .views-diag-stats{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted)}.views-diag-stats strong{color:#d6cdc4;font-weight:500}
 .views-save-hidden{font-size:12px;color:#c7beb7;overflow-wrap:anywhere}.views-save-hidden code{font:11px ui-monospace,monospace;color:#e4c075}
 .views-save-check{display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:14px}
+.views-depth{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#c7beb7}
+.views-depth input{width:80px;accent-color:var(--accent)}
+.views-depth span{min-width:8px;font-variant-numeric:tabular-nums}

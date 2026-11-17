@@ -4,7 +4,13 @@ import type { SaveViewInput, ViewLocalState, ViewResult, ViewSummary } from './v
 /** Errors + warnings shown on the Diagnostics toggle. */
 export function diagnosticCount(result: ViewResult): number {
   const d = result.diagnostics;
-  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) : 0);
+  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) + (d.flowchart?.error ? 1 : 0) : 0);
+}
+
+/** Depth slider value of a flowchart view: the session override, else the effective depth it was computed with; null
+ * for other kinds (no slider). */
+export function flowchartDepth(result: ViewResult | null, override: number | undefined): number | null {
+  return result?.kind === 'flowchart' ? override ?? result.diagnostics?.flowchart?.depth ?? null : null;
 }
 
 /** The stored selection if it still exists, else the first view (Database). */
