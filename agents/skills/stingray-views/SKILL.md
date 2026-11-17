@@ -167,7 +167,8 @@ flowchart:
   as "succeeds?"), `loop` (`for`/`while`, "more items?"), `call` (a known function that is not expanded: depth reached
   — subtitle "+N steps (increase depth)" —, outside `include`, or "recursive").
 - Edge kinds: `next`, `yes`/`no` (labels Yes/No), `case` (label = pattern, "other" = default/no match), `except`
-  (label = exception type), `loop` (back-edges, `continue`). Heuristically resolved calls are dashed.
+  (label = exception type), `loop` (back-edges, `continue`). Heuristically resolved calls are dashed (in the text
+  tree: `(uncertain)` after the call node or the expanded callee's `» name`).
 - Labels are tidied code: `if not user.active` → "user active?" with the No branch first; `x is None` / `x === null`
   → "has x?"; `len(x) == 0` / `!x.length` → "x empty?"; calls by name in words ("send_reset_email" → "send reset
   email"). The code itself is in each node's detail and source link.
@@ -175,6 +176,10 @@ flowchart:
 - `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
   decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
   `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.
+- The view-level `exclude:` drops matching flowchart nodes and their edges, which cuts the chart apart; prefer
+  `flowchart.exclude` (file globs) to keep a callee unexpanded.
+- Not drawn: `finally` on paths that end in return/raise inside the try; labelled `break`/`continue` go to the innermost
+  loop.
 - Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
 - Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
   Without a code graph the flowchart is skipped.

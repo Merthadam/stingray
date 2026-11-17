@@ -138,7 +138,7 @@ test('concurrent computations of one view are shared', async t => {
 
 test('a depth override recomputes only flowchart views, keyed by depth, and code changes refresh every depth', async t => {
   const { root, host, events, service } = await setup(t);
-  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 1\n');
+  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 1\nlayout:\n  positions:\n    start@1: { x: 5, y: 6 }\n');
   const graph = host.open('ws', root) as FakeGraph;
   graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {},
     diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
@@ -148,6 +148,8 @@ test('a depth override recomputes only flowchart views, keyed by depth, and code
   assert.notEqual(plain, deep);
   await Promise.all([deep, plain]);
   assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth), [3, 1]);
+  // the file's saved positions are for its own depth only
+  assert.deepEqual([(await deep).layout, (await plain).layout?.positions], [null, { 'start@1': { x: 5, y: 6 } }]);
   await service.computeView('ws', root, 'flow', { depth: 3 });
   assert.equal(graph.evaluated.at(-1)!.flowchart, null);
   const pending = service.computeView('ws', root, 'chart', { depth: 2 });

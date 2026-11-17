@@ -86,8 +86,10 @@ export class ViewService {
     if (!file) throw new Error(`Unknown view: ${viewId}`);
     let { view } = file;
     if (!view) throw new Error(`View file ${file.summary.file} is invalid: ${file.summary.error}`);
-    if (depth !== undefined && view.flowchart) view = { ...view, flowchart: { ...view.flowchart, depth } };
-    return computeView({ ...file, view }, {
+    let layout = file.layout;
+    // Another depth draws other nodes: the file's saved positions belong to its own depth.
+    if (depth !== undefined && view.flowchart && depth !== view.flowchart.depth) { view = { ...view, flowchart: { ...view.flowchart, depth } }; layout = null; }
+    return computeView({ ...file, view, layout }, {
       workspaceId, graph: w.graph.status(), findSymbols, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
     });

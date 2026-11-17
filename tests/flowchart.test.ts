@@ -177,6 +177,10 @@ test('python: depth 0 draws call nodes, depth 2 expands nested calls in nested g
   assert.deepEqual([query.kind, query.group, query.subtitle], ['call', group.id, null]);
   assert.deepEqual(deep.edges.filter(e => e.to === query.id).map(e => [e.certain, e.style]), [[false, 'dashed']]);
   assert.ok(deep.edges.filter(e => e.to !== query.id).every(e => e.certain && e.style === 'solid'));
+  assert.ok(deep.text.includes('      [call] query (uncertain) · L11'), deep.text.join('\n'));
+  // an expanded callee reached through a heuristic relation: its header says so
+  const loose = await run(AUTH, AUTH_CALLS.map(r => r === 'login>audit' ? 'login>audit?' : r), { start: { symbol: 'login' } });
+  assert.ok(loose.text.includes('  » audit (uncertain)'), loose.text.join('\n'));
 });
 
 test('python: try/except/else/finally, match, with, await, ternary', async () => {

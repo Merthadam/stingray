@@ -86,7 +86,10 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
     best === null || pdom.get(d)!.size > pdom.get(best)!.size ? d : best, null);
 
   const lines: string[] = [], printed = new Set<string>();
-  const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}${n.source ? ` · L${n.source.line}` : ''}`;
+  // Reached through a heuristic code-graph call (dashed in the diagram): a call node, or the first step of an expanded callee.
+  const uncertain = new Set(edges.filter(e => !e.certain).map(e => e.to));
+  const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}`
+    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}`;
   const walk = (from: string, stop: string | null, indent: number, baseDepth: number, group: string | null) => {
     for (let id: string | null = from; id !== null && id !== stop && id !== EXIT;) {
       const n = byId.get(id)!;
@@ -97,7 +100,8 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
       const entered: string[] = [];
       for (let g: string | null = n.group; g !== null && !within(group, g); g = parents.get(g) ?? null) entered.unshift(g);
       if (entered.length) baseDepth = Math.min(baseDepth, depthOf(entered[0]) - 1);
-      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${labels.get(g) ?? g}`);
+      // shortcut: an uncertain call marks the outermost callee entered, even when it is a nested callee's call that is uncertain.
+      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${labels.get(g) ?? g}${g === entered[0] && uncertain.has(id) ? ' (uncertain)' : ''}`);
       group = n.group;
       const pad = ' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth));
       lines.push(pad + nodeText(n));

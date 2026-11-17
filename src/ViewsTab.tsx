@@ -37,6 +37,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   // Flowchart depth overrides by view id: session-only, never written back to the view file.
   const [depths, setDepths] = useState<Record<string, number>>({});
   const depthsRef = useRef(depths); depthsRef.current = depths;
+  const fileDepths = useRef<Record<string, number>>({}); // the depth each flowchart view file sets (first result without override)
   const listSequence = useRef(0), viewSequence = useRef(0);
   const summary = list?.find(v => v.id === selected) ?? null;
   const current = summary && !summary.error ? summary.id : null; // the view to fetch
@@ -59,6 +60,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     try {
       const depth = depthsRef.current[id];
       const result = await api.view(ws, id, depth === undefined ? undefined : { depth });
+      const used = result.diagnostics?.flowchart?.depth;
+      if (depth === undefined && used !== undefined) fileDepths.current[id] = used;
       if (request === viewSequence.current) setView({ id, result, error: '', loading: false });
     } catch (e) {
       if (request === viewSequence.current) setView(v => ({ id, result: v?.id === id ? v.result : null, error: (e as Error).message, loading: false }));
@@ -121,7 +124,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const chartDepth = current ? flowchartDepth(result, depths[current]) : null;
   const changeDepth = (depth: number) => {
     if (!current) return;
-    depthsRef.current = { ...depthsRef.current, [current]: depth };
+    const { [current]: _, ...others } = depthsRef.current;
+    depthsRef.current = depth === fileDepths.current[current] ? others : { ...others, [current]: depth }; // back to the file's depth: no override
     setDepths(depthsRef.current); void loadView(current);
   };
   const tools = <>
@@ -154,7 +158,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
           <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? ''}`} result={result}
             initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}
-            onOpenSource={onOpenSource} onSaveAs={setSaveAs} toolbarExtra={tools} /></div>
+            onOpenSource={onOpenSource} onSaveAs={depths[current!] === undefined ? setSaveAs : undefined} toolbarExtra={tools} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}
     </div>
     {diagnostics && <DiagnosticsDrawer result={result} onOpenSource={onOpenSource} onClose={() => setDiagnostics(false)} />}

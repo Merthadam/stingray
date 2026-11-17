@@ -45,13 +45,16 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
     const timeout = new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error('Flow layout timed out')), 10_000); });
     Promise.race([flowPositions(sharedElk(), result), timeout]).then(next => {
       if (!live) return;
-      const fixed = positionsRef.current;
+      // Flowchart ids are kind@line: after a code edit other nodes take the old ids, so stored positions are kept only
+      // when they are for exactly these nodes.
+      const fixed = !chart || (Object.keys(positionsRef.current).length === result.nodes.length && result.nodes.every(n => positionsRef.current[n.id]))
+        ? positionsRef.current : {};
       setPositions(Object.fromEntries(result.nodes.map(n => [n.id, fixed[n.id] ?? next[n.id]])));
       setReady(true);
     }).catch(e => { if (live) setError(`Could not lay out the flow: ${e.message}`); })
       .finally(() => window.clearTimeout(timer));
     return () => { live = false; window.clearTimeout(timer); };
-  }, [result, revision]);
+  }, [result, revision, chart]);
 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
   const nodes = useMemo<Node[]>(() => [
@@ -104,7 +107,8 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
     <div className="er-toolbar" role="toolbar" aria-label="Diagram">
       <span className="er-count">{result.nodes.length} nodes · {result.edges.length} transitions</span>
       <button aria-label="Re-layout the diagram" onClick={() => { positionsRef.current = {}; setPositions({}); setReady(false); setRevision(r => r + 1); }}><LayoutGrid size={13} />Re-layout</button>
-      <button aria-label="Save as view" disabled={!ready} onClick={() => onSaveAs(state)}><Save size={13} />Save as view…</button>
+      <button aria-label="Save as view" disabled={!ready || !onSaveAs}
+        title={onSaveAs ? undefined : 'Set the depth back to the view’s own to save it'} onClick={() => onSaveAs?.(state)}><Save size={13} />Save as view…</button>
       <div className="er-toolbar-extra">{toolbarExtra}</div>
     </div>
     <div className="er-body">

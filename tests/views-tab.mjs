@@ -95,6 +95,11 @@ try {
   await frame.waitFor();
   check('raising the depth expands the callee into a frame with its own steps', await chart.locator('.flow-diamond').count() === 2
     && await chart.locator('.flow-pill.error').count() === 1 && await chart.locator('.flow-chart-call').count() === 0);
+  const saveAs = chart.getByRole('button', { name: 'Save as view' });
+  check('save as view is off while the depth is overridden', await saveAs.isDisabled());
+  await depth.fill('0');
+  await chart.locator('.flow-chart-call').waitFor();
+  check('moving the slider back to the file depth drops the override', await saveAs.isEnabled());
 
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();

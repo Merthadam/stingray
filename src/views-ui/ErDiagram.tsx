@@ -208,7 +208,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
       </div>}
       <button aria-label="Hide tables without relations" onClick={() => filter(hideIsolated(result, hidden), true)}>Hide tables without relations</button>
       <button aria-label="Re-layout the diagram" onClick={relayout}><LayoutGrid size={13} />Re-layout</button>
-      <button aria-label="Save as view" onClick={() => onSaveAs({ ...state, positions: Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id))) })}><Save size={13} />Save as view…</button>
+      <button aria-label="Save as view" disabled={!onSaveAs} onClick={() => onSaveAs?.({ ...state, positions: Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id))) })}><Save size={13} />Save as view…</button>
       <UpdatedNote at={result.computedAt} change={change} />
       <div className="er-toolbar-extra">{toolbarExtra}</div>
     </div>
