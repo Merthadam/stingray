@@ -53,6 +53,7 @@ export class FlowchartBuilder {
   private edgeSeq = new Map<DiagramEdge, number>();
   private symbolsById = new Map<string, GraphSymbol>();
   private catching: Catching[] = [];
+  private handling: (string[] | null)[] = []; // types caught by the handlers being drawn: what a bare `raise` re-raises
 
   constructor(private step: FlowchartStep, private graph: GraphApi, private load: LoadFunction, private inScope: (file: string) => boolean) {}
 
@@ -158,8 +159,11 @@ export class FlowchartBuilder {
         this.catching.push(ctx);
         const out = await this.steps(c.body, this.branch(d, true), f);
         this.catching.pop();
-        for (const [i, h] of c.handlers.entries())
+        for (const [i, h] of c.handlers.entries()) {
+          this.handling.push(h.types);
           out.push(...await this.steps(h.body, [...this.pend(d, 'except', truncate(h.label)), ...ctx.caught[i]], f));
+          this.handling.pop();
+        }
         return this.steps(c.finally, out, f);
       }
       case 'return': {
@@ -172,9 +176,10 @@ export class FlowchartBuilder {
       case 'raise': {
         preds = await this.calls(c.calls, preds, f, c.code, 'value');
         // Caught by an enclosing try (innermost first): continue at its handler; a branch edge keeps its Yes/No label.
-        const type = /^(?:new\s+)?([\w$.]+)\s*(?:\(|$)/.exec(c.value?.trim() ?? '')?.[1].split('.').at(-1) ?? null;
+        const name = /^(?:new\s+)?([\w$.]+)\s*(?:\(|$)/.exec(c.value?.trim() ?? '')?.[1].split('.').at(-1);
+        const types = c.value ? (name ? [name] : null) : this.handling.at(-1) ?? null; // null: unknown, only a catch-all catches it
         for (const t of [...this.catching].reverse()) {
-          const i = t.handlers.findIndex(h => h.types === null || (type !== null && h.types.includes(type)));
+          const i = t.handlers.findIndex(h => h.types === null || (types !== null && types.some(x => h.types!.includes(x))));
           if (i < 0) continue;
           t.caught[i].push(...preds.map(p => p.label ? p : { ...p, kind: 'except', label: errorLabel(c.value) }));
           return [];

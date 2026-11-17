@@ -519,3 +519,24 @@ def tx():
   const out = await run(files, ['run>guard', 'run>tx', 'guard>ok'], { start: { symbol: 'run' }, depth: 2 });
   assert.deepEqual(out.text.filter(l => l.includes('»')), ['  » guard', '    » ok', '  » tx']);
 });
+
+test('a bare raise re-raises its handler\'s type: an outer handler for that type catches it, not a later catch-all', async () => {
+  const files = { 'n.py': `async def node(state):
+    try:
+        try:
+            await work(state)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            note(state)
+    except asyncio.CancelledError:
+        cancel(state)
+    except Exception:
+        fail(state)
+` };
+  const out = await run(files, [], { start: { symbol: 'node' } });
+  const into = (label: string) => out.edges.filter(e => e.to === node(out.nodes, label).id).map(e => `${e.kind}:${e.label}`);
+  // the outer handler's own edge, then the inner handler's re-raise
+  assert.deepEqual(into('cancel'), ['except:asyncio.CancelledError', 'except:asyncio.CancelledError']);
+  assert.deepEqual(into('fail'), ['except:Exception']);
+});
