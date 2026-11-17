@@ -52,8 +52,8 @@ Acceptance: `npm run build`, `npm test` green; `stingray-views check` on a fixtu
    override + cache key; view-changed refresh keeps the current override.
 2. UI: `ViewsTab.tsx` routes `flowchart` to the flow diagram; `FlowNode.tsx` shapes (diamond for decision/loop, pill
    for start/end, red pill for error, box for action, box+chevron for call); `FlowEdge.tsx` labels; groups rendered
-   as labelled frames (ELK compound nodes in `flow-layout.ts`), header click → open source; depth slider (0–4,
-   default from YAML via `ViewResult` — expose `flowchartDepth` or read it from diagnostics) in the view toolbar,
+   as labelled frames (ELK compound nodes in `flow-layout.ts`; nesting via `DiagramGroup.parent`), header click → open
+   source; depth slider (0–4, default = `ViewResult.diagnostics.flowchart.depth`, the effective depth set in Phase 1) in the view toolbar,
    session-only; call node "+N steps" hint.
 3. Text fallback (`TextViewFallback`/`views-text.ts`) handles flowchart.
 4. Tests: `tests/views-tab-model.test.ts` / `npm run test:views-tab` with a flowchart fixture.
