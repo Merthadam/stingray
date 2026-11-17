@@ -58,9 +58,9 @@ function statement(n: Node): Construct[] {
     case 'match_statement': {
       const subject = n.childForFieldName('subject')!;
       const cases = named(n.childForFieldName('body')).filter(c => c.type === 'case_clause').map(c => {
-        const consequence = c.childForFieldName('consequence');
-        const pattern = named(c).filter(p => p !== consequence && p.text).map(p => p.text).join(' ');
-        return { label: pattern === '_' ? null : pattern || null, body: block(consequence) };
+        const pattern = named(c).filter(p => p.type === 'case_pattern').map(p => p.text).join(', ');
+        const guard = named(c).find(p => p.type === 'if_clause')?.text;
+        return { label: pattern === '_' && !guard ? null : [pattern, guard].filter(Boolean).join(' ') || null, body: block(c.childForFieldName('consequence')) };
       });
       if (cases.every(c => !c.body.length)) return action(n, calls(subject));
       return [{ type: 'switch', code: code(n), subject: subject.text, calls: calls(subject), cases, breakable: false }];

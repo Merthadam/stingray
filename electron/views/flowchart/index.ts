@@ -79,7 +79,7 @@ export async function runFlowchart(step: FlowchartStep, graph: GraphApi, files: 
     const groups = builder.groups.filter(g => used.has(g.id) || builder.groups.some(c => c.parent === g.id && used.has(c.id)));
     if (builder.truncated) warnings.push({ file: null, line: null, message: `Flowchart stopped at ${builder.nodes.length} nodes; some calls were not expanded — lower the depth or exclude files` });
     return {
-      nodes: builder.nodes, edges: builder.edges, groups, warnings, truncated: builder.truncated,
+      nodes: builder.nodes, edges: builder.sortedEdges(), groups, warnings, truncated: builder.truncated,
       diagnostic: { ...diagnostic, functions: builder.functions, nodes: builder.nodes.length, truncated: builder.truncated },
     };
   } finally {

@@ -55,27 +55,33 @@ const MARKERS: Record<string, string> = { start: '(start)', end: '(end)', error:
 const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : e.kind === 'except' ? `except ${e.label}` : e.label ?? e.kind;
 
 /** Flowchart as an indented tree from the start node: decisions list their branches (Yes:/No:/case/except) until the
- * branches merge again (immediate post-dominator), expanded calls are indented under a "» name" header. */
+ * branches merge again (immediate post-dominator; "→ x" = the branch goes straight to x), "↻ x" = back to x drawn
+ * above (loops), expanded calls are indented under a "» name" header. */
 function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: DiagramGroup[]): string[] {
   const byId = new Map(nodes.map(n => [n.id, n])), outgoing = new Map<string, DiagramEdge[]>();
   for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) outgoing.set(e.from, [...outgoing.get(e.from) ?? [], e]);
   const parents = new Map(groups.map(g => [g.id, g.parent ?? null])), labels = new Map(groups.map(g => [g.id, g.label]));
   const depthOf = (group: string | null): number => group === null || !parents.has(group) ? 0 : 1 + depthOf(parents.get(group)!);
 
-  // Post-dominators (iterative; nodes without successors lead to a virtual exit).
+  // Post-dominators (iterative). Only the main end (the last `end`, where the function finishes) and dangling nodes lead
+  // to the exit; other ends and errors post-dominate everything, so a branch that stops early (guard clause) does not
+  // prevent its siblings from merging.
   const EXIT = '\0exit', all = new Set([...byId.keys(), EXIT]);
+  const mainEnd = [...nodes].reverse().find(n => n.kind === 'end')?.id;
+  const stops = new Set(nodes.filter(n => (n.kind === 'end' || n.kind === 'error') && n.id !== mainEnd && !outgoing.has(n.id)).map(n => n.id));
   const pdom = new Map<string, Set<string>>([...byId.keys()].map(id => [id, all]));
   pdom.set(EXIT, new Set([EXIT]));
   for (let changed = true, rounds = 0; changed && rounds < 1000; rounds++) {
     changed = false;
     for (const id of byId.keys()) {
+      if (stops.has(id)) continue;
       const succ = (outgoing.get(id) ?? []).map(e => pdom.get(e.to)!);
       const next = new Set([id, ...[...(succ.length ? succ : [pdom.get(EXIT)!]).reduce((a, b) => new Set([...a].filter(x => b.has(x))))]]);
       if (next.size !== pdom.get(id)!.size) { pdom.set(id, next); changed = true; }
     }
   }
   // The strict post-dominators form a chain; the immediate one is the one with the most post-dominators itself.
-  const merge = (id: string) => [...pdom.get(id)!].filter(d => d !== id).reduce<string | null>((best, d) =>
+  const merge = (id: string) => pdom.get(id)!.size === all.size ? null : [...pdom.get(id)!].filter(d => d !== id).reduce<string | null>((best, d) =>
     best === null || pdom.get(d)!.size > pdom.get(best)!.size ? d : best, null);
 
   const lines: string[] = [], printed = new Set<string>();
@@ -95,7 +101,7 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
       const join = merge(id);
       for (const e of out) {
         lines.push(`${pad}  ${BRANCH_EDGE(e)}:`);
-        if (e.to === join) lines.push(`${pad}    (continue)`);
+        if (e.to === join) lines.push(`${pad}    → ${byId.get(join)!.label}`);
         else walk(e.to, join, pad.length + 4, depthOf(n.group), n.group);
       }
       id = join;

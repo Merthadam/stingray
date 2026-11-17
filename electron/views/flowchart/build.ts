@@ -13,8 +13,9 @@ export const MAX_FLOWCHART_NODES = 150;
 export type Loaded = { constructs: Construct[] } | { error: string };
 export type LoadFunction = (symbol: GraphSymbol) => Promise<Loaded>;
 
-/** An edge waiting for the next node: where control continues after a step or a branch. */
-interface Pending { from: string; kind: string; label: string | null; certain: boolean }
+/** An edge waiting for the next node: where control continues after a step or a branch. `seq` orders the edges of a
+ * node by when its branches were created (then-branch first), not by when they reach their target. */
+interface Pending { from: string; kind: string; label: string | null; certain: boolean; seq: number }
 interface Breakable { node: string | null; breaks: Pending[]; loop: boolean } // node: the loop decision (null for switch)
 interface Frame {
   symbol: GraphSymbol;
@@ -26,9 +27,6 @@ interface Frame {
   breakables: Breakable[];
 }
 
-const BRANCH = { yes: 'Yes', no: 'No' } as const;
-const branch = (from: string, yes: boolean, certain = true): Pending =>
-  ({ from, kind: yes ? 'yes' : 'no', label: yes ? BRANCH.yes : BRANCH.no, certain });
 
 /** Approximate number of boxes a callee body draws without expansion ("+N steps" hints and the node-cap check); a callee's
  * plain `return` draws nothing (it continues in the caller). */
@@ -49,6 +47,8 @@ export class FlowchartBuilder {
   truncated = false;
   functions = 0;
   private ids = new Set<string>();
+  private seq = 0;
+  private edgeSeq = new Map<DiagramEdge, number>();
   private symbolsById = new Map<string, GraphSymbol>();
 
   constructor(private step: FlowchartStep, private graph: GraphApi, private load: LoadFunction, private inScope: (file: string) => boolean) {}
@@ -58,8 +58,19 @@ export class FlowchartBuilder {
     this.functions++;
     const start = this.add({ kind: 'start', label: symbol.name, role: 'start', line: symbol.line, detail: null, symbol }, [], symbol, null)!;
     const frame = this.frame(symbol, null, 0, [symbol.id], null);
-    const out = await this.seq(constructs, [{ from: start, kind: 'next', label: null, certain: true }], frame);
+    const out = await this.steps(constructs, this.pend(start, 'next'), frame);
     if (out.length) this.add({ kind: 'end', label: 'done', role: 'end', line: null, detail: null }, out, symbol, null);
+  }
+
+  private pend(from: string, kind: string, label: string | null = null): Pending[] {
+    return [{ from, kind, label, certain: true, seq: this.seq++ }];
+  }
+  private branch(from: string, yes: boolean): Pending[] { return this.pend(from, yes ? 'yes' : 'no', yes ? 'Yes' : 'No'); }
+
+  /** Edges grouped by source node in creation order, each node's edges in branch order. */
+  sortedEdges(): DiagramEdge[] {
+    const rank = new Map(this.nodes.map((n, i) => [n.id, i]));
+    return [...this.edges].sort((a, b) => rank.get(a.from)! - rank.get(b.from)! || this.edgeSeq.get(a)! - this.edgeSeq.get(b)!);
   }
 
   private frame(symbol: GraphSymbol, group: string | null, level: number, stack: string[], returns: Pending[] | null): Frame {
@@ -92,7 +103,7 @@ export class FlowchartBuilder {
     return this.add({ kind, label, line: code.line, detail: code.text, ...extra }, preds, f.symbol, f.group);
   }
 
-  private async seq(list: Construct[], preds: Pending[], f: Frame): Promise<Pending[]> {
+  private async steps(list: Construct[], preds: Pending[], f: Frame): Promise<Pending[]> {
     for (const c of list) {
       if (!preds.length) break; // unreachable after return/raise/break
       preds = await this.construct(c, preds, f);
@@ -101,7 +112,7 @@ export class FlowchartBuilder {
   }
 
   private async construct(c: Construct, preds: Pending[], f: Frame): Promise<Pending[]> {
-    const next = (from: string | null): Pending[] => from === null ? preds : [{ from, kind: 'next', label: null, certain: true }];
+    const next = (from: string | null): Pending[] => from === null ? preds : this.pend(from, 'next');
     switch (c.type) {
       case 'action': return this.calls(c.calls, preds, f, c.code, 'statement');
       case 'if': {
@@ -109,8 +120,8 @@ export class FlowchartBuilder {
         const { label, negated } = decisionLabel(c.cond);
         const d = this.node(f, 'decision', label, { text: c.cond.replace(/\s+/g, ' ').slice(0, 200), line: c.code.line }, preds);
         if (d === null) return preds;
-        const then = await this.seq(c.then, [branch(d, !negated)], f);
-        const otherwise = c.else.length ? await this.seq(c.else, [branch(d, negated)], f) : [branch(d, negated)];
+        const then = await this.steps(c.then, this.branch(d, !negated), f);
+        const otherwise = c.else.length ? await this.steps(c.else, this.branch(d, negated), f) : this.branch(d, negated);
         return [...then, ...otherwise];
       }
       case 'loop': {
@@ -120,10 +131,10 @@ export class FlowchartBuilder {
         if (d === null) return preds;
         const ctx: Breakable = { node: d, breaks: [], loop: true };
         f.breakables.push(ctx);
-        const body = await this.seq(c.body, [branch(d, !negated)], f);
+        const body = await this.steps(c.body, this.branch(d, !negated), f);
         f.breakables.pop();
         this.connect(body, d, 'loop');
-        return [branch(d, negated), ...ctx.breaks];
+        return [...this.branch(d, negated), ...ctx.breaks];
       }
       case 'switch': {
         preds = await this.calls(c.calls, preds, f, c.code, 'condition');
@@ -132,17 +143,17 @@ export class FlowchartBuilder {
         const ctx: Breakable = { node: null, breaks: [], loop: false };
         if (c.breakable) f.breakables.push(ctx);
         const out: Pending[] = [];
-        for (const k of c.cases) out.push(...await this.seq(k.body, [{ from: d, kind: 'case', label: caseLabel(k.label), certain: true }], f));
+        for (const k of c.cases) out.push(...await this.steps(k.body, this.pend(d, 'case', caseLabel(k.label)), f));
         if (c.breakable) f.breakables.pop();
-        if (!c.cases.some(k => k.label === null)) out.push({ from: d, kind: 'case', label: 'other', certain: true });
+        if (!c.cases.some(k => k.label === null)) out.push(...this.pend(d, 'case', 'other'));
         return [...out, ...ctx.breaks];
       }
       case 'try': {
         const d = this.node(f, 'decision', 'succeeds?', c.code, preds);
         if (d === null) return preds;
-        const out = await this.seq(c.body, [branch(d, true)], f);
-        for (const h of c.handlers) out.push(...await this.seq(h.body, [{ from: d, kind: 'except', label: truncate(h.label), certain: true }], f));
-        return this.seq(c.finally, out, f);
+        const out = await this.steps(c.body, this.branch(d, true), f);
+        for (const h of c.handlers) out.push(...await this.steps(h.body, this.pend(d, 'except', truncate(h.label)), f));
+        return this.steps(c.finally, out, f);
       }
       case 'return': {
         preds = await this.calls(c.calls, preds, f, c.code, 'value');
@@ -169,12 +180,15 @@ export class FlowchartBuilder {
     }
   }
 
-  /** Edges from the pending ends to `to`; `kind` overrides theirs (back-edges of loop bodies and `continue` are `loop`). */
+  /** Edges from the pending ends to `to`; `kind` overrides theirs (back-edges of loop bodies and `continue` are `loop`,
+   * keeping a branch label such as "Yes" when the branch itself loops back). */
   private connect(preds: Pending[], to: string, kind?: string) {
     for (const p of preds) {
       const k = kind ?? p.kind, base = `${k}:${p.from}->${to}`;
-      this.edges.push({ id: this.uniqueId(base), from: p.from, to, fromField: null, toField: null, kind: k, style: p.certain ? 'solid' : 'dashed',
-        certain: p.certain, label: kind ? null : p.label, source: null });
+      const edge: DiagramEdge = { id: this.uniqueId(base), from: p.from, to, fromField: null, toField: null, kind: k, style: p.certain ? 'solid' : 'dashed',
+        certain: p.certain, label: p.label, source: null };
+      this.edges.push(edge);
+      this.edgeSeq.set(edge, p.seq);
     }
   }
 
@@ -200,6 +214,7 @@ export class FlowchartBuilder {
    * `condition`: only expansions — the decision label already names the call.
    */
   private async calls(calls: Call[], preds: Pending[], f: Frame, code: Code, mode: 'statement' | 'value' | 'condition'): Promise<Pending[]> {
+    const next = (from: string | null): Pending[] => from === null ? preds : this.pend(from, 'next');
     for (const call of calls) {
       const target = this.resolve(call, f);
       const at = { text: code.text, line: call.line };
@@ -224,7 +239,6 @@ export class FlowchartBuilder {
       if (mode !== 'condition') preds = next(this.node(f, 'call', callLabel(call.callee), at, into(certain), { symbol, subtitle }));
     }
     return preds;
-    function next(from: string | null): Pending[] { return from === null ? preds : [{ from, kind: 'next', label: null, certain: true }]; }
   }
 
   private async expand(symbol: GraphSymbol, constructs: Construct[], preds: Pending[], f: Frame): Promise<Pending[]> {
@@ -234,7 +248,7 @@ export class FlowchartBuilder {
     for (let i = 2; this.groups.some(g => g.id === group); i++) group = `${base}#${i}`;
     this.groups.push({ id: group, label: symbol.name, source: { file: symbol.file, line: symbol.line }, parent: f.group });
     const callee = this.frame(symbol, group, f.level + 1, [...f.stack, symbol.id], []);
-    const out = await this.seq(constructs, preds, callee);
+    const out = await this.steps(constructs, preds, callee);
     return [...out, ...callee.returns!];
   }
 }
