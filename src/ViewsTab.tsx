@@ -13,7 +13,7 @@ import { EditorPicker } from './views-ui/EditorPicker';
 import { diagnosticCount, pickView } from './views-tab-model';
 import './views-tab.css';
 
-const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network };
+const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
 const COLLAPSED_KEY = 'stingray-views-collapsed';
 const selectedKey = (workspaceId: string) => `stingray-views-selected:${workspaceId}`;
 const SAVE_DELAY = 500;

@@ -5,10 +5,10 @@ import { LineCounter, isMap, isScalar, parseDocument, type Document } from 'yaml
 import { z } from 'zod';
 import type { ViewKind, ViewLayout } from '../../../src/views';
 import { GRAMMAR_FILES } from './grammars';
-import type { Emit, GraphStep, Rule, RuleSourceName, Scope, SourcedRule } from './types';
+import type { Emit, FlowchartStep, GraphStep, Rule, RuleSourceName, Scope, SourcedRule } from './types';
 
 export const SLUG = /^[a-z0-9-]{1,64}$/;
-export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph'];
+export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph', 'flowchart'];
 export const MAX_USE = 8, MAX_RULES = 50, MAX_QUERY_BYTES = 8 * 1024;
 
 // Globs run on the main thread (path.matchesGlob compiles to backtracking regexes), so repo-controlled patterns are
@@ -72,6 +72,13 @@ const graphSchema = z.strictObject({
   helpers: z.enum(['show', 'collapse', 'hide']).default('collapse'),
 });
 
+const flowchartSchema = z.strictObject({
+  start: z.strictObject({ symbol: z.string().min(1).max(200), file: z.string().min(1).max(500).optional() }),
+  depth: z.int().min(0).max(4).default(1),
+  include: globs.optional(),
+  exclude: globs.optional(),
+});
+
 const point = z.strictObject({ x: z.number(), y: z.number() }); // zod 4 numbers reject Infinity/NaN
 /** Node positions keyed by DiagramNode.id (shared with the local view state). */
 export const positionsSchema = z.record(z.string().min(1).max(300), point)
@@ -87,10 +94,19 @@ export const viewSchema = z.strictObject({
   use: z.array(z.string().regex(SLUG, { error: 'Set names are 1-64 characters a-z, 0-9 or "-"' })).max(MAX_USE).optional(),
   rules: rulesSchema.optional(),
   graph: graphSchema.optional(),
+  flowchart: flowchartSchema.optional(),
   include: names.optional(),   // node ids/labels always kept
   exclude: names.optional(),   // node ids/labels always dropped (wins over include)
   layout: layoutSchema.optional(),
-}).refine(v => v.use?.length || v.rules?.length || v.graph, { error: 'A view needs at least one of use, rules or graph' });
+}).superRefine((v, ctx) => {
+  if (v.kind === 'flowchart' && !v.flowchart) ctx.addIssue({ code: 'custom', path: ['kind'], message: 'kind: flowchart needs a flowchart: section' });
+  if (v.flowchart && v.kind !== 'flowchart') ctx.addIssue({ code: 'custom', path: ['flowchart'], message: 'flowchart: needs kind: flowchart' });
+  // v1: a flowchart is computed from its entry function alone; mixing with rules/graph steps can come later.
+  if (v.flowchart) for (const key of ['use', 'rules', 'graph'] as const) {
+    if (v[key] !== undefined) ctx.addIssue({ code: 'custom', path: [key], message: `${key}: cannot be combined with flowchart:` });
+  }
+  if (!v.flowchart && !v.use?.length && !v.rules?.length && !v.graph) ctx.addIssue({ code: 'custom', path: [], message: 'A view needs at least one of use, rules, graph or flowchart' });
+});
 
 export const ruleFileSchema = z.strictObject({
   version: z.literal(1),
@@ -160,6 +176,7 @@ export interface ViewDefinition {
   use: { name: string; line: number | null }[];
   rules: SourcedRule[];       // inline rules (source "view")
   graph: GraphStep | null;
+  flowchart: FlowchartStep | null;
   include: string[];
   exclude: string[];
   layout: ViewLayout | null;
@@ -173,7 +190,7 @@ export function parseViewYaml(text: string, file: string): ViewDefinition {
     name: v.name, description: v.description ?? '', kind: v.kind, scope: v.scope,
     use: [...new Set(v.use ?? [])].map(name => ({ name, line: lineAt(src, ['use', (v.use ?? []).indexOf(name)]) })),
     rules: sourced(src, v.rules ?? [], 'view'),
-    graph: v.graph ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
+    graph: v.graph ?? null, flowchart: v.flowchart ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
     layout: v.layout ? { positions: v.layout.positions ?? {} } : null,
   };
 }

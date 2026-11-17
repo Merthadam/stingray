@@ -27,7 +27,7 @@ test('view YAML errors carry line numbers', () => {
   assert.deepEqual(errorOf(view('extra: 1')), { line: 5, message: 'Unrecognized key: "extra"' });
   assert.match(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.message, /^kind:/);
   assert.equal(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.line, 3);
-  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules or graph/);
+  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules, graph or flowchart/);
   assert.deepEqual(errorOf('version: 1\nname: V\nname: W\nkind: flow\nuse: [a]')?.line, 3); // duplicate key
   assert.match(errorOf('a: [\n')!.message, /^Invalid YAML/);
   assert.match(errorOf(view('scope:\n  include: ["{a,b}/**"]'))!.message, /scope\.include\.0: Unsupported glob/);

@@ -10,7 +10,7 @@ import type { DbSchemaResult } from '../src/db-schema';
 import type { DiagramNode, RuleDiagnostic, ViewResult, ViewSummary } from '../src/views';
 
 const summary: ViewSummary = { id: 'flow', name: 'Agent flow', kind: 'flow', description: '', builtin: false, file: '.stingray/views/flow.yaml', error: null };
-const view: ResolvedView = { id: 'flow', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, graph: null,
+const view: ResolvedView = { id: 'flow', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, graph: null, flowchart: null,
   rules: [{ source: 'view', file: '.stingray/views/flow.yaml', line: 3, queryLine: 4, rule: { id: 'step', language: 'python', query: '(call) @c', emit: { node: { id: '@c' } } } }], builtins: [], include: [], exclude: [] };
 const node = (id: string, extra: Partial<DiagramNode> = {}): DiagramNode =>
   ({ id, label: id, kind: 'step', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null, ...extra });

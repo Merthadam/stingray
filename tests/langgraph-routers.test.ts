@@ -10,7 +10,7 @@ import { BUILTIN_SETS } from '../electron/views/sets';
 async function run(fixture: string, exclude: string[] = []) {
   const { rules } = parseRuleFileYaml(BUILTIN_SETS.langgraph.yaml, null, 'langgraph', 'builtin/langgraph');
   const out = await evaluate({
-    view: { id: 'flow', kind: 'flow', scope: { include: ['**/*.py'], exclude }, rules, graph: null, builtins: [], include: [], exclude: [] },
+    view: { id: 'flow', kind: 'flow', scope: { include: ['**/*.py'], exclude }, rules, graph: null, flowchart: null, builtins: [], include: [], exclude: [] },
     files: createFileProvider(path.join(import.meta.dirname, 'fixtures/views', fixture)),
     graph: null, graphStatus: { state: 'unavailable', message: null }, grammarDir: codegraphGrammarDir(),
   });

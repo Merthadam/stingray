@@ -106,7 +106,7 @@ async function loadView(root: string, file: string, sets: BuiltinSets): Promise<
   return {
     summary: named, ruleFiles: use.ruleFiles, errors: [], layout: definition.layout,
     view: {
-      id: slug, kind: definition.kind, scope: definition.scope, rules: [...use.rules, ...definition.rules], graph: definition.graph,
+      id: slug, kind: definition.kind, scope: definition.scope, rules: [...use.rules, ...definition.rules], graph: definition.graph, flowchart: definition.flowchart,
       builtins: use.builtins, include: definition.include, exclude: definition.exclude,
     },
   };

@@ -15,7 +15,7 @@ const KINDS: Record<string, ViewKind> = { alembic: 'timeline', langgraph: 'flow'
 async function run(name: string) {
   const { rules } = parseRuleFileYaml(BUILTIN_SETS[name].yaml, null, name, `builtin/${name}`); // throws on schema errors
   const out = await evaluate({
-    view: { id: name, kind: KINDS[name], scope: { include: ['**/*'], exclude: [] }, rules, graph: null, builtins: [], include: [], exclude: [] },
+    view: { id: name, kind: KINDS[name], scope: { include: ['**/*'], exclude: [] }, rules, graph: null, flowchart: null, builtins: [], include: [], exclude: [] },
     files: createFileProvider(path.join(fixtures, name)), graph: null, graphStatus: { state: 'indexing', message: null }, grammarDir: codegraphGrammarDir(),
   });
   const label = (id: string) => out.nodes.find(n => n.id === id)?.label ?? id;

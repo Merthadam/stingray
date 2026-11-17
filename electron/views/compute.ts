@@ -33,7 +33,7 @@ const EMPTY: EvaluateOutput = {
 export async function computeView(entry: ViewFileEntry & { view: ResolvedView }, deps: ComputeDeps): Promise<ViewResult> {
   const { view, summary } = entry;
   // Views with only builtins (e.g. a plain sqlalchemy tables view) do not need the engine.
-  const evaluated = view.rules.length > 0 || view.graph !== null;
+  const evaluated = view.rules.length > 0 || view.graph !== null || view.flowchart !== null;
   const [output, schemas] = await Promise.all([
     evaluated ? deps.evaluate(view) : EMPTY,
     Promise.all(TS_EXTRACTORS.filter(name => view.builtins.includes(name) && deps[name]).map(name => deps[name]!())),

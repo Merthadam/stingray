@@ -108,7 +108,7 @@ function fakeChild(options: Parameters<typeof serveCodeGraph>[2]) {
   child.kill = () => { exit('SIGKILL'); worker.disconnect(); return true; }; // a real dead child takes its watchers with it
   return child as unknown as ChildProcess;
 }
-const view: ResolvedView = { id: 'v', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, builtins: [], include: [], exclude: [] };
+const view: ResolvedView = { id: 'v', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [], include: [], exclude: [] };
 const output = (stats: Record<string, number>): EvaluateOutput => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats,
   diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
 
