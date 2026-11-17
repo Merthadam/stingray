@@ -136,6 +136,27 @@ test('concurrent computations of one view are shared', async t => {
   assert.notEqual(service.computeView('ws', root, 'core'), a);
 });
 
+test('a depth override recomputes only flowchart views, keyed by depth, and code changes refresh every depth', async t => {
+  const { root, host, events, service } = await setup(t);
+  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 1\n');
+  const graph = host.open('ws', root) as FakeGraph;
+  graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {},
+    diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
+  const deep = service.computeView('ws', root, 'chart', { depth: 3 });
+  assert.equal(service.computeView('ws', root, 'chart', { depth: 3 }), deep);
+  const plain = service.computeView('ws', root, 'chart');
+  assert.notEqual(plain, deep);
+  await Promise.all([deep, plain]);
+  assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth), [3, 1]);
+  await service.computeView('ws', root, 'flow', { depth: 3 });
+  assert.equal(graph.evaluated.at(-1)!.flowchart, null);
+  const pending = service.computeView('ws', root, 'chart', { depth: 2 });
+  graph.change('app/login.ts');
+  await settle(150, events);
+  assert.ok(events[0].viewIds.includes('chart'));
+  assert.notEqual(service.computeView('ws', root, 'chart', { depth: 2 }), pending);
+});
+
 test('changes emit the affected views, coalesced', async t => {
   const { root, host, events, service } = await setup(t);
   await service.listViews('ws', root);

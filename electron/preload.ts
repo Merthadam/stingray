@@ -17,7 +17,7 @@ const api: DesktopAPI = {
   inspectFile: (id, path) => ipcRenderer.invoke('inspect-file', id, path),
   dbSchema: id => ipcRenderer.invoke('db-schema', id),
   views: id => ipcRenderer.invoke('views', id),
-  view: (id, viewId) => ipcRenderer.invoke('view', id, viewId),
+  view: (id, viewId, options) => ipcRenderer.invoke('view', id, viewId, ...(options ? [options] : [])),
   onViewsChanged: listener => {
     const handler = (_event: unknown, payload: ViewsChangedEvent) => listener(payload);
     ipcRenderer.on('views-changed', handler);

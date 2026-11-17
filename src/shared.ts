@@ -85,7 +85,8 @@ export interface DesktopAPI {
   inspectFile(id: string, path: string): Promise<FileInspection>;
   dbSchema(workspaceId: string): Promise<DbSchemaResult>;
   views(workspaceId: string): Promise<ViewSummary[]>;
-  view(workspaceId: string, viewId: string): Promise<ViewResult>;
+  /** `depth` overrides a flowchart view's `flowchart.depth` (0-4) for this computation; other kinds ignore it. */
+  view(workspaceId: string, viewId: string, options?: { depth?: number }): Promise<ViewResult>;
   onViewsChanged(listener: (event: ViewsChangedEvent) => void): () => void;
   /** Local (app data) state of a view in a worktree; null when none saved yet. */
   viewState(workspaceId: string, viewId: string): Promise<ViewLocalState | null>;

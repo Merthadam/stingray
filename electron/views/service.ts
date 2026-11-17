@@ -18,12 +18,12 @@ interface Worktree {
 }
 
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
- * class or mixin outside the scope changes the tables inside it), any code file with a graph step, or a file its rules read. */
+ * class or mixin outside the scope changes the tables inside it), any code file with a graph or flowchart step, or a file its rules read. */
 function affects(v: ViewFileEntry, changed: string[], code: string[], python: boolean, sql: boolean): boolean {
   if (v.ruleFiles.some(r => changed.includes(r))) return true;
   const view = v.view;
   if (!view) return false;
-  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && view.graph)) return true;
+  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && (view.graph || view.flowchart))) return true;
   return code.some(f => inScope(f, view.scope) && view.rules.some(({ rule }) => !rule.files || inScope(f, { include: rule.files, exclude: [] })));
 }
 
@@ -45,12 +45,12 @@ export class ViewService {
     return [DATABASE_VIEW, ...(await listViewFiles(root)).map(v => v.summary)];
   }
 
-  /** Concurrent requests for the same view of a worktree share one computation. */
-  computeView(workspaceId: string, root: string, viewId: string): Promise<ViewResult> {
-    const key = `${workspaceId}\0${viewId}`;
+  /** Concurrent requests for the same view (and depth override) of a worktree share one computation. */
+  computeView(workspaceId: string, root: string, viewId: string, options: { depth?: number } = {}): Promise<ViewResult> {
+    const key = `${workspaceId}\0${viewId}\0${options.depth ?? ''}`;
     let computation = this.computations.get(key);
     if (!computation) {
-      const started: Promise<ViewResult> = computation = this.compute(workspaceId, root, viewId)
+      const started: Promise<ViewResult> = computation = this.compute(workspaceId, root, viewId, options.depth)
         .finally(() => { if (this.computations.get(key) === started) this.computations.delete(key); });
       this.computations.set(key, computation);
     }
@@ -78,14 +78,15 @@ export class ViewService {
     await this.host.closeAll();
   }
 
-  private async compute(workspaceId: string, root: string, viewId: string): Promise<ViewResult> {
+  private async compute(workspaceId: string, root: string, viewId: string, depth: number | undefined): Promise<ViewResult> {
     const w = this.worktree(workspaceId, root);
     const findSymbols = w.graph.findSymbols.bind(w.graph);
     if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), findSymbols);
     const file = await readViewFile(root, viewId);
     if (!file) throw new Error(`Unknown view: ${viewId}`);
-    const { view } = file;
+    let { view } = file;
     if (!view) throw new Error(`View file ${file.summary.file} is invalid: ${file.summary.error}`);
+    if (depth !== undefined && view.flowchart) view = { ...view, flowchart: { ...view.flowchart, depth } };
     return computeView({ ...file, view }, {
       workspaceId, graph: w.graph.status(), findSymbols, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
@@ -163,7 +164,10 @@ export class ViewService {
       w.pending = null;
       if (!p.viewIds.size && !p.listChanged) return;
       // A computation that started before the change must not answer the refetch this event triggers.
-      for (const id of p.viewIds) this.computations.delete(`${workspaceId}\0${id}`);
+      for (const key of this.computations.keys()) {
+        const [ws, id] = key.split('\0');
+        if (ws === workspaceId && p.viewIds.has(id)) this.computations.delete(key); // every depth override of the view
+      }
       try { this.emit({ workspaceId, viewIds: [...p.viewIds].sort(), listChanged: p.listChanged }); } catch { /* never throw from listeners */ }
     }, this.debounceMs) };
     for (const id of ids) p.viewIds.add(id);
