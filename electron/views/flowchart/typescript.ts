@@ -62,7 +62,7 @@ function statement(n: Node): Construct[] {
     }
     case 'try_statement': {
       const handler = n.childForFieldName('handler'), finalizer = n.childForFieldName('finalizer');
-      const handlers = handler ? [{ label: 'error', line: handler.startPosition.row + 1, body: statements([handler.childForFieldName('body')]) }] : [];
+      const handlers = handler ? [{ label: 'error', line: handler.startPosition.row + 1, types: null, body: statements([handler.childForFieldName('body')]) }] : [];
       return tryConstruct(n, statements([n.childForFieldName('body')]), handlers, statements([finalizer?.childForFieldName('body') ?? null]));
     }
     case 'switch_statement': {

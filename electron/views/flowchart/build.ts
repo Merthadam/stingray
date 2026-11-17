@@ -4,7 +4,7 @@
 import path from 'node:path';
 import type { DiagramEdge, DiagramGroup, DiagramNode } from '../../../src/views';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
-import type { Call, Code, Construct } from './cfg';
+import type { Call, Code, Construct, Handler } from './cfg';
 import { callLabel, caseLabel, decisionLabel, endLabel, errorLabel, loopLabel, truncate } from './labels';
 
 export const MAX_FLOWCHART_NODES = 150;
@@ -17,6 +17,8 @@ export type LoadFunction = (symbol: GraphSymbol) => Promise<Loaded>;
  * node by when its branches were created (then-branch first), not by when they reach their target. */
 interface Pending { from: string; kind: string; label: string | null; certain: boolean; seq: number }
 interface Breakable { node: string | null; breaks: Pending[]; loop: boolean } // node: the loop decision (null for switch)
+/** A try body being drawn: raises it catches (also from expanded callees) continue at their handler. */
+interface Catching { handlers: Handler[]; caught: Pending[][] }
 interface Frame {
   symbol: GraphSymbol;
   group: string | null;
@@ -50,6 +52,7 @@ export class FlowchartBuilder {
   private seq = 0;
   private edgeSeq = new Map<DiagramEdge, number>();
   private symbolsById = new Map<string, GraphSymbol>();
+  private catching: Catching[] = [];
 
   constructor(private step: FlowchartStep, private graph: GraphApi, private load: LoadFunction, private inScope: (file: string) => boolean) {}
 
@@ -151,8 +154,12 @@ export class FlowchartBuilder {
       case 'try': {
         const d = this.node(f, 'decision', 'succeeds?', c.code, preds);
         if (d === null) return preds;
+        const ctx: Catching = { handlers: c.handlers, caught: c.handlers.map(() => []) };
+        this.catching.push(ctx);
         const out = await this.steps(c.body, this.branch(d, true), f);
-        for (const h of c.handlers) out.push(...await this.steps(h.body, this.pend(d, 'except', truncate(h.label)), f));
+        this.catching.pop();
+        for (const [i, h] of c.handlers.entries())
+          out.push(...await this.steps(h.body, [...this.pend(d, 'except', truncate(h.label)), ...ctx.caught[i]], f));
         return this.steps(c.finally, out, f);
       }
       case 'return': {
@@ -162,10 +169,19 @@ export class FlowchartBuilder {
         this.node(f, 'end', endLabel(c.value), c.code, preds, { role: 'end' });
         return [];
       }
-      case 'raise':
+      case 'raise': {
         preds = await this.calls(c.calls, preds, f, c.code, 'value');
+        // Caught by an enclosing try (innermost first): continue at its handler; a branch edge keeps its Yes/No label.
+        const type = /^(?:new\s+)?([\w$.]+)\s*(?:\(|$)/.exec(c.value?.trim() ?? '')?.[1].split('.').at(-1) ?? null;
+        for (const t of [...this.catching].reverse()) {
+          const i = t.handlers.findIndex(h => h.types === null || (type !== null && h.types.includes(type)));
+          if (i < 0) continue;
+          t.caught[i].push(...preds.map(p => p.label ? p : { ...p, kind: 'except', label: errorLabel(c.value) }));
+          return [];
+        }
         this.node(f, 'error', errorLabel(c.value), c.code, preds, { role: 'end' });
         return [];
+      }
       case 'break': {
         const ctx = f.breakables.at(-1);
         if (ctx) ctx.breaks.push(...preds); else return next(null);
@@ -220,7 +236,7 @@ export class FlowchartBuilder {
       const at = { text: code.text, line: call.line };
       const into = (certain: boolean) => certain ? preds : preds.map(p => ({ ...p, certain: false }));
       if (!target) {
-        if (mode === 'statement' && call.outer) preds = next(this.node(f, 'action', callLabel(call.callee), at, preds));
+        if (mode === 'statement' && call.outer && !call.chained) preds = next(this.node(f, 'action', callLabel(call.callee), at, preds));
         continue;
       }
       const { symbol, certain } = target;

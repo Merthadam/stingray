@@ -413,3 +413,109 @@ const fmt = (s: string) => s.trim();
   assert.deepEqual(out.groups, []);
   assert.deepEqual(out.text, ['  (start) run · L1', '  [call] fmt · L2', '  (end) fmt s · L2']);
 });
+
+test('a raise inside a try body continues at the handler that catches it, also from an expanded callee', async () => {
+  const files = { 'svc.py': `def handle(x):
+    try:
+        if not x:
+            raise ValueError("no x")
+        check(x)
+        if x > 3:
+            raise KeyError("big")
+        save(x)
+    except asyncio.CancelledError:
+        raise
+    except ValueError:
+        report(x)
+    return x
+
+
+def check(x):
+    if x < 0:
+        raise ValueError("negative")
+` };
+  const out = await run(files, ['handle>check'], { start: { symbol: 'handle' } });
+  assert.deepEqual(out.text, [
+    '  (start) handle · L1',
+    '  <?> succeeds? · L2',
+    '    Yes:',
+    '      <?> x? · L3',
+    '        No:',
+    '          [ ] report · L12',
+    '        Yes:',
+    '          » check',
+    '            <?> x < 0? · L17',
+    '              Yes:',
+    '                ↻ report',
+    '              No:',
+    '                <?> x > 3? · L6',
+    '                  Yes:',
+    '                    (error) KeyError: big · L7',
+    '                  No:',
+    '                    → save',
+    '                [ ] save · L8',
+    '    except asyncio.CancelledError:',
+    '      (error) re-raise · L10',
+    '    except ValueError:',
+    '      ↻ report',
+    '  (end) x · L13',
+  ]);
+  // the handler's except edge, then the caught raises keep their branch labels (Yes/No)
+  const report = node(out.nodes, 'report').id;
+  assert.deepEqual(out.edges.filter(e => e.to === report).map(e => `${e.kind}:${e.label}`), ['except:ValueError', 'no:No', 'yes:Yes']);
+});
+
+test('typescript: catch-all catch receives throws; a call chained on a call result is drawn as the inner call', async () => {
+  const files = { 'f.ts': `export async function status(run: (a: string[]) => Promise<string>) {
+  try {
+    const upstream = (await run(['a'])).trim();
+    const counts = (await run(['b'])).trim().split(/ /);
+    if (counts.length !== 2) throw new Error('Invalid counts');
+    return counts;
+  } catch {
+    return null;
+  }
+}
+` };
+  const out = await run(files, [], { start: { symbol: 'status' } });
+  assert.deepEqual(out.text, [
+    '  (start) status · L1',
+    '  <?> succeeds? · L2',
+    '    Yes:',
+    '      [ ] run · L3',
+    '      [ ] run · L4',
+    '      <?> counts length is not 2? · L5',
+    '        Yes:',
+    '          → done',
+    '        No:',
+    '          (end) counts · L6',
+    '    except error:',
+    '      → done',
+    '  (end) done · L8',
+  ]);
+});
+
+test('text: consecutive sibling callees and a callee nested in its first step each get a header', async () => {
+  const files = { 'g.py': `def run(x):
+    with guard(x), tx():
+        save(x)
+
+
+def guard(x):
+    if ok(x):
+        log(x)
+
+
+def ok(x):
+    if x:
+        trace(x)
+    return x
+
+
+def tx():
+    if x:
+        begin()
+` };
+  const out = await run(files, ['run>guard', 'run>tx', 'guard>ok'], { start: { symbol: 'run' }, depth: 2 });
+  assert.deepEqual(out.text.filter(l => l.includes('»')), ['  » guard', '    » ok', '  » tx']);
+});

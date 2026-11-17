@@ -2,7 +2,7 @@
 import type { Node } from 'web-tree-sitter';
 import {
   action, closestFunction, code, collectCalls, ifConstruct, loopConstruct, named, ternary, tryConstruct,
-  type Adapter, type CallSyntax, type Construct,
+  type Adapter, type CallSyntax, type Construct, type Handler,
 } from './cfg';
 
 const syntax: CallSyntax = {
@@ -42,12 +42,15 @@ function statement(n: Node): Construct[] {
       return loopConstruct(n, { over: null, cond }, calls(cond), block(n.childForFieldName('body')));
     }
     case 'try_statement': {
-      const body = block(n.childForFieldName('body')), handlers: { label: string; line: number; body: Construct[] }[] = [], fin: Construct[] = [];
+      const body = block(n.childForFieldName('body')), handlers: Handler[] = [], fin: Construct[] = [];
       for (const part of named(n)) {
         if (part.type === 'except_clause' || part.type === 'except_group_clause') {
           const value = part.childForFieldName('value') ?? named(part).find(c => c.type !== 'block') ?? null;
           const type = value?.type === 'as_pattern' ? named(value)[0] : value;
-          handlers.push({ label: type?.text.replace(/\s+/g, ' ') ?? 'error', line: part.startPosition.row + 1, body: block(named(part).find(c => c.type === 'block') ?? null) });
+          const names = type?.text.match(/[\w.]+/g)?.map(t => t.split('.').at(-1)!) ?? null;
+          // shortcut: subclasses are unknown, so only `Exception`/`BaseException` (and bare except) catch any raise by name.
+          const types = !names || names.some(t => t === 'Exception' || t === 'BaseException') ? null : names;
+          handlers.push({ label: type?.text.replace(/\s+/g, ' ') ?? 'error', line: part.startPosition.row + 1, types, body: block(named(part).find(c => c.type === 'block') ?? null) });
         } else if (part.type === 'else_clause') body.push(...block(part.childForFieldName('body')));
         else if (part.type === 'finally_clause') fin.push(...block(named(part).find(c => c.type === 'block') ?? null));
       }

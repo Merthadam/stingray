@@ -55,18 +55,41 @@ const DECISIONS: [RegExp, (x: string) => string, boolean][] = [
   [/^(.+)\.length$/s, x => `${x} empty?`, true],
 ];
 
+/** `code` with bracketed and quoted parts blanked out, so operator tests only see its top level; `balanced`: every
+ * bracket closes inside `code`. */
+function scan(code: string): { top: string; balanced: boolean } {
+  let top = '', depth = 0, quote: string | null = null, balanced = true;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = null; top += ' '; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; top += ' '; continue; }
+    if ('([{'.includes(ch)) depth++;
+    top += depth ? ' ' : ch;
+    if (')]}'.includes(ch)) { if (depth === 0) balanced = false; depth = Math.max(0, depth - 1); }
+  }
+  return { top, balanced: balanced && depth === 0 };
+}
+const topLevel = (code: string) => scan(code).top;
+/** A single operand: `len(a) != len(b)` must not read as "len(a) … empty?". */
+const operand = (code: string) => { const { top, balanced } = scan(code); return balanced && !/[=<>]|\b(?:is|in)\b/.test(top); };
+const BOOLEAN = /\b(?:and|or)\b|&&|\|\||\?\?/;
+
 /** Decision label for a condition. `negated`: the condition is true when the label's answer is No (its branch is "No"). */
 export function decisionLabel(condition: string): { label: string; negated: boolean } {
   let s = unwrap(condition).replace(/^await\s+/, ''), negated = false;
   for (;;) {
     const not = /^not\s+/.exec(s) ?? /^!(?!=)/.exec(s);
     if (!not) break;
+    // `not a or b` / `!a && b` / `!a === b`: the negation binds to the first operand only, so it cannot flip the answer.
+    const rest = topLevel(s.slice(not[0].length));
+    if (BOOLEAN.test(rest) || (not[0] === '!' && /[=<>+\-*/%]|\?(?!\.)/.test(rest))) break;
     s = unwrap(s.slice(not[0].length));
     negated = !negated;
   }
+  if (BOOLEAN.test(topLevel(s))) return { label: truncate(`${words(s)}?`), negated };
   for (const [pattern, label, flips] of DECISIONS) {
     const m = pattern.exec(s);
-    if (m) return { label: truncate(label(words(m[1]))), negated: negated !== flips };
+    if (m && operand(m[1])) return { label: truncate(label(words(m[1]))), negated: negated !== flips };
   }
   return { label: truncate(`${words(s)}?`), negated };
 }

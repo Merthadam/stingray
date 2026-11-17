@@ -35,6 +35,17 @@ test('decisionLabel: negation flips the branch, null checks become "has x?", len
   assert.deepEqual(decisionLabel('a !== b'), { label: 'a is not b?', negated: false });
 });
 
+test('decisionLabel: a leading not/! on one operand of and/or/comparison does not flip; len()/length patterns need one operand', () => {
+  assert.deepEqual(decisionLabel("not snapshot or snapshot.get('kind') != 'session'"), { label: "not snapshot or snapshot get 'kind' is…", negated: false });
+  assert.deepEqual(decisionLabel('!a && b'), { label: 'not a and b?', negated: false });
+  assert.deepEqual(decisionLabel('!a === b'), { label: 'not a is b?', negated: false });
+  assert.deepEqual(decisionLabel('!latest.readiness?.eligible'), { label: 'latest readiness eligible?', negated: true });
+  assert.deepEqual(decisionLabel('!(a || b)'), { label: 'a or b?', negated: true });
+  assert.deepEqual(decisionLabel('provider is None or verifier is None'), { label: 'provider is none or verifier is none?', negated: false });
+  assert.deepEqual(decisionLabel('len(selections) != len(self.snapshots)'), { label: 'len selections is not len snapshots?', negated: false });
+  assert.deepEqual(decisionLabel('a.length !== b.length'), { label: 'a length is not b length?', negated: false });
+});
+
 test('decisionLabel truncates to 40 characters', () => {
   const { label } = decisionLabel('user.has_verified_email_address and user.accepted_terms_of_service');
   assert.equal(label.length, 40);

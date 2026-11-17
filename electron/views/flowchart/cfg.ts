@@ -8,15 +8,18 @@ export interface Call {
   callee: string;             // called name without receiver ("send_reset_email" for `self.mail.send_reset_email(u)`)
   line: number;               // 1-based line of the call (matched against code-graph `calls` relations)
   awaited: boolean;
-  outer: boolean;             // not nested inside another call of the same statement
+  outer: boolean;             // not an argument of another call of the same statement
+  chained: boolean;           // called on another call's result (`(await run()).trim()`): that call names the step
 }
+/** A try handler; `types` are the caught exception names, null when it catches everything. */
+export interface Handler { label: string; line: number; types: string[] | null; body: Construct[] }
 
 export type Construct =
   | { type: 'action'; code: Code; calls: Call[] }
   | { type: 'if'; code: Code; cond: string; calls: Call[]; then: Construct[]; else: Construct[] }
   | { type: 'loop'; code: Code; over: string | null; cond: string | null; calls: Call[]; body: Construct[] }
   | { type: 'switch'; code: Code; subject: string; calls: Call[]; cases: { label: string | null; body: Construct[] }[]; breakable: boolean }
-  | { type: 'try'; code: Code; body: Construct[]; handlers: { label: string; line: number; body: Construct[] }[]; finally: Construct[] }
+  | { type: 'try'; code: Code; body: Construct[]; handlers: Handler[]; finally: Construct[] }
   | { type: 'return' | 'raise'; code: Code; value: string | null; calls: Call[] }
   | { type: 'break' | 'continue'; code: Code };
 
@@ -45,15 +48,20 @@ function calleeName(fn: Node): string {
   return /([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*$/.exec(named.text)?.[1] ?? named.text.slice(0, 80);
 }
 
-/** Calls inside `node` in evaluation order (arguments before the call), skipping nested definitions. */
+/** Calls inside `node` in evaluation order (arguments before the call), skipping nested definitions. Calls in a callee's
+ * receiver keep the call's `outer`; calls in its arguments are not outer. */
 export function collectCalls(node: Node | null, syntax: CallSyntax): Call[] {
   const out: Call[] = [];
   const visit = (n: Node, inCall: boolean) => {
     if (n !== node && syntax.nested.has(n.type)) return;
-    const isCall = syntax.calls.has(n.type);
-    for (const child of named(n)) visit(child, inCall || isCall);
-    const fn = isCall ? syntax.callee(n) : null;
-    if (fn) out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall });
+    const isCall = syntax.calls.has(n.type), fn = isCall ? syntax.callee(n) : null;
+    let chained = false;
+    for (const child of named(n)) {
+      const before = out.length;
+      visit(child, inCall || (isCall && child.id !== fn?.id));
+      if (fn && child.id === fn.id) chained = out.length > before;
+    }
+    if (fn) out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall, chained });
   };
   if (node) visit(node, false);
   return out;
@@ -72,7 +80,7 @@ export function loopConstruct(at: Node, loop: { over: Node | null; cond: Node | 
 }
 
 /** `try` with nothing kept in any part is dropped; with only `finally` kept, that runs inline. */
-export function tryConstruct(at: Node, body: Construct[], handlers: { label: string; line: number; body: Construct[] }[], fin: Construct[]): Construct[] {
+export function tryConstruct(at: Node, body: Construct[], handlers: Handler[], fin: Construct[]): Construct[] {
   if (!body.length && handlers.every(h => !h.body.length)) return fin;
   return [{ type: 'try', code: code(at), body, handlers, finally: fin }];
 }

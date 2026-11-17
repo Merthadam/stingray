@@ -62,6 +62,7 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
   for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) outgoing.set(e.from, [...outgoing.get(e.from) ?? [], e]);
   const parents = new Map(groups.map(g => [g.id, g.parent ?? null])), labels = new Map(groups.map(g => [g.id, g.label]));
   const depthOf = (group: string | null): number => group === null || !parents.has(group) ? 0 : 1 + depthOf(parents.get(group)!);
+  const within = (group: string | null, ancestor: string): boolean => group !== null && (group === ancestor || within(parents.get(group) ?? null, ancestor));
 
   // Post-dominators (iterative). Only the main end (the last `end`, where the function finishes) and dangling nodes lead
   // to the exit; other ends and errors post-dominate everything, so a branch that stops early (guard clause) does not
@@ -88,12 +89,17 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
   const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}${n.source ? ` · L${n.source.line}` : ''}`;
   const walk = (from: string, stop: string | null, indent: number, baseDepth: number, group: string | null) => {
     for (let id: string | null = from; id !== null && id !== stop && id !== EXIT;) {
-      const n = byId.get(id)!, pad = ' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth));
-      if (printed.has(id)) { lines.push(`${pad}↻ ${n.label}`); return; }
+      const n = byId.get(id)!;
+      if (printed.has(id)) { lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth))}↻ ${n.label}`); return; }
       printed.add(id);
-      if (n.group !== group && n.group !== null && depthOf(n.group) > depthOf(group))
-        lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - 1 - baseDepth))}» ${labels.get(n.group) ?? n.group}`);
+      // Headers for each group entered (a sibling or nested callee), not for returning to an enclosing one. A group
+      // shallower than this branch's own lowers the base, so its steps still indent under its header.
+      const entered: string[] = [];
+      for (let g: string | null = n.group; g !== null && !within(group, g); g = parents.get(g) ?? null) entered.unshift(g);
+      if (entered.length) baseDepth = Math.min(baseDepth, depthOf(entered[0]) - 1);
+      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${labels.get(g) ?? g}`);
       group = n.group;
+      const pad = ' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth));
       lines.push(pad + nodeText(n));
       const out: DiagramEdge[] = outgoing.get(id) ?? [];
       if (out.length === 1 && out[0].kind !== 'yes' && out[0].kind !== 'no') { id = out[0].to; continue; }
