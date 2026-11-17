@@ -5,7 +5,7 @@ import type { DiagramNode } from '../views';
 
 /** Frame header; flowchart call frames open their function's source when clicked. */
 export function FlowGroup({ data }: NodeProps<Node<{ label: string; onOpen?: () => void }>>) {
-  return data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
+  return data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
     : <div className="flow-frame-label" title={data.label}>{data.label}</div>;
 }
 

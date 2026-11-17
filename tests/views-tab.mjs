@@ -35,6 +35,9 @@ await put('app/models.py', models);
 await put('agent/graph/builder.py', await readFile(fileURLToPath(new URL('./fixtures/views/langgraph/agent/graph/builder.py', import.meta.url)), 'utf8'));
 await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind: flow\nuse: [langgraph]\n');
 await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: graph\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
+await put('app/auth.py', 'def check_password(user, password):\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
+  + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
+await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
 
@@ -74,6 +77,24 @@ try {
   await page.getByRole('button', { name: /Diagnostics/ }).click();
   check('flow diagnostics drawer lists rules', await page.getByRole('region', { name: 'Diagnostics' }).getByRole('heading', { name: /Rules/ }).isVisible());
   await page.getByRole('button', { name: /Diagnostics/ }).click();
+
+  // Flowcharts need the code graph; the view refreshes once indexing finishes.
+  await list.getByRole('button', { name: 'Login chart' }).click();
+  const chart = page.getByTestId('flow-diagram');
+  await chart.getByRole('group', { name: 'decision has user?' }).waitFor({ timeout: 60000 });
+  await chart.getByRole('button', { name: 'Select transition Yes' }).waitFor();
+  check('flowchart draws pills, a decision diamond and a call box with its hidden steps',
+    await chart.locator('.flow-diamond').count() === 1 && await chart.locator('.flow-pill').count() === 3
+    && (await chart.locator('.flow-chart-call').innerText()).includes('+3 steps'));
+  check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
+    && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
+  const depth = page.getByRole('slider', { name: 'Flowchart depth' });
+  check('depth slider starts at the view file depth', await depth.inputValue() === '0');
+  await depth.fill('1');
+  const frame = chart.getByRole('button', { name: 'Open check_password in editor' });
+  await frame.waitFor();
+  check('raising the depth expands the callee into a frame with its own steps', await chart.locator('.flow-diamond').count() === 2
+    && await chart.locator('.flow-pill.error').count() === 1 && await chart.locator('.flow-chart-call').count() === 0);
 
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();
