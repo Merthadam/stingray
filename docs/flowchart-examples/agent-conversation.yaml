@@ -1,0 +1,8 @@
+# Flowchart example for https://github.com/Merthadam/travella (copy to .stingray/views/ there).
+version: 1
+name: Agent conversation node
+kind: flowchart
+scope: { include: ["services/**"], exclude: ["**/tests/**"] }
+flowchart:
+  start: { symbol: __call__, file: services/agent/graph/nodes/conversation.py }
+  depth: 2

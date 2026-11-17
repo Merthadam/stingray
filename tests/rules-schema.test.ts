@@ -27,7 +27,7 @@ test('view YAML errors carry line numbers', () => {
   assert.deepEqual(errorOf(view('extra: 1')), { line: 5, message: 'Unrecognized key: "extra"' });
   assert.match(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.message, /^kind:/);
   assert.equal(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.line, 3);
-  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules or graph/);
+  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules, graph or flowchart/);
   assert.deepEqual(errorOf('version: 1\nname: V\nname: W\nkind: flow\nuse: [a]')?.line, 3); // duplicate key
   assert.match(errorOf('a: [\n')!.message, /^Invalid YAML/);
   assert.match(errorOf(view('scope:\n  include: ["{a,b}/**"]'))!.message, /scope\.include\.0: Unsupported glob/);
@@ -73,4 +73,23 @@ test('templates render captures, @@ and skip on missing captures', () => {
   assert.equal(renderTemplate('@a-@b_1 @@c', values), 'x-y @c');
   assert.equal(renderTemplate('plain', values), 'plain');
   assert.equal(renderTemplate('@a @missing', values), null);
+});
+
+test('flowchart views: parsed with depth default 1; kind and section go together; no use/rules/graph', () => {
+  const fc = (extra = '', kind = 'flowchart') => `version: 1\nname: V\nkind: ${kind}\nflowchart:\n  start: { symbol: login, file: app/auth.py }\n${extra}`;
+  const v = parseViewYaml(fc('  include: ["app/**"]'), F);
+  assert.equal(v.kind, 'flowchart');
+  assert.deepEqual(v.flowchart, { start: { symbol: 'login', file: 'app/auth.py' }, depth: 1, include: ['app/**'] });
+  assert.equal(parseViewYaml(fc('  depth: 4'), F).flowchart!.depth, 4);
+  assert.equal(parseViewYaml(view(), F).flowchart, null);
+  assert.deepEqual(errorOf(fc('  depth: 5')), { line: 6, message: 'flowchart.depth: Too big: expected number to be <=4' });
+  assert.match(errorOf(fc('  depth: 1.5'))!.message, /^flowchart\.depth:/);
+  assert.deepEqual(errorOf(fc('  colour: red')), { line: 6, message: 'flowchart: Unrecognized key: "colour"' });
+  assert.match(errorOf(fc('  include: ["{a,b}"]'))!.message, /flowchart\.include\.0: Unsupported glob/);
+  assert.match(errorOf('version: 1\nname: V\nkind: flowchart\nflowchart:\n  start: {}\n')!.message, /^flowchart\.start\.symbol:/);
+  assert.deepEqual(errorOf('version: 1\nname: V\nkind: flowchart\nuse: [x]'), { line: 3, message: 'kind: kind: flowchart needs a flowchart: section' });
+  assert.deepEqual(errorOf(fc('', 'flow')), { line: 5, message: 'flowchart: flowchart: needs kind: flowchart' });
+  assert.deepEqual(errorOf(fc('use: [langgraph]')), { line: 6, message: 'use: use: cannot be combined with flowchart:' });
+  assert.match(errorOf(fc('graph: { start: [{ symbol: a }], follow: [calls] }'))!.message, /^graph: graph: cannot be combined/);
+  assert.match(errorOf(fc('rules: []'))!.message, /^rules: rules: cannot be combined/);
 });

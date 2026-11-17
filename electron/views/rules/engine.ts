@@ -4,11 +4,12 @@
 import path from 'node:path';
 import { Language, Parser, Query, type Node, type QueryMatch } from 'web-tree-sitter';
 import type {
-  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, GraphStepDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
+  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
 } from '../../../src/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { runGraphStep } from './graph-steps';
+import { runFlowchart } from '../flowchart';
 import { inScope } from './schema';
 import { renderTemplate, templateCaptures } from './template';
 import type { Emit, Evaluate, EvaluateInput, GraphApi, RunGraphStep, SourcedRule } from './types';
@@ -300,6 +301,38 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         graphDiag = { started: 0, reached: 0, helpers: 0, truncated: false, error: (e as Error).message };
       }
     }
+    // ---- flowchart ----
+    let flowchartDiag: FlowchartDiagnostic | null = null;
+    if (view.flowchart) {
+      const step = view.flowchart;
+      const failed = (error: string): FlowchartDiagnostic => ({ start: null, depth: step.depth, functions: 0, nodes: 0, truncated: false, error });
+      if (!graph) flowchartDiag = failed(`code graph not ready (${input.graphStatus.state})`);
+      else {
+        const flowParsers = new Map<string, Parser>();
+        // Same per-file budget as rule queries; returning true cancels the parse (web-tree-sitter 0.25).
+        const parseText = async (language: string, text: string) => {
+          if (text.length > LIMITS.fileBytes) return null;
+          let parser = flowParsers.get(language);
+          if (!parser) {
+            const lang = await loadLanguage(path.join(input.grammarDir, GRAMMAR_FILES[language]));
+            parser = new Parser(); parser.setLanguage(lang); flowParsers.set(language, parser);
+          }
+          const until = Math.min(performance.now() + LIMITS.queryMsPerFile, deadline);
+          return parser.parse(text, null, { progressCallback: () => performance.now() > until || !!signal?.aborted });
+        };
+        try {
+          const out = await runFlowchart(step, graph, files, parseText, f => inScope(f, view.scope));
+          flowchartDiag = out.diagnostic;
+          warnings.push(...out.warnings);
+          if (out.truncated) truncated = true;
+          for (const g of out.groups) groups.set(g.id, g);
+          for (const n of out.nodes) nodes.set(n.id, { ...n, symbolName: null, aliases: new Set(), fields: [...n.fields] });
+          graphEdges.push(...out.edges);
+        } catch (e) {
+          flowchartDiag = failed((e as Error).message);
+        } finally { flowParsers.forEach(p => p.delete()); }
+      }
+    }
     if (graph) linkSymbols(graph);
 
     function linkSymbols(g: GraphApi) {
@@ -368,7 +401,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     const ms = Math.round(performance.now() - started);
     return {
       groups: [...groups.values()], nodes: finalNodes, edges: finalEdges, warnings, truncated,
-      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
+      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, ...(flowchartDiag ? { flowchart: flowchartDiag } : {}), unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
       stats: { filesScanned, matches: totalMatches, nodes: finalNodes.length, edges: finalEdges.length },
     };
   };

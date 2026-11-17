@@ -65,3 +65,25 @@ test('branch targets are placed left to right in router condition order', async 
   const rx = ['trains', 'cars', 'flights', 'stays'].map(id => back[id].x);
   assert.deepEqual(rx, [...rx].sort((a, b) => a - b));
 });
+
+test('flowchart layout nests expanded callees as frames inside their caller and sizes nodes by shape', async () => {
+  const chartNode = (id: string, kind: string, group: string | null): DiagramNode => ({ ...node(id, group), kind });
+  const chart = {
+    kind: 'flowchart',
+    groups: [{ id: 'call:a', label: 'a', source: null, parent: null }, { id: 'call:b', label: 'b', source: null, parent: 'call:a' }],
+    nodes: [chartNode('start', 'start', null), chartNode('check', 'decision', 'call:a'), chartNode('save', 'call', 'call:a'),
+      chartNode('fail', 'error', 'call:a'), chartNode('write', 'action', 'call:b'), chartNode('end', 'end', null)],
+    edges: [edge('start', 'check'), { ...edge('check', 'save', 'Yes'), kind: 'yes' }, { ...edge('check', 'fail', 'No'), kind: 'no' },
+      edge('save', 'write'), edge('write', 'end')],
+  } as ViewResult;
+  assert.deepEqual(flowSize(chart.nodes[1], true), { width: 220, height: 88 });
+  assert.deepEqual(flowSize(chart.nodes[0], true), { width: 180, height: 36 });
+  assert.deepEqual(flowSize(chart.nodes[2], true), { width: 220, height: 56 });
+  const graph = flowGraph(chart);
+  const outer = graph.children!.find(c => c.id === 'group:0')!;
+  assert.ok(outer.children!.some(c => c.id === 'group:1'));
+  const positions = await flowPositions(new ELK(), chart);
+  assert.ok(positions.save.x < positions.fail.x, 'Yes branch left of No');
+  const [a, b] = flowFrames(chart, positions);
+  assert.ok(a.x < b.x && a.y < b.y && a.x + a.width > b.x + b.width && a.y + a.height > b.y + b.height);
+});

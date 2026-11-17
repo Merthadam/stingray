@@ -12,8 +12,9 @@ export interface ErDiagramProps {
   onStateChange(state: ViewLocalState): void;
   /** Open a worktree file at a line (the shell routes it to api.openSource). */
   onOpenSource(file: string, line: number | null): void;
-  /** User clicked "Save as view…" with the current hidden nodes and positions; the shell shows the dialog. */
-  onSaveAs(state: ViewLocalState): void;
+  /** User clicked "Save as view…" with the current hidden nodes and positions; the shell shows the dialog. Absent: the
+   * button is disabled (a flowchart shown at an overridden depth). */
+  onSaveAs?(state: ViewLocalState): void;
   /** Toolbar slot the shell fills (e.g. Diagnostics toggle, refresh); rendered at the right end of the diagram toolbar. */
   toolbarExtra?: React.ReactNode;
 }

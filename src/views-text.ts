@@ -31,7 +31,9 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
     }
   };
 
-  if (kind === 'timeline') {
+  if (kind === 'flowchart') {
+    lines.push(...flowchartLines(nodes, edges, groups));
+  } else if (kind === 'timeline') {
     const preds = new Map<string, string[]>();
     for (const e of edges) preds.set(e.to, [...(preds.get(e.to) ?? []), e.from]);
     timelineOrder(nodes, edges).forEach((n, i) => {
@@ -47,6 +49,79 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
   }
   if (lines.length > maxLines) return [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`].join('\n');
   return lines.join('\n');
+}
+
+const MARKERS: Record<string, string> = { start: '(start)', end: '(end)', error: '(error)', decision: '<?>', loop: '<loop>', call: '[call]', action: '[ ]' };
+const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : e.kind === 'except' ? `except ${e.label}` : e.label ?? e.kind;
+
+/** Flowchart as an indented tree from the start node: decisions list their branches (Yes:/No:/case/except) until the
+ * branches merge again (immediate post-dominator; "→ x" = the branch goes straight to x), "↻ x" = back to x drawn
+ * above (loops), expanded calls are indented under a "» name" header. */
+function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: DiagramGroup[]): string[] {
+  const byId = new Map(nodes.map(n => [n.id, n])), outgoing = new Map<string, DiagramEdge[]>();
+  for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) outgoing.set(e.from, [...outgoing.get(e.from) ?? [], e]);
+  const parents = new Map(groups.map(g => [g.id, g.parent ?? null])), labels = new Map(groups.map(g => [g.id, g.label]));
+  const depthOf = (group: string | null): number => group === null || !parents.has(group) ? 0 : 1 + depthOf(parents.get(group)!);
+  const within = (group: string | null, ancestor: string): boolean => group !== null && (group === ancestor || within(parents.get(group) ?? null, ancestor));
+
+  // Post-dominators (iterative). Only the main end (the last `end`, where the function finishes) and dangling nodes lead
+  // to the exit; other ends and errors post-dominate everything, so a branch that stops early (guard clause) does not
+  // prevent its siblings from merging.
+  const EXIT = '\0exit', all = new Set([...byId.keys(), EXIT]);
+  const mainEnd = [...nodes].reverse().find(n => n.kind === 'end')?.id;
+  const stops = new Set(nodes.filter(n => (n.kind === 'end' || n.kind === 'error') && n.id !== mainEnd && !outgoing.has(n.id)).map(n => n.id));
+  const pdom = new Map<string, Set<string>>([...byId.keys()].map(id => [id, all]));
+  pdom.set(EXIT, new Set([EXIT]));
+  for (let changed = true, rounds = 0; changed && rounds < 1000; rounds++) {
+    changed = false;
+    for (const id of byId.keys()) {
+      if (stops.has(id)) continue;
+      const succ = (outgoing.get(id) ?? []).map(e => pdom.get(e.to)!);
+      const next = new Set([id, ...[...(succ.length ? succ : [pdom.get(EXIT)!]).reduce((a, b) => new Set([...a].filter(x => b.has(x))))]]);
+      if (next.size !== pdom.get(id)!.size) { pdom.set(id, next); changed = true; }
+    }
+  }
+  // The strict post-dominators form a chain; the immediate one is the one with the most post-dominators itself.
+  const merge = (id: string) => pdom.get(id)!.size === all.size ? null : [...pdom.get(id)!].filter(d => d !== id).reduce<string | null>((best, d) =>
+    best === null || pdom.get(d)!.size > pdom.get(best)!.size ? d : best, null);
+
+  const lines: string[] = [], printed = new Set<string>();
+  // Reached through a heuristic code-graph call (dashed in the diagram): a call node, or the first step of an expanded callee.
+  const uncertain = new Set(edges.filter(e => !e.certain).map(e => e.to));
+  const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}`
+    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}`;
+  const walk = (from: string, stop: string | null, indent: number, baseDepth: number, group: string | null) => {
+    for (let id: string | null = from; id !== null && id !== stop && id !== EXIT;) {
+      const n = byId.get(id)!;
+      if (printed.has(id)) { lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth))}↻ ${n.label}`); return; }
+      printed.add(id);
+      // Headers for each group entered (a sibling or nested callee), not for returning to an enclosing one. A group
+      // shallower than this branch's own lowers the base, so its steps still indent under its header.
+      const entered: string[] = [];
+      for (let g: string | null = n.group; g !== null && !within(group, g); g = parents.get(g) ?? null) entered.unshift(g);
+      if (entered.length) baseDepth = Math.min(baseDepth, depthOf(entered[0]) - 1);
+      // shortcut: an uncertain call marks the outermost callee entered, even when it is a nested callee's call that is uncertain.
+      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${labels.get(g) ?? g}${g === entered[0] && uncertain.has(id) ? ' (uncertain)' : ''}`);
+      group = n.group;
+      const pad = ' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth));
+      lines.push(pad + nodeText(n));
+      const out: DiagramEdge[] = outgoing.get(id) ?? [];
+      if (out.length === 1 && out[0].kind !== 'yes' && out[0].kind !== 'no') { id = out[0].to; continue; }
+      if (!out.length) return;
+      const join = merge(id);
+      for (const e of out) {
+        lines.push(`${pad}  ${BRANCH_EDGE(e)}:`);
+        if (e.to === join) lines.push(`${pad}    → ${byId.get(join)!.label}`);
+        else walk(e.to, join, pad.length + 4, depthOf(n.group), n.group);
+      }
+      id = join;
+    }
+  };
+  const start = nodes.find(n => n.role === 'start' && n.kind === 'start') ?? nodes[0];
+  if (start) walk(start.id, null, 2, 0, null);
+  const rest = nodes.filter(n => !printed.has(n.id));
+  if (rest.length) lines.push('not reached from start:', ...rest.map(n => `  ${nodeText(n)}`));
+  return lines;
 }
 
 /** By `order` when any node has one (nodes without go last), else topological by edges; ties and cycles keep input order. */

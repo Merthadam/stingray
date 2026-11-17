@@ -56,6 +56,14 @@ export interface GraphStep {
   helpers: 'show' | 'collapse' | 'hide';      // default collapse
 }
 
+/** `flowchart:` of a `kind: flowchart` view (see docs/flowchart-view-spec.md). */
+export interface FlowchartStep {
+  start: { symbol: string; file?: string };   // exactly one entry function; file optional if the name is unique
+  depth: number;                              // 0-4, default 1: call levels expanded inline
+  include?: string[];                         // files whose functions may be expanded (default: the view scope)
+  exclude?: string[];
+}
+
 export interface Scope { include: string[]; exclude: string[] }
 
 /** A view file with its `use` resolved: everything the engine needs, no further file reads of YAML. */
@@ -65,6 +73,7 @@ export interface ResolvedView {
   scope: Scope;
   rules: SourcedRule[];
   graph: GraphStep | null;
+  flowchart: FlowchartStep | null;
   builtins: string[];         // TypeScript extractors computed by the main process, e.g. ["sqlalchemy"]
   include: string[];          // node ids/labels always kept
   exclude: string[];          // node ids/labels always dropped (wins)

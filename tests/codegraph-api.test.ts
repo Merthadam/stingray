@@ -27,7 +27,7 @@ const until = (what: string, check: () => boolean, ms = 30000) => new Promise<vo
   tick();
 });
 const state = (graph: WorktreeGraph, wanted: GraphState) => until(wanted, () => graph.status().state === wanted);
-const view: ResolvedView = { id: 'v', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, builtins: [], include: [], exclude: [] };
+const view: ResolvedView = { id: 'v', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [], include: [], exclude: [] };
 const output = (stats: Record<string, number> = {}): EvaluateOutput => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats,
   diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
 

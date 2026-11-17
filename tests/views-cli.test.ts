@@ -10,7 +10,7 @@ import type { DbSchemaResult } from '../src/db-schema';
 import type { DiagramNode, RuleDiagnostic, ViewResult, ViewSummary } from '../src/views';
 
 const summary: ViewSummary = { id: 'flow', name: 'Agent flow', kind: 'flow', description: '', builtin: false, file: '.stingray/views/flow.yaml', error: null };
-const view: ResolvedView = { id: 'flow', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, graph: null,
+const view: ResolvedView = { id: 'flow', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, graph: null, flowchart: null,
   rules: [{ source: 'view', file: '.stingray/views/flow.yaml', line: 3, queryLine: 4, rule: { id: 'step', language: 'python', query: '(call) @c', emit: { node: { id: '@c' } } } }], builtins: [], include: [], exclude: [] };
 const node = (id: string, extra: Partial<DiagramNode> = {}): DiagramNode =>
   ({ id, label: id, kind: 'step', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null, ...extra });
@@ -211,5 +211,41 @@ test('build-electron bundles views-cli.cjs and copies the skills dir; the bundle
     assert.match(text, /sql_users/);
     assert.match(text, /id: INT \[PK\]/);
     assert.match(text, /^ {2}Base · class Base$/m);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('views-cli check --depth: overrides flowchart.depth, prints the flowchart diagnostic and tree; bad uses exit 2', async () => {
+  const root = await repo();
+  try {
+    const flowchart: ResolvedView = { ...view, kind: 'flowchart', rules: [], flowchart: { start: { symbol: 'login' }, depth: 1 } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [] };
+    const result = (error: string | null) => output({
+      nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }), node('end', { kind: 'end', role: 'end', label: 'done' })],
+      edges: [{ id: 'e', from: 'start', to: 'end', fromField: null, toField: null, kind: 'next', style: 'solid', certain: true, label: null, source: null }],
+      diagnostics: { rules: [], graph: null, flowchart: { start: 'login (a.py:1)', depth: 2, functions: 1, nodes: 2, truncated: false, error }, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1 },
+    });
+    const h = harness(root, { loadViewPath, evaluate: async input => { h.calls.evaluate.push(input); return result(null); },
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--depth', '2'), 0);
+    assert.equal(h.calls.evaluate[0].view.flowchart!.depth, 2);
+    assert.equal(flowchart.flowchart!.depth, 1); // the loaded definition is not mutated
+    const text = h.out.join('\n');
+    assert.match(text, /flowchart: start login \(a\.py:1\) {2}depth 2 {2}functions 1 {2}nodes 2/);
+    assert.match(text, /flowchart: 2 nodes, 1 edges\n {2}\(start\) login\n {2}\(end\) done/);
+
+    const failing = harness(root, { loadViewPath, evaluate: async () => result('start symbol not found: login'),
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await failing.run('check', '.stingray/views/flow.yaml'), 1);
+    assert.match(failing.out.join('\n'), /\n {2}error: start symbol not found: login/);
+
+    for (const argv of [['--depth', '5'], ['--depth'], ['--depth', 'x']]) {
+      const bad = harness(root, { loadViewPath });
+      assert.equal(await bad.run('check', '.stingray/views/flow.yaml', ...argv), 2, argv.join(' '));
+      assert.match(bad.err.join('\n'), /--depth needs a number from 0 to 4/);
+    }
+    const notFlowchart = harness(root);
+    assert.equal(await notFlowchart.run('check', '.stingray/views/flow.yaml', '--depth', '1'), 2);
+    assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart views/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

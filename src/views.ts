@@ -2,7 +2,7 @@
 // Every view type (database tables today; flows, timelines, ... later) produces the same diagram model,
 // so one renderer can draw all of them. Results come from static analysis; repository code is never executed.
 
-export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph';
+export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph' | 'flowchart';
 
 /** Worktree-relative POSIX path and 1-based line. */
 export interface SourceRef { file: string; line: number }
@@ -57,6 +57,7 @@ export interface DiagramGroup {
   id: string;
   label: string;
   source: SourceRef | null;
+  parent?: string | null;      // enclosing DiagramGroup.id (flowchart: a callee expanded inside another expansion)
 }
 
 export interface ViewWarning { file: string | null; line: number | null; message: string }
@@ -144,11 +145,23 @@ export interface GraphStepDiagnostic {
   error: string | null;        // e.g. "code graph not ready (indexing)", "start symbol not found: x"
 }
 
+/** Feedback for a `kind: flowchart` view. `depth` is the effective expansion depth: the YAML `flowchart.depth` unless
+ * overridden (CLI `--depth`, Views tab slider), so the UI reads its default from here. */
+export interface FlowchartDiagnostic {
+  start: string | null;        // resolved entry, "name (file:line)"; null when not found
+  depth: number;               // 0-4
+  functions: number;           // function bodies parsed (entry + expanded callees)
+  nodes: number;
+  truncated: boolean;          // node cap hit; some calls were not expanded or steps dropped
+  error: string | null;        // e.g. "code graph not ready (indexing)", "start symbol not found: x"
+}
+
 export interface UnresolvedLink { rule: string; value: string; file: string; line: number }
 
 export interface ViewDiagnostics {
   rules: RuleDiagnostic[];
   graph: GraphStepDiagnostic | null; // null when the view has no graph step
+  flowchart?: FlowchartDiagnostic | null; // set for kind: flowchart views only
   unresolved: UnresolvedLink[];      // first 50 edge endpoints that matched no node id/alias
   limits: { filesScanned: number; matches: number; truncated: boolean };
   ms: number;

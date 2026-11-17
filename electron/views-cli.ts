@@ -32,7 +32,9 @@ export interface CliDeps {
 }
 
 export const USAGE = `Usage:
-  stingray-views check <file.yaml> [--json]   validate a view and print diagnostics + a text diagram
+  stingray-views check <file.yaml> [--json] [--depth N]
+                                              validate a view and print diagnostics + a text diagram
+                                              (--depth 0-4: flowchart call levels, overrides flowchart.depth)
   stingray-views list                         views of this worktree
   stingray-views sets                         builtin rule sets for \`use:\`
   stingray-views help                         the full guide (view format, rules, workflow)
@@ -61,8 +63,14 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   switch (command) {
     case 'check': {
       const json = rest.includes('--json'), args = rest.filter(a => a !== '--json');
+      let depth: number | null = null;
+      const at = args.indexOf('--depth');
+      if (at >= 0) {
+        if (!/^[0-4]$/.test(args[at + 1] ?? '')) { deps.err('--depth needs a number from 0 to 4'); return 2; }
+        depth = Number(args.splice(at, 2)[1]);
+      }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
-      return check(path.resolve(deps.cwd, args[0]), json, deps);
+      return check(path.resolve(deps.cwd, args[0]), json, deps, depth);
     }
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
@@ -90,7 +98,7 @@ async function list(deps: CliDeps): Promise<number> {
   return views.some(v => v.summary.error) ? 1 : 0;
 }
 
-async function check(input: string, json: boolean, deps: CliDeps): Promise<number> {
+async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
   const root = await worktreeRoot(path.dirname(file));
@@ -105,6 +113,10 @@ async function check(input: string, json: boolean, deps: CliDeps): Promise<numbe
     return 1;
   }
 
+  if (depth !== null) {
+    if (!loaded.view.flowchart) { deps.err('--depth only applies to kind: flowchart views'); return 2; }
+    loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
+  }
   const graph = await deps.openGraph(root), api = graph.api;
   let result;
   try {
@@ -120,7 +132,7 @@ async function check(input: string, json: boolean, deps: CliDeps): Promise<numbe
 
   const d = result.diagnostics!;
   // A missing/unreadable code graph is the environment, not the view; graph-step errors with a graph are the view's.
-  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && !!d.graph?.error);
+  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error));
   if (json) { deps.out(JSON.stringify({ summary: loaded.summary, result }, null, 2)); return failed ? 1 : 0; }
 
   deps.out(`${result.name} (${result.kind}) — ${relFile}`);
@@ -135,6 +147,10 @@ async function check(input: string, json: boolean, deps: CliDeps): Promise<numbe
   if (d.graph) {
     const g = d.graph;
     deps.out(`graph step: started ${g.started}  reached ${g.reached}  helpers ${g.helpers}${g.truncated ? '  (truncated)' : ''}${g.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${g.error}` : ''}`);
+  }
+  if (d.flowchart) {
+    const f = d.flowchart;
+    deps.out(`flowchart: start ${f.start ?? '-'}  depth ${f.depth}  functions ${f.functions}  nodes ${f.nodes}${f.truncated ? '  (truncated)' : ''}${f.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${f.error}` : ''}`);
   }
   if (d.unresolved.length) {
     deps.out('unresolved links (edge ends matching no node id or alias):');

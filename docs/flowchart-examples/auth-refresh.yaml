@@ -1,0 +1,8 @@
+# Flowchart example for https://github.com/Merthadam/travella (copy to .stingray/views/ there).
+version: 1
+name: Auth token refresh
+kind: flowchart
+scope: { include: ["services/auth/**"], exclude: ["**/tests/**"] }
+flowchart:
+  start: { symbol: refresh, file: services/auth/api.py }
+  depth: 1

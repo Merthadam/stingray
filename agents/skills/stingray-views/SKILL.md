@@ -1,6 +1,6 @@
 ---
 name: stingray-views
-description: Create and check Stingray views — diagrams (tables, flows, timelines, graphs) computed statically from this repository via tree-sitter rules and the code graph. Use when the user wants to see or understand how parts of the code relate, e.g. an agent/workflow flow, a migration history, DB tables, infrastructure, or call graphs, or asks to add or fix a view in .stingray/views.
+description: Create and check Stingray views — diagrams (tables, flows, timelines, graphs, flowcharts) computed statically from this repository via tree-sitter rules and the code graph. Use when the user wants to see or understand how parts of the code relate, e.g. an agent/workflow flow, a migration history, DB tables, infrastructure, or call graphs, or asks to add or fix a view in .stingray/views.
 ---
 
 # Stingray views
@@ -13,6 +13,8 @@ A view produces nodes (optionally in groups, with fields), and edges between the
 - `flow` — steps with `start`/`end` roles and transitions (e.g. a LangGraph agent).
 - `timeline` — ordered nodes (by `order`, else by edges), e.g. Alembic migrations.
 - `graph` — any nodes and edges, grouped (e.g. Terraform resources, call graphs).
+- `flowchart` — the control flow of one function (decisions, loops, calls, returns), computed from its code; see
+  [Flowcharts](#flowcharts).
 
 Create a view when the user wants to understand relations, flows, history or infrastructure that is spread over many
 files. Prefer a builtin set (`use:`) when one fits; write rules for the project's own patterns.
@@ -22,7 +24,7 @@ files. Prefer a builtin set (`use:`) when one fits; write rules for the project'
 1. Look at the code you want to show (which files, which calls/assignments define nodes and edges).
 2. Run `stingray-views sets` and check whether a builtin set already covers it.
 3. Write `.stingray/views/<slug>.yaml` (slug: `a-z`, `0-9`, `-`, 1-64 chars).
-4. Run `stingray-views check .stingray/views/<slug>.yaml`. It prints per-rule diagnostics (files, matches, emitted,
+4. Run `stingray-views check .stingray/views/<slug>.yaml` (`--depth N` for flowcharts). It prints per-rule diagnostics (files, matches, emitted,
    skipped, errors with `file:line`), the graph step result, unresolved links, warnings and a text diagram.
    Exit code 1 means errors.
 5. Fix until there are no errors **and** the diagram matches the code (right nodes, no missing edges, no unresolved
@@ -37,19 +39,20 @@ Other commands: `stingray-views list` (views of this worktree, with errors), `st
 version: 1
 name: Trip planner agent flow          # 1-80 chars
 description: LangGraph steps of the planner   # optional, ≤500 chars
-kind: flow                             # tables | flow | timeline | graph
+kind: flow                             # tables | flow | timeline | graph | flowchart
 scope:                                 # files the rules read (default **/*)
   include: ["services/agent/**/*.py"]
   exclude: ["**/tests/**"]
 use: [langgraph]                       # builtin sets and/or .stingray/rules/<name>.yaml; max 8
 rules: []                              # inline rules (schema below); max 50
 graph: { ... }                         # optional graph step (below)
+flowchart: { ... }                     # kind: flowchart only (below)
 include: [AuditLog]                    # node ids/labels always kept
 exclude: [Base]                        # node ids/labels always dropped (wins over include)
 layout: {}                             # reserved for the UI
 ```
 
-At least one of `use`, `rules`, `graph` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
+At least one of `use`, `rules`, `graph`, `flowchart` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
 `**` (at most 3), `?`, `[...]`; no `{}`, `()`, `!`, `+`, `@`, `\`.
 
 `use` names a builtin set (see `stingray-views sets`; `sqlalchemy` extracts SQLAlchemy models; `sql` extracts SQL DDL from `.sql` files and literal strings in TS/JS/Python) or a
@@ -139,6 +142,47 @@ Nodes are symbols, edges the followed relations; heuristically resolved edges ar
 with fan-in ≥ 2 and no further edges, or outside `include`) are folded into a "calls: ..." field of their callers
 (`collapse`), dropped (`hide`) or shown. Max 150 nodes. Rule nodes with a `symbol` merge with the matching graph node,
 so a flow can expand each step into its helpers. Without a ready code graph the step is skipped with a diagnostic.
+
+## Flowcharts
+
+A classic flowchart of one entry function: start/end pills, action boxes, decision diamonds with Yes/No branches,
+loops with a back-edge. No rules: the code graph finds the functions, tree-sitter reads their bodies (Python and
+TypeScript/TSX/JavaScript).
+
+```yaml
+version: 1
+name: Login flow
+kind: flowchart                         # requires flowchart:, forbids use, rules and graph
+scope: { include: ["services/auth/**"] }
+flowchart:
+  start: { symbol: login, file: services/auth/routes.py }  # exactly one function; file optional if the name is unique
+  depth: 1                 # 0-4, default 1: call levels expanded inline (the Views tab can override it)
+  include: ["services/**"] # files whose functions may be expanded (default: the view scope)
+  exclude: []
+```
+
+- Steps follow source order. Statements without calls or control flow are left out.
+- Node kinds: `start`, `end` (a `return`; label = returned value or "done"), `error` (`raise`/`throw`), `action` (a
+  call the code graph does not know, e.g. a library), `decision` (`if`/`elif`/`else`, ternary, `match`/`switch`, `try`
+  as "succeeds?"), `loop` (`for`/`while`, "more items?"), `call` (a known function that is not expanded: depth reached
+  — subtitle "+N steps (increase depth)" —, outside `include`, or "recursive").
+- Edge kinds: `next`, `yes`/`no` (labels Yes/No), `case` (label = pattern, "other" = default/no match), `except`
+  (label = exception type), `loop` (back-edges, `continue`). Heuristically resolved calls are dashed (in the text
+  tree: `(uncertain)` after the call node or the expanded callee's `» name`).
+- Labels are tidied code: `if not user.active` → "user active?" with the No branch first; `x is None` / `x === null`
+  → "has x?"; `len(x) == 0` / `!x.length` → "x empty?"; calls by name in words ("send_reset_email" → "send reset
+  email"). The code itself is in each node's detail and source link.
+- Expanded calls are groups named after the callee (`call:<symbol id>`); a callee's `return` continues in the caller.
+- `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
+  decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
+  `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.
+- The view-level `exclude:` drops matching flowchart nodes and their edges, which cuts the chart apart; prefer
+  `flowchart.exclude` (file globs) to keep a callee unexpanded.
+- Not drawn: `finally` on paths that end in return/raise inside the try; labelled `break`/`continue` go to the innermost
+  loop.
+- Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
+- Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
+  Without a code graph the flowchart is skipped.
 
 ## Limits
 

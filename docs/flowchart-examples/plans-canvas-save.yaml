@@ -1,0 +1,8 @@
+# Flowchart example for https://github.com/Merthadam/travella (copy to .stingray/views/ there).
+version: 1
+name: Planning canvas save
+kind: flowchart
+scope: { include: ["frontend/src/**"], exclude: ["**/*.test.*"] }
+flowchart:
+  start: { symbol: save, file: frontend/src/features/plans/usePlanningCanvas.js }
+  depth: 1

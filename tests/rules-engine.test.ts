@@ -15,7 +15,7 @@ let n = 0;
 const rule = (language: string, query: string, emit: Emit, extra: Partial<Rule> = {}): SourcedRule =>
   ({ source: 'view', file: '.stingray/views/t.yaml', line: 1, queryLine: 2, rule: { id: `r${++n}`, language, query, emit, ...extra } });
 const viewOf = (rules: SourcedRule[], extra: Partial<ResolvedView> = {}): ResolvedView =>
-  ({ id: 't', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules, graph: null, builtins: [], include: [], exclude: [], ...extra });
+  ({ id: 't', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, rules, graph: null, flowchart: null, builtins: [], include: [], exclude: [], ...extra });
 const run = (view: ResolvedView, files: Record<string, string>, graph: GraphApi | null = null) =>
   evaluate({ view, files: memoryFiles(files), graph, graphStatus: graph ? READY : { state: 'indexing', message: null }, grammarDir });
 
