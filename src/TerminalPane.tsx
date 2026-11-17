@@ -39,10 +39,15 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
       fitted = true;
       void api.resizeTerminal(info.id, cols, rows).catch(e => errorRef.current(e.message));
     };
-    fitRef.current = fitNow;
+    // Reflow once the layout settles. Panel animations, drags and returning to a workspace otherwise resize
+    // the PTY many times in a row; each resize makes TUIs (pi) redraw while output for the previous width is
+    // still arriving, and xterm reflows every intermediate width, which garbles the screen.
+    let fitTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitNow, 120); };
+    fitRef.current = scheduleFit;
     let disposed = false;
-    const observer = new ResizeObserver(fitNow); observer.observe(element.current!);
-    void document.fonts?.ready.then(fitNow);
+    const observer = new ResizeObserver(scheduleFit); observer.observe(element.current!);
+    void document.fonts?.ready.then(scheduleFit);
     const input = terminal.onData(data => { void api.writeTerminal(info.id, data).catch(e => errorRef.current(e.message)); });
     let ready = false;
     let sequence = 0;
@@ -85,7 +90,7 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
       disposed = true; removeLinks();
       for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.removeEventListener(name, interaction);
       window.removeEventListener('focus', interaction);
-      observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();
+      clearTimeout(fitTimer); observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();
     };
   }, [info.id]);
   useEffect(() => {
