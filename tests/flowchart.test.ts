@@ -540,3 +540,100 @@ test('a bare raise re-raises its handler\'s type: an outer handler for that type
   assert.deepEqual(into('cancel'), ['except:asyncio.CancelledError', 'except:asyncio.CancelledError']);
   assert.deepEqual(into('fail'), ['except:Exception']);
 });
+
+test('typescript: a case body without break falls through into the next case; for-loop increment calls are drawn', async () => {
+  const files = { 'f.ts': `export function run(n: number) {
+  switch (n) {
+    case 1:
+      a();
+    case 2:
+      b();
+      break;
+    default:
+      c();
+  }
+  for (let i = 0; i < n; i = step(i)) {
+    d();
+  }
+}
+` };
+  const out = await run(files, [], { start: { symbol: 'run' } });
+  const into = (label: string) => out.edges.filter(e => e.to === node(out.nodes, label).id).map(e => `${e.kind}:${e.label}`);
+  assert.deepEqual(into('b'), ['case:2', 'next:null']); // from the switch and from `a` falling through
+  assert.ok(out.edges.some(e => e.from === node(out.nodes, 'a').id && e.to === node(out.nodes, 'b').id));
+  assert.ok(out.edges.some(e => e.from === node(out.nodes, 'd').id && e.to === node(out.nodes, 'step').id));
+  assert.equal(out.edges.find(e => e.from === node(out.nodes, 'step').id)!.kind, 'loop');
+});
+
+test('python: for/while else runs on the loop exit, not after break; try else is not caught by its handlers; while True has no exit branch', async () => {
+  const files = { 'l.py': `def scan(items):
+    for x in items:
+        if x:
+            break
+    else:
+        missing(items)
+    try:
+        load(items)
+    except ValueError:
+        report(items)
+    else:
+        if not items:
+            raise ValueError("empty")
+    while True:
+        if poll():
+            return items
+` };
+  const out = await run(files, [], { start: { symbol: 'scan' } });
+  const loop = node(out.nodes, 'more items?').id;
+  assert.deepEqual(out.edges.filter(e => e.to === node(out.nodes, 'missing').id).map(e => `${e.from === loop}:${e.label}`), ['true:No']);
+  assert.ok(out.edges.some(e => e.to === node(out.nodes, 'succeeds?').id && e.from !== node(out.nodes, 'missing').id)); // break skips else
+  assert.ok(node(out.nodes, 'ValueError: empty'), 'a raise in try-else is not caught by the same try');
+  assert.deepEqual(out.edges.filter(e => e.to === node(out.nodes, 'report').id).map(e => e.label), ['ValueError']);
+  const endless = out.nodes.find(n => n.kind === 'loop' && n.label !== 'more items?')!;
+  assert.deepEqual(out.edges.filter(e => e.from === endless.id).map(e => e.label), ['Yes']);
+  assert.ok(!out.nodes.some(n => n.label === 'done'), 'nothing falls off the end of an endless loop');
+});
+
+test('a call without a relation on its line only falls back to a same-name relation when that name has one target', async () => {
+  const files = { 'g.py': `def run(store, d):
+    store.get(1)
+    d.get(2)
+
+
+def get(k):
+    fetch(k)
+`, 'o.py': `def get(k):
+    other(k)
+` };
+  // relations on line 2 only: one target for `get` anywhere in run -> line 3 also resolves to it
+  const one = await run(files, ['run>get'], { start: { symbol: 'run' } });
+  assert.equal(one.groups.length, 2);
+  // a second `get` target (line 2 calls Other.get too): line 3 has no relation of its own and stays a library action
+  const graph = fakeGraph(files, ['run>get']), other = graph.findSymbols('get', 'o.py')[0];
+  const outgoing = graph.outgoing;
+  graph.outgoing = (ids, kinds) => [...outgoing(ids, kinds), { from: 'g.py#run', to: other.id, kind: 'calls', line: 2, certain: false } satisfies GraphRelation];
+  const two = await evaluate({ view: viewOf({ start: { symbol: 'run' } }), graph, graphStatus: { state: 'ready', message: null }, grammarDir,
+    files: { list: async () => ({ files: Object.keys(files), truncated: false }), read: async f => files[f as keyof typeof files] ?? null } });
+  assert.deepEqual(two.groups.map(g => g.label), ['get']);
+  assert.ok(two.nodes.some(n => n.kind === 'action' && n.label === 'get' && n.source?.line === 3));
+});
+
+test('a callee that only raises into the caller\'s try is drawn as a call node, its raise not routed to the handler', async () => {
+  const files = { 'r.py': `def run(x):
+    try:
+        boom(x)
+        save(x)
+    except ValueError:
+        report(x)
+
+
+def boom(x):
+    raise ValueError("bad")
+` };
+  const out = await run(files, ['run>boom'], { start: { symbol: 'run' }, depth: 1 });
+  // boom draws only a caught raise (no node): the step before it must not jump to the handler
+  assert.deepEqual(out.groups, []);
+  assert.equal(out.diagnostics.flowchart!.functions, 1);
+  assert.deepEqual(out.edges.filter(e => e.to === node(out.nodes, 'report').id).map(e => e.label), ['ValueError']);
+  assert.ok(out.edges.some(e => e.from === node(out.nodes, 'boom').id && e.to === node(out.nodes, 'save').id));
+});

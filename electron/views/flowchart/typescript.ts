@@ -53,7 +53,7 @@ function statement(n: Node): Construct[] {
     case 'for_statement': {
       const cond = clause(n.childForFieldName('condition'));
       return [...action(n, calls(clause(n.childForFieldName('initializer')))),
-        ...loopConstruct(n, { over: null, cond }, calls(cond), statements([n.childForFieldName('body')]))];
+        ...loopConstruct(n, { over: null, cond }, calls(cond), [...statements([n.childForFieldName('body')]), ...action(n, calls(n.childForFieldName('increment')))])];
     }
     case 'while_statement': case 'do_statement': {
       // shortcut: do-while is drawn like while (condition first); fine for reading, not for counting iterations.

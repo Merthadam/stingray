@@ -20,6 +20,9 @@ const conditional = (n: Node | null) => {
   return a && cond && b ? { cond, a, b } : null;
 };
 
+/** `for … else` / `while … else`: runs when the loop ends without `break`. */
+const loopElse = (n: Node) => block(n.childForFieldName('alternative')?.childForFieldName('body') ?? null);
+
 function ifChain(at: Node, cond: Node, consequence: Node | null, alternatives: Node[]): Construct[] {
   const [alt, ...rest] = alternatives;
   const otherwise = !alt ? [] : alt.type === 'elif_clause'
@@ -35,14 +38,14 @@ function statement(n: Node): Construct[] {
         n.childrenForFieldName('alternative').filter((a): a is Node => a !== null));
     case 'for_statement': {
       const over = n.childForFieldName('right');
-      return loopConstruct(n, { over, cond: null }, calls(over), block(n.childForFieldName('body')));
+      return loopConstruct(n, { over, cond: null }, calls(over), block(n.childForFieldName('body')), loopElse(n));
     }
     case 'while_statement': {
       const cond = n.childForFieldName('condition');
-      return loopConstruct(n, { over: null, cond }, calls(cond), block(n.childForFieldName('body')));
+      return loopConstruct(n, { over: null, cond }, calls(cond), block(n.childForFieldName('body')), loopElse(n));
     }
     case 'try_statement': {
-      const body = block(n.childForFieldName('body')), handlers: Handler[] = [], fin: Construct[] = [];
+      const body = block(n.childForFieldName('body')), handlers: Handler[] = [], otherwise: Construct[] = [], fin: Construct[] = [];
       for (const part of named(n)) {
         if (part.type === 'except_clause' || part.type === 'except_group_clause') {
           const value = part.childForFieldName('value') ?? named(part).find(c => c.type !== 'block') ?? null;
@@ -51,10 +54,10 @@ function statement(n: Node): Construct[] {
           // shortcut: subclasses are unknown, so only `Exception`/`BaseException` (and bare except) catch any raise by name.
           const types = !names || names.some(t => t === 'Exception' || t === 'BaseException') ? null : names;
           handlers.push({ label: type?.text.replace(/\s+/g, ' ') ?? 'error', line: part.startPosition.row + 1, types, body: block(named(part).find(c => c.type === 'block') ?? null) });
-        } else if (part.type === 'else_clause') body.push(...block(part.childForFieldName('body')));
+        } else if (part.type === 'else_clause') otherwise.push(...block(part.childForFieldName('body')));
         else if (part.type === 'finally_clause') fin.push(...block(named(part).find(c => c.type === 'block') ?? null));
       }
-      return tryConstruct(n, body, handlers, fin);
+      return tryConstruct(n, body, handlers, fin, otherwise);
     }
     case 'with_statement':
       return [...action(n, calls(named(n).find(c => c.type === 'with_clause') ?? null)), ...block(n.childForFieldName('body'))];

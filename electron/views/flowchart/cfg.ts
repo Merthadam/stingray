@@ -17,9 +17,9 @@ export interface Handler { label: string; line: number; types: string[] | null; 
 export type Construct =
   | { type: 'action'; code: Code; calls: Call[] }
   | { type: 'if'; code: Code; cond: string; calls: Call[]; then: Construct[]; else: Construct[] }
-  | { type: 'loop'; code: Code; over: string | null; cond: string | null; calls: Call[]; body: Construct[] }
+  | { type: 'loop'; code: Code; over: string | null; cond: string | null; calls: Call[]; body: Construct[]; else: Construct[] } // else: Python `for/while … else`
   | { type: 'switch'; code: Code; subject: string; calls: Call[]; cases: { label: string | null; body: Construct[] }[]; breakable: boolean }
-  | { type: 'try'; code: Code; body: Construct[]; handlers: Handler[]; finally: Construct[] }
+  | { type: 'try'; code: Code; body: Construct[]; handlers: Handler[]; else: Construct[]; finally: Construct[] } // else: Python `try … else`
   | { type: 'return' | 'raise'; code: Code; value: string | null; calls: Call[] }
   | { type: 'break' | 'continue'; code: Code };
 
@@ -73,16 +73,16 @@ export function ifConstruct(at: Node, cond: Node, calls: Call[], then: Construct
   return [{ type: 'if', code: code(at), cond: cond.text, calls, then, else: otherwise }];
 }
 
-/** A loop whose body kept nothing is dropped like an empty `if`. */
-export function loopConstruct(at: Node, loop: { over: Node | null; cond: Node | null }, calls: Call[], body: Construct[]): Construct[] {
-  if (!body.length) return calls.length ? [{ type: 'action', code: code(at), calls }] : [];
-  return [{ type: 'loop', code: code(at), over: loop.over?.text ?? null, cond: loop.cond?.text ?? null, calls, body }];
+/** A loop whose body kept nothing is dropped like an empty `if` (its `else` then runs inline). */
+export function loopConstruct(at: Node, loop: { over: Node | null; cond: Node | null }, calls: Call[], body: Construct[], otherwise: Construct[] = []): Construct[] {
+  if (!body.length) return [...calls.length ? [{ type: 'action' as const, code: code(at), calls }] : [], ...otherwise];
+  return [{ type: 'loop', code: code(at), over: loop.over?.text ?? null, cond: loop.cond?.text ?? null, calls, body, else: otherwise }];
 }
 
-/** `try` with nothing kept in any part is dropped; with only `finally` kept, that runs inline. */
-export function tryConstruct(at: Node, body: Construct[], handlers: Handler[], fin: Construct[]): Construct[] {
-  if (!body.length && handlers.every(h => !h.body.length)) return fin;
-  return [{ type: 'try', code: code(at), body, handlers, finally: fin }];
+/** `try` with nothing kept in body or handlers is dropped: its `else` and `finally` run inline. */
+export function tryConstruct(at: Node, body: Construct[], handlers: Handler[], fin: Construct[], otherwise: Construct[] = []): Construct[] {
+  if (!body.length && handlers.every(h => !h.body.length)) return [...otherwise, ...fin];
+  return [{ type: 'try', code: code(at), body, handlers, else: otherwise, finally: fin }];
 }
 
 /** Statement whose value is a ternary with calls in a branch: a decision with one statement per branch. */

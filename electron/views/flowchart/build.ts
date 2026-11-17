@@ -35,9 +35,9 @@ interface Frame {
 export function countSteps(list: Construct[]): number {
   return list.reduce((n, c) => n + (c.type === 'break' || c.type === 'continue' ? 0
     : c.type === 'if' ? 1 + countSteps(c.then) + countSteps(c.else)
-    : c.type === 'loop' ? 1 + countSteps(c.body)
+    : c.type === 'loop' ? 1 + countSteps(c.body) + countSteps(c.else)
     : c.type === 'switch' ? 1 + c.cases.reduce((m, k) => m + countSteps(k.body), 0)
-    : c.type === 'try' ? 1 + countSteps(c.body) + c.handlers.reduce((m, h) => m + countSteps(h.body), 0) + countSteps(c.finally)
+    : c.type === 'try' ? 1 + countSteps(c.body) + c.handlers.reduce((m, h) => m + countSteps(h.body), 0) + countSteps(c.else) + countSteps(c.finally)
     : c.type === 'return' ? Math.min(1, c.calls.length)
     : 1), 0);
 }
@@ -138,7 +138,9 @@ export class FlowchartBuilder {
         const body = await this.steps(c.body, this.branch(d, !negated), f);
         f.breakables.pop();
         this.connect(body, d, 'loop');
-        return [...this.branch(d, negated), ...ctx.breaks];
+        // `while True` / `for (;;)` only end through break/return/raise: no exit branch.
+        const endless = c.over === null && (c.cond === null || /^\(?\s*(True|true|1)\s*\)?$/.test(c.cond.trim()));
+        return [...endless ? [] : await this.steps(c.else, this.branch(d, negated), f), ...ctx.breaks];
       }
       case 'switch': {
         preds = await this.calls(c.calls, preds, f, c.code, 'condition');
@@ -146,8 +148,14 @@ export class FlowchartBuilder {
         if (d === null) return preds;
         const ctx: Breakable = { node: null, breaks: [], loop: false };
         if (c.breakable) f.breakables.push(ctx);
+        // A breakable (C-style) case that does not end in break/return falls through into the next case.
+        let carry: Pending[] = [];
         const out: Pending[] = [];
-        for (const k of c.cases) out.push(...await this.steps(k.body, this.pend(d, 'case', caseLabel(k.label)), f));
+        for (const k of c.cases) {
+          const end = await this.steps(k.body, [...this.pend(d, 'case', caseLabel(k.label)), ...carry], f);
+          if (c.breakable) carry = end; else out.push(...end);
+        }
+        out.push(...carry);
         if (c.breakable) f.breakables.pop();
         if (!c.cases.some(k => k.label === null)) out.push(...this.pend(d, 'case', 'other'));
         return [...out, ...ctx.breaks];
@@ -157,13 +165,16 @@ export class FlowchartBuilder {
         if (d === null) return preds;
         const ctx: Catching = { handlers: c.handlers, caught: c.handlers.map(() => []) };
         this.catching.push(ctx);
-        const out = await this.steps(c.body, this.branch(d, true), f);
+        const body = await this.steps(c.body, this.branch(d, true), f);
         this.catching.pop();
+        const out = await this.steps(c.else, body, f); // `try … else`: raises there are not caught by this try's handlers
         for (const [i, h] of c.handlers.entries()) {
           this.handling.push(h.types);
           out.push(...await this.steps(h.body, [...this.pend(d, 'except', truncate(h.label)), ...ctx.caught[i]], f));
           this.handling.pop();
         }
+        // shortcut: `finally` is drawn only on paths that continue past the try (not before a return/raise), fine for
+        // reading the main flow; draw it on every exit if cleanup steps matter.
         return this.steps(c.finally, out, f);
       }
       case 'return': {
@@ -188,6 +199,7 @@ export class FlowchartBuilder {
         return [];
       }
       case 'break': {
+        // shortcut: `break label` / `continue label` target the innermost loop; labelled jumps are rare in app code.
         const ctx = f.breakables.at(-1);
         if (ctx) ctx.breaks.push(...preds); else return next(null);
         return [];
@@ -213,14 +225,16 @@ export class FlowchartBuilder {
     }
   }
 
-  /** The code-graph target of a call: same line and name first, else the same name anywhere in the function. */
+  /** The code-graph target of a call: same line and name first, else the one target of that name anywhere in the function
+   * (several: the graph saw a different call, e.g. a builtin `d.get` next to `store.get`). */
   private resolve(call: Call, f: Frame): { symbol: GraphSymbol; certain: boolean } | null {
     const targets = (rels: GraphRelation[]) => {
       const missing = rels.map(r => r.to).filter(id => !this.symbolsById.has(id));
       if (missing.length) for (const [id, s] of this.graph.symbols([...new Set(missing)])) this.symbolsById.set(id, s);
       return rels.map(r => ({ r, s: this.symbolsById.get(r.to) })).filter(x => x.s?.name === call.callee);
     };
-    const hit = targets(f.outgoing.filter(r => r.line === call.line))[0] ?? targets(f.outgoing)[0];
+    const anywhere = targets(f.outgoing);
+    const hit = targets(f.outgoing.filter(r => r.line === call.line))[0] ?? (new Set(anywhere.map(x => x.r.to)).size === 1 ? anywhere[0] : undefined);
     return hit ? { symbol: hit.s!, certain: hit.r.certain } : null;
   }
 
@@ -253,10 +267,13 @@ export class FlowchartBuilder {
         if ('constructs' in loaded && steps > 0) {
           const fits = this.nodes.length + steps + 1 <= MAX_FLOWCHART_NODES;
           if (f.level < this.step.depth && fits) {
-            const nodes = this.nodes.length, groups = this.groups.length;
+            const nodes = this.nodes.length, groups = this.groups.length, caught = this.catching.map(t => t.caught.map(x => x.length));
             const out = await this.expand(symbol, loaded.constructs, into(certain), f);
             if (this.nodes.length > nodes) { preds = out; continue; }
-            this.groups.length = groups; // the callee drew nothing (e.g. only library calls in a return): show the call instead
+            // The callee drew nothing (e.g. only library calls in a return, or only a raise the caller catches): show the
+            // call instead, and drop what its raises sent to the caller's handlers.
+            this.groups.length = groups; this.functions--;
+            this.catching.forEach((t, i) => t.caught.forEach((x, j) => { x.length = caught[i][j]; }));
           } else {
             if (!fits) this.truncated = true;
             subtitle = `+${steps} steps (increase depth)`;
