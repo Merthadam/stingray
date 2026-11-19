@@ -156,12 +156,24 @@ export interface FlowchartDiagnostic {
   error: string | null;        // e.g. "code graph not ready (indexing)", "start symbol not found: x"
 }
 
+/** Feedback for a view with `layers:` (stinggraph service layers). `depth` is the effective level drawn (1 services,
+ * 2 modules, 3 files, 4 symbols): `layers.depth` unless overridden, like a flowchart's. */
+export interface LayersDiagnostic {
+  config: string | null;       // ".stinggraph/layers.yaml" when it was used; null = inferred from manifests and compose only
+  depth: number;               // 1-4
+  services: number;            // services with files in the view scope, "(unassigned)" included
+  files: number;               // files in the view scope
+  nodes: number;
+  error: string | null;        // e.g. "code graph not ready (indexing)"
+}
+
 export interface UnresolvedLink { rule: string; value: string; file: string; line: number }
 
 export interface ViewDiagnostics {
   rules: RuleDiagnostic[];
   graph: GraphStepDiagnostic | null; // null when the view has no graph step
   flowchart?: FlowchartDiagnostic | null; // set for kind: flowchart views only
+  layers?: LayersDiagnostic | null;  // set for views with layers: only
   unresolved: UnresolvedLink[];      // first 50 edge endpoints that matched no node id/alias
   limits: { filesScanned: number; matches: number; truncated: boolean };
   ms: number;

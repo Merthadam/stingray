@@ -116,7 +116,7 @@ test('views-cli check: rule errors and graph-step errors with a graph fail, unre
     assert.match(text, /FAILED/);
 
     const graphError = output({ diagnostics: { ...output().diagnostics, graph: { started: 0, reached: 0, helpers: 0, truncated: false, error: 'start symbol not found: x' } } });
-    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [] };
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
     const g = harness(root, { evaluate: async () => graphError, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
     assert.equal(await g.run('check', '.stingray/views/flow.yaml'), 1);
     assert.match(g.out.join('\n'), /graph step: started 0 {2}reached 0 {2}helpers 0\n {2}error: start symbol not found: x/);
@@ -219,7 +219,7 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
   try {
     const flowchart: ResolvedView = { ...view, kind: 'flowchart', rules: [], flowchart: { start: { symbol: 'login' }, depth: 1 } };
     const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
-    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [] };
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
     const result = (error: string | null) => output({
       nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }), node('end', { kind: 'end', role: 'end', label: 'done' })],
       edges: [{ id: 'e', from: 'start', to: 'end', fromField: null, toField: null, kind: 'next', style: 'solid', certain: true, label: null, source: null }],
@@ -247,5 +247,23 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
     const notFlowchart = harness(root);
     assert.equal(await notFlowchart.run('check', '.stingray/views/flow.yaml', '--depth', '1'), 2);
     assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart views/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('views-cli check --depth overrides layers.depth (1-4) and prints the layers diagnostic', async () => {
+  const root = await repo();
+  try {
+    const layered: ResolvedView = { ...view, kind: 'graph', rules: [], layers: { depth: 1 } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'graph' }, view: layered, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const h = harness(root, { loadViewPath, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }),
+      evaluate: async input => { h.calls.evaluate.push(input); return output({ diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1,
+        layers: { config: '.stinggraph/layers.yaml', depth: input.view.layers!.depth, services: 2, files: 5, nodes: 9, error: null } } }); } });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--depth', '3'), 0);
+    assert.equal(h.calls.evaluate[0].view.layers!.depth, 3);
+    assert.match(h.out.join('\n'), /layers: \.stinggraph\/layers\.yaml {2}depth 3 {2}services 2 {2}files 5 {2}nodes 9/);
+    const zero = harness(root, { loadViewPath });
+    assert.equal(await zero.run('check', '.stingray/views/flow.yaml', '--depth', '0'), 2);
+    assert.match(zero.err.join('\n'), /--depth of a layers view is 1 to 4/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -32,6 +32,7 @@ function fakeGraph(files: Record<string, string>, relations: string[]): GraphApi
     symbols: ids => new Map(symbols.filter(s => ids.includes(s.id)).map(s => [s.id, s])),
     outgoing: (ids, kinds) => rels.filter(r => ids.includes(r.from) && kinds.includes(r.kind)),
     incoming: (ids, kinds) => rels.filter(r => ids.includes(r.to) && kinds.includes(r.kind)),
+    fileSymbols: () => [], layers: () => null, rollup: () => [],
   };
 }
 

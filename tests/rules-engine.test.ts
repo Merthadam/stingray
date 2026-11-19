@@ -87,7 +87,7 @@ test('langgraph-like flow: START/END roles, conditional labeled edges, groups an
   const symbols = { plan_step: { id: 's1', name: 'plan_step', kind: 'function', file: 'agent.py', line: 20 }, act_step: { id: 's2', name: 'act_step', kind: 'function', file: 'lib.py', line: 3 } };
   const graph: GraphApi = {
     findSymbols: (name, file) => [symbols[name as keyof typeof symbols]].filter(s => s && (!file || s.file === file)),
-    symbols: () => new Map(), outgoing: () => [], incoming: () => [],
+    symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [],
   };
   const out = await run(viewOf(langgraphRules()), { 'agent.py': langgraph }, graph);
   assert.deepEqual(out.nodes.map(x => [x.id, x.kind, x.role, x.group, x.symbol?.id ?? null]), [
@@ -170,7 +170,7 @@ const step: GraphStep = { start: [{ symbol: 'plan_step' }], follow: ['calls'], d
 
 test('graph steps merge with rule nodes by symbol; without a graph the step reports why', async () => {
   const sym = (id: string, name: string) => ({ id, name, kind: 'function', file: 'agent.py', line: 1 });
-  const graph: GraphApi = { findSymbols: name => name === 'plan_step' ? [sym('s1', 'plan_step')] : [], symbols: () => new Map(), outgoing: () => [], incoming: () => [] };
+  const graph: GraphApi = { findSymbols: name => name === 'plan_step' ? [sym('s1', 'plan_step')] : [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
   let scoped: ((f: string) => boolean) | null = null;
   const fake: RunGraphStep = (s, g, inScope) => {
     assert.equal(s, step); assert.equal(g, graph); scoped = inScope;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diagnosticCount, flowchartDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
+import { diagnosticCount, isFlowDiagram, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
 import type { DiagramNode, ViewResult, ViewSummary } from '../src/views';
 
 const node = (id: string, label: string): DiagramNode => ({ id, label, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });
@@ -36,12 +36,17 @@ test('diagnosticCount counts a flowchart error', () => {
   assert.equal(diagnosticCount(result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) })), 0);
 });
 
-test('flowchartDepth prefers the session override, else the computed depth; null for other kinds', () => {
+test('viewDepth prefers the session override, else the computed depth; layers start at 1; null without a depth', () => {
   const chart = result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) });
-  assert.equal(flowchartDepth(chart, undefined), 2);
-  assert.equal(flowchartDepth(chart, 0), 0);
-  assert.equal(flowchartDepth(result(), 3), null);
-  assert.equal(flowchartDepth(null, 3), null);
+  assert.deepEqual(viewDepth(chart, undefined), { value: 2, min: 0, layers: false });
+  assert.deepEqual(viewDepth(chart, 0), { value: 0, min: 0, layers: false });
+  const layers = result({ kind: 'graph', diagnostics: { ...chartDiagnostics(null), flowchart: null,
+    layers: { config: null, depth: 1, services: 2, files: 3, nodes: 2, error: null } } });
+  assert.deepEqual(viewDepth(layers, undefined), { value: 1, min: 1, layers: true });
+  assert.deepEqual(viewDepth(layers, 3), { value: 3, min: 1, layers: true });
+  assert.equal(viewDepth(result(), 3), null);
+  assert.equal(viewDepth(null, 3), null);
+  assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && !isFlowDiagram(result()) && !isFlowDiagram(result({ kind: 'graph' })));
 });
 
 test('pickView keeps a stored view that still exists, else the first', () => {

@@ -4,14 +4,21 @@ import type { SaveViewInput, ViewLocalState, ViewResult, ViewSummary } from './v
 /** Errors + warnings shown on the Diagnostics toggle. */
 export function diagnosticCount(result: ViewResult): number {
   const d = result.diagnostics;
-  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) + (d.flowchart?.error ? 1 : 0) : 0);
+  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) + (d.flowchart?.error ? 1 : 0) + (d.layers?.error ? 1 : 0) : 0);
 }
 
-/** Depth slider value of a flowchart view: the session override, else the effective depth it was computed with; null
- * for other kinds (no slider). */
-export function flowchartDepth(result: ViewResult | null, override: number | undefined): number | null {
-  return result?.kind === 'flowchart' ? override ?? result.diagnostics?.flowchart?.depth ?? null : null;
+export const LAYER_NAMES = ['', 'services', 'modules', 'files', 'symbols'];
+
+/** Depth slider of a flowchart (call levels 0-4) or layers view (1 services … 4 symbols): the session override, else the
+ * effective depth it was computed with; null for other views (no slider). */
+export function viewDepth(result: ViewResult | null, override: number | undefined): { value: number; min: number; layers: boolean } | null {
+  const d = result?.diagnostics, layers = !!d?.layers;
+  const computed = result?.kind === 'flowchart' ? d?.flowchart?.depth : d?.layers?.depth;
+  return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, layers };
 }
+
+/** Views drawn as a flow diagram (nodes, transitions, nested frames); other non-table kinds fall back to text. */
+export const isFlowDiagram = (result: ViewResult) => result.kind === 'flow' || result.kind === 'flowchart' || !!result.diagnostics?.layers;
 
 /** The stored selection if it still exists, else the first view (Database). */
 export function pickView(list: ViewSummary[], stored: string | null): string | null {

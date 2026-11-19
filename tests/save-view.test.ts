@@ -40,6 +40,14 @@ test('saveViewAs writes a tables view from the builtin database view', async t =
   assert.equal(await read(root, plain.file), 'version: 1\nname: Plain\nkind: tables\nuse:\n  - sqlalchemy\n  - sql\n');
 });
 
+test('saveViewAs writes a layers view from the builtin Services view; "layers" is reserved', async t => {
+  const root = await worktree(t);
+  const saved = await saveViewAs(root, { name: 'My services', basedOn: 'layers', exclude: ['(unassigned)'], layout: null });
+  assert.equal(await read(root, saved.file), 'version: 1\nname: My services\nkind: graph\nlayers:\n  depth: 1\nexclude:\n  - (unassigned)\n');
+  assert.deepEqual((await readViewFile(root, 'my-services'))?.view?.layers, { depth: 1 });
+  await assert.rejects(saveViewAs(root, { name: 'Layers', basedOn: 'layers', exclude: [], layout: null }), /reserved/);
+});
+
 test('saveViewAs copies a repo view keeping comments, merging exclude and replacing layout', async t => {
   const root = await worktree(t);
   await mkdir(path.join(root, '.stingray/views'), { recursive: true });

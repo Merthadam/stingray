@@ -10,7 +10,7 @@ import { TextViewFallback } from './views-ui/TextViewFallback';
 import { DiagnosticsDrawer } from './views-ui/DiagnosticsDrawer';
 import { SaveViewDialog } from './views-ui/SaveViewDialog';
 import { EditorPicker } from './views-ui/EditorPicker';
-import { diagnosticCount, flowchartDepth, pickView } from './views-tab-model';
+import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, viewDepth } from './views-tab-model';
 import './views-tab.css';
 
 const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
@@ -34,10 +34,10 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const [diagnostics, setDiagnostics] = useState(false);
   const [saveAs, setSaveAs] = useState<ViewLocalState | null>(null);
   const [actionError, setActionError] = useState('');
-  // Flowchart depth overrides by view id: session-only, never written back to the view file.
+  // Flowchart and layers depth overrides by view id: session-only, never written back to the view file.
   const [depths, setDepths] = useState<Record<string, number>>({});
   const depthsRef = useRef(depths); depthsRef.current = depths;
-  const fileDepths = useRef<Record<string, number>>({}); // the depth each flowchart view file sets (first result without override)
+  const fileDepths = useRef<Record<string, number>>({}); // the depth each view file sets (first result without override)
   const listSequence = useRef(0), viewSequence = useRef(0);
   const summary = list?.find(v => v.id === selected) ?? null;
   const current = summary && !summary.error ? summary.id : null; // the view to fetch
@@ -60,7 +60,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     try {
       const depth = depthsRef.current[id];
       const result = await api.view(ws, id, depth === undefined ? undefined : { depth });
-      const used = result.diagnostics?.flowchart?.depth;
+      const used = result.diagnostics?.flowchart?.depth ?? result.diagnostics?.layers?.depth;
       if (depth === undefined && used !== undefined) fileDepths.current[id] = used;
       if (request === viewSequence.current) setView({ id, result, error: '', loading: false });
     } catch (e) {
@@ -121,7 +121,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const loading = !!view?.loading;
   const issues = result ? diagnosticCount(result) : 0;
   const refresh = () => { void loadList(); if (current) void loadView(current); };
-  const chartDepth = current ? flowchartDepth(result, depths[current]) : null;
+  const depth = current ? viewDepth(result, depths[current]) : null;
   const changeDepth = (depth: number) => {
     if (!current) return;
     const { [current]: _, ...others } = depthsRef.current;
@@ -129,16 +129,18 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     setDepths(depthsRef.current); void loadView(current);
   };
   const tools = <>
-    {chartDepth !== null && <label className="views-depth" title="Call levels expanded inline (this session only)">Depth
-      <input type="range" min={0} max={4} step={1} value={chartDepth} aria-label="Flowchart depth" onChange={e => changeDepth(Number(e.target.value))} />
-      <span aria-hidden="true">{chartDepth}</span></label>}
+    {depth !== null && <label className="views-depth" title={depth.layers ? 'Drill down: 1 services, 2 modules, 3 files, 4 symbols (this session only)'
+      : 'Call levels expanded inline (this session only)'}>Depth
+      <input type="range" min={depth.min} max={4} step={1} value={depth.value} aria-label={depth.layers ? 'Layers depth' : 'Flowchart depth'}
+        aria-valuetext={depth.layers ? LAYER_NAMES[depth.value] : undefined} onChange={e => changeDepth(Number(e.target.value))} />
+      <span aria-hidden="true">{depth.layers ? LAYER_NAMES[depth.value] : depth.value}</span></label>}
     <button className={'views-tool ' + (diagnostics ? 'toggled' : '')} aria-pressed={diagnostics} disabled={!result} onClick={() => setDiagnostics(v => !v)}>
       <Stethoscope size={13} /> Diagnostics{issues > 0 && <span className="views-count" aria-label={`${issues} issues`}>{issues}</span>}</button>
     <button className="icon" aria-label="Refresh view" title="Refresh view" onClick={refresh}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
     <EditorPicker />
   </>;
 
-  const Diagram = result?.kind === 'flow' || result?.kind === 'flowchart' ? FlowDiagram : ErDiagram;
+  const Diagram = result && isFlowDiagram(result) ? FlowDiagram : ErDiagram;
   let main;
   if (!list) main = listError ? <Empty title="Couldn’t list the views" detail={listError} onRetry={() => void loadList()} />
     : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /><p>Loading views…</p></div>;
@@ -154,9 +156,9 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     {view?.error && <div className="inline-error views-banner" role="alert">{view.error} · Showing the last result.
       <button className="secondary" onClick={() => void loadView(summary.id)}>Retry</button></div>}
     <div className="views-content">
-      {result.kind !== 'tables' && result.kind !== 'flow' && result.kind !== 'flowchart' ? <TextViewFallback result={result} toolbar={tools} />
+      {result.kind !== 'tables' && !isFlowDiagram(result) ? <TextViewFallback result={result} toolbar={tools} />
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
-          <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? ''}`} result={result}
+          <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? result.diagnostics?.layers?.depth ?? ''}`} result={result}
             initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}
             onOpenSource={onOpenSource} onSaveAs={depths[current!] === undefined ? setSaveAs : undefined} toolbarExtra={tools} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}

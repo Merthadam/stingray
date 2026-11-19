@@ -13,7 +13,6 @@ export { inScope };
 export const VIEWS_DIR = '.stingray/views', RULES_DIR = '.stingray/rules';
 export const MAX_VIEW_FILE_BYTES = 64 * 1024, MAX_VIEW_FILES = 50;
 export const VIEW_SLUG = SLUG;
-const RESERVED = new Set(['database']);
 
 export type BuiltinSets = Record<string, { yaml: string }>;
 export interface ViewFileEntry {
@@ -23,6 +22,16 @@ export interface ViewFileEntry {
   errors: ViewWarning[];
   layout?: ViewLayout | null; // the file's `layout:`; absent/null when it has none
 }
+
+/** Builtin view of stinggraph's service layers (inferred, refined by `.stinggraph/layers.yaml`): works in any worktree. */
+export const LAYERS_VIEW: ViewFileEntry & { view: ResolvedView } = {
+  summary: { id: 'layers', name: 'Services', kind: 'graph', builtin: true, file: null, error: null,
+    description: 'Services, modules, files and symbols of this worktree with the edges between them (Depth drills down)' },
+  view: { id: 'layers', kind: 'graph', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, layers: { depth: 1 },
+    builtins: [], include: [], exclude: [] },
+  ruleFiles: [], errors: [],
+};
+const RESERVED = new Set(['database', LAYERS_VIEW.summary.id]);
 
 const errorText = (file: string, w: ViewWarning) =>
   `${w.file !== null && w.file !== file ? `${w.file}${w.line ? `:${w.line}` : ''}: ` : w.line ? `line ${w.line}: ` : ''}${w.message}`;
@@ -106,7 +115,7 @@ async function loadView(root: string, file: string, sets: BuiltinSets): Promise<
   return {
     summary: named, ruleFiles: use.ruleFiles, errors: [], layout: definition.layout,
     view: {
-      id: slug, kind: definition.kind, scope: definition.scope, rules: [...use.rules, ...definition.rules], graph: definition.graph, flowchart: definition.flowchart,
+      id: slug, kind: definition.kind, scope: definition.scope, rules: [...use.rules, ...definition.rules], graph: definition.graph, flowchart: definition.flowchart, layers: definition.layers,
       builtins: use.builtins, include: definition.include, exclude: definition.exclude,
     },
   };
