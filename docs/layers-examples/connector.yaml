@@ -1,0 +1,8 @@
+version: 1
+name: Connector service files
+description: The connector's modules and files, every other service as one node (validated on travella)
+kind: graph
+scope: { exclude: ["**/tests/**"] }
+layers:
+  depth: 3
+  expand: [connector]
