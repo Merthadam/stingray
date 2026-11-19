@@ -1,4 +1,5 @@
-// CodeGraph (https://github.com/colbymchenry/codegraph) embedded as a library: one index per worktree in <root>/.codegraph/.
+// CodeGraph (https://github.com/colbymchenry/codegraph) embedded as a library: one index per worktree in <root>/.codegraph/, or with
+// codegraph.sharedBase a shared origin/main base plus a per-worktree overlay (codegraph-overlay.ts), falling back to the former.
 // The app runs this host in codegraph-worker.ts (a node child with --liftoff-only), never in Electron's main process.
 import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
