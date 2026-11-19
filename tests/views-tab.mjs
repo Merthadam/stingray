@@ -38,6 +38,7 @@ await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: gra
 await put('app/auth.py', 'def check_password(user, password):\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
   + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
+await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
 
@@ -100,6 +101,18 @@ try {
   await depth.fill('0');
   await chart.locator('.flow-chart-call').waitFor();
   check('moving the slider back to the file depth drops the override', await saveAs.isEnabled());
+
+  // The builtin Services view: stinggraph layers from .stinggraph/layers.yaml, drilled down with the depth slider.
+  await list.getByRole('button', { name: 'Services' }).click();
+  const services = page.getByTestId('flow-diagram');
+  await services.getByRole('group', { name: 'Step App service' }).waitFor({ timeout: 60000 });
+  const layersDepth = page.getByRole('slider', { name: 'Layers depth' });
+  check('Services view draws one node per service, at depth 1', await layersDepth.inputValue() === '1'
+    && await services.getByRole('group', { name: 'Step Agent service' }).count() === 1);
+  await layersDepth.fill('3');
+  await services.getByRole('group', { name: 'Step models.py' }).waitFor();
+  check('raising the layers depth draws files inside service frames', await services.getByRole('group', { name: 'Step App service' }).count() === 0
+    && (await services.locator('.flow-frame').allInnerTexts()).some(t => t.includes('App service')));
 
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();

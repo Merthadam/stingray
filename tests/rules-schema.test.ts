@@ -27,7 +27,7 @@ test('view YAML errors carry line numbers', () => {
   assert.deepEqual(errorOf(view('extra: 1')), { line: 5, message: 'Unrecognized key: "extra"' });
   assert.match(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.message, /^kind:/);
   assert.equal(errorOf('version: 1\nname: V\nkind: nope\nuse: [a]')!.line, 3);
-  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules, graph or flowchart/);
+  assert.match(errorOf('version: 1\nname: V\nkind: flow')!.message, /at least one of use, rules, graph, flowchart or layers/);
   assert.deepEqual(errorOf('version: 1\nname: V\nname: W\nkind: flow\nuse: [a]')?.line, 3); // duplicate key
   assert.match(errorOf('a: [\n')!.message, /^Invalid YAML/);
   assert.match(errorOf(view('scope:\n  include: ["{a,b}/**"]'))!.message, /scope\.include\.0: Unsupported glob/);
@@ -92,4 +92,13 @@ test('flowchart views: parsed with depth default 1; kind and section go together
   assert.deepEqual(errorOf(fc('use: [langgraph]')), { line: 6, message: 'use: use: cannot be combined with flowchart:' });
   assert.match(errorOf(fc('graph: { start: [{ symbol: a }], follow: [calls] }'))!.message, /^graph: graph: cannot be combined/);
   assert.match(errorOf(fc('rules: []'))!.message, /^rules: rules: cannot be combined/);
+});
+
+test('layers views: kind graph with layers: alone is a view; depth 1-4, default 1; expand names services', () => {
+  const v = parseViewYaml('version: 1\nname: Services\nkind: graph\nlayers: { expand: [connector] }\n', F);
+  assert.deepEqual(v.layers, { depth: 1, expand: ['connector'] });
+  assert.equal(parseViewYaml(view(), F).layers, null);
+  assert.equal(parseViewYaml('version: 1\nname: S\nkind: graph\nlayers:\n  depth: 4\n', F).layers!.depth, 4);
+  assert.deepEqual(errorOf('version: 1\nname: S\nkind: graph\nlayers:\n  depth: 0\n'), { line: 5, message: 'layers.depth: Too small: expected number to be >=1' });
+  assert.deepEqual(errorOf('version: 1\nname: S\nkind: flow\nlayers: {}\n'), { line: 4, message: 'layers: needs kind: graph' });
 });

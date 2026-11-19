@@ -4,12 +4,13 @@
 import path from 'node:path';
 import { Language, Parser, Query, type Node, type QueryMatch } from 'web-tree-sitter';
 import type {
-  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
+  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
 } from '../../../src/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { runGraphStep } from './graph-steps';
 import { runFlowchart } from '../flowchart';
+import { runLayers } from './layers';
 import { inScope } from './schema';
 import { renderTemplate, templateCaptures } from './template';
 import type { Emit, Evaluate, EvaluateInput, GraphApi, RunGraphStep, SourcedRule } from './types';
@@ -333,6 +334,20 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         } finally { flowParsers.forEach(p => p.delete()); }
       }
     }
+    // ---- layers ----
+    let layersDiag: LayersDiagnostic | null = null;
+    if (view.layers) {
+      const failed = (error: string): LayersDiagnostic => ({ config: null, depth: view.layers!.depth, services: 0, files: 0, nodes: 0, error });
+      if (!graph) layersDiag = failed(`code graph not ready (${input.graphStatus.state})`);
+      else try {
+        const out = runLayers(view.layers, graph, f => inScope(f, view.scope));
+        layersDiag = out.diagnostic;
+        warnings.push(...out.warnings);
+        for (const g of out.groups) groups.set(g.id, g);
+        for (const n of out.nodes) if (!nodes.has(n.id)) nodes.set(n.id, { ...n, symbolName: null, aliases: new Set(), fields: [...n.fields] });
+        graphEdges.push(...out.edges);
+      } catch (e) { layersDiag = failed((e as Error).message); }
+    }
     if (graph) linkSymbols(graph);
 
     function linkSymbols(g: GraphApi) {
@@ -401,7 +416,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     const ms = Math.round(performance.now() - started);
     return {
       groups: [...groups.values()], nodes: finalNodes, edges: finalEdges, warnings, truncated,
-      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, ...(flowchartDiag ? { flowchart: flowchartDiag } : {}), unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
+      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, ...(flowchartDiag ? { flowchart: flowchartDiag } : {}), ...(layersDiag ? { layers: layersDiag } : {}), unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
       stats: { filesScanned, matches: totalMatches, nodes: finalNodes.length, edges: finalEdges.length },
     };
   };

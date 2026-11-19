@@ -81,3 +81,32 @@ test('evaluateView runs without a graph (null) when CodeGraph is unavailable, an
     await assert.rejects(graph.evaluateView(view), /bad rule/);
   } finally { await host.closeAll(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('GraphApi exposes stinggraph layers, file nodes and a roll-up to any units', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'stingray-codegraph-layers-'));
+  await git(root, ['init', '-b', 'main']);
+  await mkdir(path.join(root, 'services/api'), { recursive: true }); await mkdir(path.join(root, 'services/store'), { recursive: true });
+  await mkdir(path.join(root, '.stinggraph'));
+  await writeFile(path.join(root, '.stinggraph/layers.yaml'), 'version: 1\nservices:\n  - id: api\n    label: API service\n    include: ["services/api/**"]\n'
+    + '  - id: store\n    label: Store\n    include: ["services/store/**"]\n');
+  await writeFile(path.join(root, 'services/__init__.py'), '');
+  await writeFile(path.join(root, 'services/store/db.py'), 'def save(x):\n    return x\n');
+  await writeFile(path.join(root, 'services/api/main.py'), 'from services.store.db import save\n\n\ndef handle():\n    return save(1)\n');
+  const inputs: EvaluateInput[] = [];
+  const host = createCodeGraphHost({ debounceMs: 100, grammarDir: () => '/g', evaluate: async input => { inputs.push(input); return output(); } });
+  try {
+    const graph = host.open('w1', root);
+    await state(graph, 'ready');
+    await graph.evaluateView(view);
+    const api = inputs[0].graph!;
+    const layers = api.layers()!;
+    assert.equal(layers.config, '.stinggraph/layers.yaml');
+    assert.deepEqual(layers.services.filter(s => s.origin === 'declared').map(s => [s.id, s.label]), [['api', 'API service'], ['store', 'Store']]);
+    assert.deepEqual(layers.assignments['services/api/main.py'].service, 'api');
+    assert.deepEqual(api.fileSymbols('services/api/main.py').map(s => s.kind).sort(), ['file', 'function', 'import']);
+    const [edge] = api.rollup({ 'services/api/main.py': 'service:api', 'services/store/db.py': 'service:store' });
+    assert.deepEqual([edge.from, edge.to, edge.byKind.calls], ['service:api', 'service:store', 1]);
+    assert.ok(edge.total >= 2); // the call and the import
+    assert.deepEqual(api.rollup({ 'services/api/main.py': 'service:api' }), []); // files without a unit are left out
+  } finally { await host.closeAll(); await rm(root, { recursive: true, force: true }); }
+});

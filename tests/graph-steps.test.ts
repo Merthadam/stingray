@@ -21,6 +21,7 @@ function fakeGraph(symbols: string[], relations: string[]): GraphApi & { calls: 
     symbols: ids => { calls.push('symbols'); return new Map(all.filter(s => ids.includes(s.id)).map(s => [s.id, s])); },
     outgoing: (ids, kinds) => rels.filter(r => ids.includes(r.from) && kinds.includes(r.kind)),
     incoming: (ids, kinds) => rels.filter(r => ids.includes(r.to) && kinds.includes(r.kind)),
+    fileSymbols: () => [], layers: () => null, rollup: () => [],
   };
 }
 const step = (over: Partial<GraphStep>): GraphStep => ({ start: [{ symbol: 'main' }], follow: ['calls'], direction: 'out', depth: 3, helpers: 'show', ...over });

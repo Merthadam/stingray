@@ -28,6 +28,7 @@ async function viewsDir(root: string) {
 
 async function baseDocument(root: string, basedOn: string): Promise<Document> {
   if (basedOn === 'database') return new Document({ version: 1, name: '', kind: 'tables', use: ['sqlalchemy', 'sql'] });
+  if (basedOn === 'layers') return new Document({ version: 1, name: '', kind: 'graph', layers: { depth: 1 } });
   if (!VIEW_SLUG.test(basedOn)) throw new Error(`Unknown view: ${basedOn}`);
   const file = `${VIEWS_DIR}/${basedOn}.yaml`;
   let read;
@@ -42,7 +43,7 @@ export async function saveViewAs(root: string, input: SaveViewInput): Promise<Sa
   if (!name || name.length > 80 || /[\x00-\x1f\x7f]/.test(name)) throw new Error('Use a name of 1-80 characters.');
   const slug = viewSlug(name);
   if (!slug) throw new Error('The name needs at least one letter or digit (a-z, 0-9).');
-  if (slug === 'database') throw new Error('"database" is reserved for the builtin view; choose another name.');
+  if (slug === 'database' || slug === 'layers') throw new Error(`"${slug}" is reserved for a builtin view; choose another name.`);
   const file = `${VIEWS_DIR}/${slug}.yaml`;
 
   const doc = await baseDocument(root, input.basedOn);

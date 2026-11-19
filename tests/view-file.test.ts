@@ -75,6 +75,7 @@ test('listViewFiles reads files safely and lists invalid ones with errors', asyn
   assert.equal((await readViewFile(root, 'core'))?.summary.name, 'Core');
   assert.equal(await readViewFile(root, 'missing'), null);
   assert.equal(await readViewFile(root, 'database'), null);
+  assert.equal(await readViewFile(root, 'layers'), null); // reserved for the builtin Services view
   assert.match((await readViewFile(root, 'link'))!.summary.error!, /symlinks/);
 
   // Symlinked rule files and rule directories are not followed.

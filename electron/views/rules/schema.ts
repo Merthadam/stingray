@@ -5,7 +5,7 @@ import { LineCounter, isMap, isScalar, parseDocument, type Document } from 'yaml
 import { z } from 'zod';
 import type { ViewKind, ViewLayout } from '../../../src/views';
 import { GRAMMAR_FILES } from './grammars';
-import type { Emit, FlowchartStep, GraphStep, Rule, RuleSourceName, Scope, SourcedRule } from './types';
+import type { Emit, FlowchartStep, GraphStep, LayersStep, Rule, RuleSourceName, Scope, SourcedRule } from './types';
 
 export const SLUG = /^[a-z0-9-]{1,64}$/;
 export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph', 'flowchart'];
@@ -79,6 +79,11 @@ const flowchartSchema = z.strictObject({
   exclude: globs.optional(),
 });
 
+const layersSchema = z.strictObject({
+  depth: z.int().min(1).max(4).default(1),
+  expand: z.array(z.string().min(1).max(200)).max(50).optional(),
+});
+
 const point = z.strictObject({ x: z.number(), y: z.number() }); // zod 4 numbers reject Infinity/NaN
 /** Node positions keyed by DiagramNode.id (shared with the local view state). */
 export const positionsSchema = z.record(z.string().min(1).max(300), point)
@@ -95,6 +100,7 @@ export const viewSchema = z.strictObject({
   rules: rulesSchema.optional(),
   graph: graphSchema.optional(),
   flowchart: flowchartSchema.optional(),
+  layers: layersSchema.optional(),
   include: names.optional(),   // node ids/labels always kept
   exclude: names.optional(),   // node ids/labels always dropped (wins over include)
   layout: layoutSchema.optional(),
@@ -105,7 +111,8 @@ export const viewSchema = z.strictObject({
   if (v.flowchart) for (const key of ['use', 'rules', 'graph'] as const) {
     if (v[key] !== undefined) ctx.addIssue({ code: 'custom', path: [key], message: `${key}: cannot be combined with flowchart:` });
   }
-  if (!v.flowchart && !v.use?.length && !v.rules?.length && !v.graph) ctx.addIssue({ code: 'custom', path: [], message: 'A view needs at least one of use, rules, graph or flowchart' });
+  if (v.layers && v.kind !== 'graph') ctx.addIssue({ code: 'custom', path: ['layers'], message: 'needs kind: graph' });
+  if (!v.flowchart && !v.layers && !v.use?.length && !v.rules?.length && !v.graph) ctx.addIssue({ code: 'custom', path: [], message: 'A view needs at least one of use, rules, graph, flowchart or layers' });
 });
 
 export const ruleFileSchema = z.strictObject({
@@ -177,6 +184,7 @@ export interface ViewDefinition {
   rules: SourcedRule[];       // inline rules (source "view")
   graph: GraphStep | null;
   flowchart: FlowchartStep | null;
+  layers: LayersStep | null;
   include: string[];
   exclude: string[];
   layout: ViewLayout | null;
@@ -190,7 +198,7 @@ export function parseViewYaml(text: string, file: string): ViewDefinition {
     name: v.name, description: v.description ?? '', kind: v.kind, scope: v.scope,
     use: [...new Set(v.use ?? [])].map(name => ({ name, line: lineAt(src, ['use', (v.use ?? []).indexOf(name)]) })),
     rules: sourced(src, v.rules ?? [], 'view'),
-    graph: v.graph ?? null, flowchart: v.flowchart ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
+    graph: v.graph ?? null, flowchart: v.flowchart ?? null, layers: v.layers ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
     layout: v.layout ? { positions: v.layout.positions ?? {} } : null,
   };
 }
