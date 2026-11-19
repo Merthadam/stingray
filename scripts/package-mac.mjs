@@ -33,13 +33,13 @@ try {
   await chmod(path.join(ptyPrebuilds, 'darwin-arm64/spawn-helper'), 0o755);
   // CodeGraph is loaded as a library (npm-sdk.js -> lib/dist/index.js); its CLI launcher and bundled Node runtime (~115 MB) are unused.
   for (const name of ['codegraph-darwin-arm64/node', 'codegraph-darwin-arm64/bin']) await rm(path.join(stage, 'node_modules/@colbymchenry', name), { recursive: true });
-  // CodeGraph comes from local file: tarballs (the stinggraph fork), so record the installed versions, not the manifest specs.
+  // CodeGraph comes from the stinggraph fork's release tarball URLs, so record the installed versions, not the manifest specs.
   const installed = async name => JSON.parse(await readFile(path.join(root, 'node_modules', name, 'package.json'), 'utf8')).version;
   await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: manifest.name, productName: 'Stingray', version: manifest.version,
     main: manifest.main, description: manifest.description, dependencies: { 'node-pty': manifest.dependencies['node-pty'], 'web-tree-sitter': manifest.dependencies['web-tree-sitter'],
       '@colbymchenry/codegraph': await installed('@colbymchenry/codegraph'), '@colbymchenry/codegraph-darwin-arm64': await installed('@colbymchenry/codegraph-darwin-arm64') } }, null, 2));
   const licenses = path.join(stage, 'dependency-licenses'); await mkdir(licenses);
-  for (const name of [...Object.keys(manifest.dependencies), 'scheduler', 'node-addon-api']) {
+  for (const name of [...Object.keys(manifest.dependencies), '@colbymchenry/codegraph-darwin-arm64', 'scheduler', 'node-addon-api']) {
     const directory = path.join(root, 'node_modules', name);
     for (const file of await readdir(directory)) if (/^(licen[cs]e|copying|notice)(\.|$)/i.test(file)) {
       await cp(path.join(directory, file), path.join(licenses, name.replaceAll('/', '-') + '-' + file));

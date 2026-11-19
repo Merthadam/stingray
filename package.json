@@ -24,8 +24,7 @@
     "test:views-tab": "node tests/views-tab.mjs"
   },
   "dependencies": {
-    "@colbymchenry/codegraph": "file:../../projects/stinggraph-packages/colbymchenry-codegraph-1.6.2.tgz",
-    "@colbymchenry/codegraph-darwin-arm64": "file:../../projects/stinggraph-packages/colbymchenry-codegraph-darwin-arm64-1.6.2.tgz",
+    "@colbymchenry/codegraph": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.1/colbymchenry-codegraph-1.6.2-sting.1.tgz",
     "@types/prismjs": "^1.26.6",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
@@ -39,6 +38,11 @@
     "web-tree-sitter": "0.25.10",
     "yaml": "2.9.1",
     "zod": "^4.1.0"
+  },
+  "optionalDependencies": {
+    "@colbymchenry/codegraph-darwin-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.1/colbymchenry-codegraph-darwin-arm64-1.6.2-sting.1.tgz",
+    "@colbymchenry/codegraph-linux-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.1/colbymchenry-codegraph-linux-arm64-1.6.2-sting.1.tgz",
+    "@colbymchenry/codegraph-linux-x64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.1/colbymchenry-codegraph-linux-x64-1.6.2-sting.1.tgz"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

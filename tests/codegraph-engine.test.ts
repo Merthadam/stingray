@@ -5,10 +5,13 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 
-// Stingray installs the stinggraph CodeGraph fork from local tarballs at the same version (1.6.2) as the npm release,
-// so a stray registry install would go unnoticed without a fork-only marker.
+// Stingray installs the stinggraph CodeGraph fork from its GitHub release tarballs (1.6.2-sting.N); a fork-only
+// marker catches a stray registry install, and the platform bundle must be there (it is an optional dependency).
 test('the installed CodeGraph is the stinggraph fork', () => {
-  const { CodeGraph } = createRequire(import.meta.url)('@colbymchenry/codegraph') as typeof import('@colbymchenry/codegraph');
+  const require = createRequire(import.meta.url);
+  assert.match(require('@colbymchenry/codegraph/package.json').version, /-sting\.\d+$/);
+  assert.match(require(`@colbymchenry/codegraph-${process.platform}-${process.arch}/package.json`).version, /-sting\.\d+$/);
+  const { CodeGraph } = require('@colbymchenry/codegraph') as typeof import('@colbymchenry/codegraph');
   assert.equal(typeof (CodeGraph.prototype as unknown as Record<string, unknown>).getLayers, 'function');
   assert.ok(existsSync(path.join(codegraphGrammarDir(), '../../resolution/mcp-tool-synthesizer.js')));
 });
