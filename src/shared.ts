@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { OverlayConflicts } from '@colbymchenry/codegraph';
 import type { ActivitySnapshot } from './activity';
 import type { DbSchemaResult } from './db-schema';
 import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
@@ -95,6 +96,11 @@ export interface DesktopAPI {
   saveViewAs(workspaceId: string, input: SaveViewInput): Promise<SaveViewResult>;
   editorSettings(): Promise<EditorSettings>;
   setEditor(editor: EditorId): Promise<EditorSettings>;
+  /** codegraph.sharedBase: managed worktrees use one shared origin/main index plus an overlay of their commits. Applies when a graph is next opened. */
+  codegraphSettings(): Promise<{ sharedBase: boolean }>;
+  setCodegraphSharedBase(enabled: boolean): Promise<{ sharedBase: boolean }>;
+  /** File/symbol conflicts and main-moved files between the managed worktrees of this worktree's repo; null when shared base is off or not built. */
+  codegraphConflicts(workspaceId: string): Promise<OverlayConflicts | null>;
   /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
   pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;

@@ -2,15 +2,16 @@
 // The app runs this host in codegraph-worker.ts (a node child with --liftoff-only), never in Electron's main process.
 import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
-import type { CodeGraph } from '@colbymchenry/codegraph';
+import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
 import type { GraphState, GraphStatus, SymbolRef } from '../src/views';
-import type { Evaluate, ResolvedView } from './views/rules/types';
+import type { Evaluate, GraphApi, ResolvedView } from './views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './codegraph-process';
 import { evaluate } from './views/rules/engine';
 import { codegraphGrammarDir } from './views/rules/grammars';
 import { createFileProvider } from './views/rules/files';
-import { createGraphApi } from './views/rules/codegraph-api';
+import { createGraphApi, createOverlayGraphApi } from './views/rules/codegraph-api';
+import { buildOverlay, ensureBase, gitOut, installOverlay, overlayConflicts, type SharedBaseTarget } from './codegraph-overlay';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
 export interface CodeGraphHostOptions {
@@ -25,8 +26,8 @@ type Settings = Required<CodeGraphHostOptions>;
 const defaults = { maxOpen: 4, debounceMs: 500, pollMs: 2000, load: loadCodeGraph, evaluate, grammarDir: codegraphGrammarDir };
 
 // Views evaluate without a graph too (graph null), e.g. while indexing or when the index is unavailable.
-const evaluateView = async (options: Settings, root: string, view: ResolvedView, cg: CodeGraph | null, graphStatus: GraphStatus) =>
-  options.evaluate({ view, files: createFileProvider(root), graph: cg ? createGraphApi(cg) : null, graphStatus, grammarDir: options.grammarDir() });
+const evaluateView = async (options: Settings, root: string, view: ResolvedView, graph: GraphApi | null, graphStatus: GraphStatus) =>
+  options.evaluate({ view, files: createFileProvider(root), graph, graphStatus, grammarDir: options.grammarDir() });
 
 let library: Promise<CodeGraphLibrary> | undefined;
 function loadCodeGraph() {
@@ -44,12 +45,15 @@ class Graph implements WorktreeGraph {
   private changeListeners = new Set<(change: GraphChange) => void>();
   private statusListeners = new Set<(status: GraphStatus) => void>();
   private cg: CodeGraph | null = null;
+  private overlay: Overlay | null = null; // shared-base mode: the merged view replaces cg
+  private overlayAt: { base: string; head: string; files: string[] } | null = null;
   private stoppers: (() => unknown)[] = [];
   private abort: AbortController | null = null;
   private task: Promise<void>;
   failedAt = 0; // last fallback; open() retries after a while
   // `after`: teardown of a previous graph on the same root, so two never hold its writer lock at once.
-  constructor(readonly workspaceId: string, readonly root: string, private options: Settings, after: Promise<unknown> = Promise.resolve()) {
+  constructor(readonly workspaceId: string, readonly root: string, private options: Settings, after: Promise<unknown> = Promise.resolve(),
+    readonly shared: SharedBaseTarget | null = null) {
     this.task = after.then(() => {}, () => {});
   }
 
@@ -58,12 +62,13 @@ class Graph implements WorktreeGraph {
   onChange(listener: (change: GraphChange) => void) { this.changeListeners.add(listener); return () => { this.changeListeners.delete(listener); }; }
   onStatus(listener: (status: GraphStatus) => void) { this.statusListeners.add(listener); return () => { this.statusListeners.delete(listener); }; }
   async findSymbols(queries: SymbolQuery[]): Promise<(SymbolRef | null)[]> {
-    const cg = this.cg, ready = this.current.state === 'ready' || this.current.state === 'read-only';
+    const { cg, overlay } = this, ready = this.current.state === 'ready' || this.current.state === 'read-only';
+    const nodesIn = overlay ? (file: string) => overlay.getNodes({ filePath: file }) : cg ? (file: string) => cg.getNodesInFile(file) : null;
     const files = new Map<string, ReturnType<CodeGraph['getNodesInFile']>>();
     return queries.map(({ file, name, kinds }) => {
-      if (!cg || !ready) return null;
+      if (!nodesIn || !ready) return null;
       try {
-        const nodes = files.get(file) ?? files.set(file, cg.getNodesInFile(posix(file))).get(file)!;
+        const nodes = files.get(file) ?? files.set(file, nodesIn(posix(file))).get(file)!;
         const node = nodes.find(n => n.name === name && (!kinds?.length || kinds.includes(n.kind)));
         return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine } : null;
       } catch { return null; }
@@ -72,7 +77,8 @@ class Graph implements WorktreeGraph {
 
   evaluateView(view: ResolvedView) {
     const ready = this.current.state === 'ready' || this.current.state === 'read-only';
-    return evaluateView(this.options, this.root, view, ready ? this.cg : null, this.current);
+    const graph = !ready ? null : this.overlay ? createOverlayGraphApi(this.overlay) : this.cg ? createGraphApi(this.cg) : null;
+    return evaluateView(this.options, this.root, view, graph, this.current);
   }
 
   start() {
@@ -89,7 +95,13 @@ class Graph implements WorktreeGraph {
       for (const stop of this.stoppers.splice(0)) try { await stop(); } catch { /* already stopped */ }
       try { this.cg?.close(); } catch { /* already closed */ }
       this.cg = null;
+      this.closeOverlay();
     });
+  }
+
+  private closeOverlay() {
+    try { this.overlay?.close(); } catch { /* already closed */ }
+    this.overlay = null; this.overlayAt = null;
   }
 
   private async run(signal: AbortSignal) {
@@ -98,6 +110,65 @@ class Graph implements WorktreeGraph {
     if (signal.aborted) return;
     // CodeGraph.init would recreate a removed worktree folder.
     if (!existsSync(this.root)) throw new Error('Worktree folder is missing.');
+    if (this.shared) {
+      try { return await this.runOverlay(lib, this.shared, signal); } catch (error) {
+        if (signal.aborted) return;
+        await this.leaveOverlay(error);
+      }
+    }
+    return this.runFull(lib, signal);
+  }
+
+  private async leaveOverlay(error: unknown) {
+    console.warn(`Code graph ${this.workspaceId}: shared base not used, falling back to the full index: ${short(error)}`);
+    for (const stop of this.stoppers.splice(0)) try { await stop(); } catch { /* already stopped */ }
+    this.closeOverlay();
+  }
+
+  // Shared-base mode: the merged view follows commits (HEAD) and fetches (origin/main); saved files are only reported.
+  private async runOverlay(lib: CodeGraphLibrary, shared: SharedBaseTarget, signal: AbortSignal) {
+    this.setStatus('indexing', null);
+    await this.refreshOverlay(lib, shared, signal);
+    if (signal.aborted) return;
+    // Commits, checkouts and fetches all write the repo's common git dir.
+    const gitDir = path.resolve(this.root, (await gitOut(this.root, ['rev-parse', '--git-common-dir'])).trim());
+    let timer: NodeJS.Timeout | undefined;
+    const watcher = watch(gitDir, { recursive: true }, (_event, filename) => {
+      if (filename && posix(filename.toString()).startsWith('objects/')) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        this.task = this.task.then(() => this.refreshOverlay(lib, shared, signal)).catch(async error => {
+          if (signal.aborted) return;
+          await this.leaveOverlay(error);
+          if (!signal.aborted) await this.runFull(lib, signal);
+        }).catch(error => { if (!signal.aborted) this.fallback(error); });
+      }, this.options.debounceMs);
+    });
+    watcher.on('error', () => watcher.close());
+    this.stoppers.push(() => { clearTimeout(timer); watcher.close(); });
+    this.watchFiles();
+    this.setStatus('ready', null);
+  }
+
+  private async refreshOverlay(lib: CodeGraphLibrary, shared: SharedBaseTarget, signal: AbortSignal) {
+    const base = await ensureBase(lib, shared);
+    const head = (await gitOut(this.root, ['rev-parse', 'HEAD'])).trim();
+    const was = this.overlayAt;
+    if (signal.aborted || (this.overlay && was?.base === base && was.head === head)) return;
+    const started = Date.now();
+    const built = await buildOverlay(lib, shared, this.workspaceId, this.root, base);
+    if (signal.aborted) return;
+    this.closeOverlay();
+    this.overlay = installOverlay(lib, shared, this.workspaceId, built);
+    this.overlayAt = { base, head, files: built.files };
+    console.info(`Code graph ${this.workspaceId}: overlay of ${built.files.length} files at ${head.slice(0, 8)} over base ${base.slice(0, 8)} in ${Date.now() - started} ms`);
+    if (!was) return;
+    // What the merged view may now answer differently: both overlays' files, and what main changed.
+    const mainChanged = was.base === base ? [] : (await gitOut(this.root, ['diff', '--name-only', '-z', was.base, base])).split('\0').filter(Boolean);
+    this.emit([...was.files, ...built.files, ...mainChanged]);
+  }
+
+  private async runFull(lib: CodeGraphLibrary, signal: AbortSignal) {
     let readOnly = false;
     if (!lib.CodeGraph.isInitialized(this.root)) {
       this.setStatus('indexing', null);
@@ -171,7 +242,12 @@ class Graph implements WorktreeGraph {
   private fallback(error: unknown) {
     try { this.cg?.close(); } catch { /* not open */ }
     this.cg = null; this.failedAt = Date.now();
+    this.closeOverlay();
     this.setStatus('unavailable', 'Code graph unavailable: ' + short(error));
+    this.watchFiles();
+  }
+
+  private watchFiles() {
     const pending = new Set<string>(); let timer: NodeJS.Timeout | undefined;
     let watcher: FSWatcher;
     try {
@@ -200,7 +276,14 @@ class Graph implements WorktreeGraph {
   }
 }
 
-export function createCodeGraphHost(options: CodeGraphHostOptions = {}): GraphHost {
+export interface CodeGraphHost extends GraphHost {
+  /** `shared`: use the repo's shared base + this worktree's overlay (falls back to the full index on any failure). */
+  open(workspaceId: string, root: string, shared?: SharedBaseTarget | null): WorktreeGraph;
+  /** Conflicts between these worktrees' overlays over the repo's base; null when there is no base. */
+  conflicts(shared: SharedBaseTarget, workspaceIds: string[]): Promise<OverlayConflicts | null>;
+}
+
+export function createCodeGraphHost(options: CodeGraphHostOptions = {}): CodeGraphHost {
   const settings = { ...defaults, ...options };
   const graphs = new Map<string, Graph>(); // insertion order = least recently opened first
   const closing = new Map<string, Promise<unknown>>(); // root -> teardown of a graph removed from `graphs`
@@ -212,10 +295,11 @@ export function createCodeGraphHost(options: CodeGraphHostOptions = {}): GraphHo
     return done;
   };
   return {
-    open(workspaceId, root) {
+    open(workspaceId, root, shared = null) {
       let graph = graphs.get(workspaceId);
       if (graph && graph.root !== root) { void retire(graph, 'Worktree moved.'); graph = undefined; }
-      graph ??= new Graph(workspaceId, root, settings, closing.get(root));
+      if (graph && JSON.stringify(graph.shared) !== JSON.stringify(shared)) { void retire(graph, 'Code graph mode changed.'); graph = undefined; }
+      graph ??= new Graph(workspaceId, root, settings, closing.get(root), shared);
       graphs.delete(workspaceId); graphs.set(workspaceId, graph);
       // A graph that fell back (e.g. transient open error) is retried, at most every 30s.
       if (graph.running && graph.failedAt && Date.now() - graph.failedAt > 30_000) { graph.failedAt = 0; void stop(graph, 'Retrying.'); }
@@ -233,6 +317,7 @@ export function createCodeGraphHost(options: CodeGraphHostOptions = {}): GraphHo
       const all = [...graphs.values()]; graphs.clear();
       await Promise.all(all.map(graph => retire(graph, 'Closed.')));
     },
+    async conflicts(shared, workspaceIds) { return overlayConflicts(await settings.load(), shared, workspaceIds); },
   };
 }
 
@@ -246,7 +331,7 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
     handle(message: WorkerRequest) {
       switch (message.type) {
         case 'open': {
-          const { workspaceId } = message, graph = host.open(workspaceId, message.root);
+          const { workspaceId } = message, graph = host.open(workspaceId, message.root, message.shared);
           if (graphs.get(workspaceId)?.graph !== graph) {
             detach(workspaceId);
             const offChange = graph.onChange(change => send({ type: 'change', workspaceId, files: change.files }));
@@ -267,6 +352,9 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
             : evaluateView(settings, message.root, message.view, null, { state: 'unavailable', message: 'Code graph is not open.' });
           return void running.then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         }
+        case 'conflicts':
+          return void host.conflicts(message.shared, message.workspaceIds)
+            .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         case 'close':
           detach(message.workspaceId); // the parent reports its own status for closed graphs
           return void host.close(message.workspaceId).finally(() => send({ type: 'reply', id: message.id, result: null }));

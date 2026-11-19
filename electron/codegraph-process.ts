@@ -12,11 +12,14 @@ import { excludeCodeGraphCache } from './git-exclude';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
 import type { GraphState, GraphStatus, SymbolRef } from '../src/views';
 import type { EvaluateOutput, ResolvedView } from './views/rules/types';
+import type { SharedBaseTarget } from './codegraph-overlay';
+import type { OverlayConflicts } from '@colbymchenry/codegraph';
 
 type Call = { type: 'close'; workspaceId: string } | { type: 'closeAll' } | { type: 'findSymbols'; workspaceId: string; queries: SymbolQuery[] }
-  | { type: 'evaluateView'; workspaceId: string; root: string; view: ResolvedView };
-export type WorkerRequest = { type: 'open'; workspaceId: string; root: string } | (Call & { id: number });
-type Reply = { type: 'reply'; id: number; result: (SymbolRef | null)[] | EvaluateOutput | null } | { type: 'reply'; id: number; error: string };
+  | { type: 'evaluateView'; workspaceId: string; root: string; view: ResolvedView }
+  | { type: 'conflicts'; shared: SharedBaseTarget; workspaceIds: string[] };
+export type WorkerRequest = { type: 'open'; workspaceId: string; root: string; shared?: SharedBaseTarget | null } | (Call & { id: number });
+type Reply = { type: 'reply'; id: number; result: (SymbolRef | null)[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
 export type WorkerEvent =
   | { type: 'status'; workspaceId: string; status: GraphStatus }
   | { type: 'change'; workspaceId: string; files: string[] }
@@ -28,6 +31,13 @@ export interface CodeGraphProcessHostOptions {
   debounceMs?: number; // .stingray watcher
   timeoutMs?: number;  // bound on each request, and on closeAll before the child is killed
   evaluateTimeoutMs?: number; // bound on evaluateView
+  /** Shared-base mode for a worktree (codegraph.sharedBase), or null for its full index; asked on every open. */
+  sharedBase?: (workspaceId: string) => SharedBaseTarget | null;
+}
+
+export interface CodeGraphProcessHost extends GraphHost {
+  /** Conflicts between these worktrees' overlays over the repo's base; null when there is none or the child is down. */
+  conflicts(shared: SharedBaseTarget, workspaceIds: string[]): Promise<OverlayConflicts | null>;
 }
 
 const forkWorker = () => fork(path.join(__dirname, 'codegraph-worker.cjs'), [], {
@@ -40,8 +50,13 @@ const within = (promise: Promise<unknown>, ms: number) => {
   return Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, ms); })]).finally(() => clearTimeout(timer));
 };
 
-export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions = {}): GraphHost {
-  const { spawn = forkWorker, maxOpen = 4, debounceMs = 300, timeoutMs = 3000, evaluateTimeoutMs = 30_000 } = options;
+export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions = {}): CodeGraphProcessHost {
+  const { spawn = forkWorker, maxOpen = 4, debounceMs = 300, timeoutMs = 3000, evaluateTimeoutMs = 30_000, sharedBase = () => null } = options;
+  const openRequest = (workspaceId: string, root: string): WorkerRequest => {
+    let shared: SharedBaseTarget | null = null;
+    try { shared = sharedBase(workspaceId); } catch (error) { console.warn('Code graph shared base setting unreadable:', short(error)); }
+    return { type: 'open', workspaceId, root, shared };
+  };
   const graphs = new Map<string, ProxyGraph>(); // insertion order = least recently opened first
   const pending = new Map<number, (reply: Reply | 'down') => void>();
   let child: ChildProcess | null = null, nextId = 0, crashes = 0, startedAt = 0, restart: NodeJS.Timeout | undefined;
@@ -151,7 +166,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
     c.on('message', onEvent);
     c.on('error', error => exited(c, short(error)));
     c.once('exit', (code, signal) => exited(c, signal ? `signal ${signal}` : `exit code ${code}`));
-    for (const graph of active()) post({ type: 'open', workspaceId: graph.workspaceId, root: graph.root });
+    for (const graph of active()) post(openRequest(graph.workspaceId, graph.root));
   };
 
   const evict = (graph: ProxyGraph, message: string) => {
@@ -167,7 +182,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       graph ??= new ProxyGraph(workspaceId, root);
       graphs.delete(workspaceId); graphs.set(workspaceId, graph);
       if (!graph.active) graph.start();
-      if (child) post({ type: 'open', workspaceId, root }); else respawn();
+      if (child) post(openRequest(workspaceId, root)); else respawn();
       let open = active().length;
       for (const other of graphs.values()) if (open > maxOpen && other !== graph && other.active) { void evict(other, 'Closed to limit open code graphs; reopens when viewed.'); open--; }
       return graph;
@@ -176,6 +191,10 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       const graph = graphs.get(workspaceId);
       graphs.delete(workspaceId);
       if (graph?.active) await evict(graph, 'Closed.');
+    },
+    async conflicts(shared, workspaceIds) {
+      const reply = await call({ type: 'conflicts', shared, workspaceIds }, evaluateTimeoutMs);
+      return typeof reply === 'object' && 'result' in reply ? reply.result as OverlayConflicts | null : null;
     },
     async closeAll() {
       clearTimeout(restart); restart = undefined;
