@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { framePoint, keyInput, liveViewInputSchema } from '../src/live-view';
-import { APP_PAGE, pickTarget, toCdpInput } from '../electron/live-view';
+import { framePoint, keyInput, liveViewInputSchema, type LiveViewEvent } from '../src/live-view';
+import { APP_PAGE, LiveViews, MAX_LIVE_VIEWS, pickTarget, toCdpInput } from '../electron/live-view';
 
 const keys = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };
 const meta = { deviceWidth: 1440, deviceHeight: 900 };
@@ -58,3 +58,63 @@ test('pickTarget finds the Stingray page and skips invalid or foreign targets', 
   assert.equal(pickTarget([{ id: 'O', type: 'page', url: 'https://example.com' }]), null);
   assert.throws(() => pickTarget({ not: 'a list' }));
 });
+
+// Minimal CDP stand-ins: fetch answers /json/list, the socket opens when told to and records sent commands.
+class FakeSocket {
+  static OPEN = 1; static sockets: FakeSocket[] = [];
+  readyState = 0; sent: { id: number; method: string; params: Record<string, unknown> }[] = [];
+  private listeners = new Map<string, ((event: { data?: string }) => void)[]>();
+  constructor(public url: string) { FakeSocket.sockets.push(this); }
+  addEventListener(type: string, listener: (event: { data?: string }) => void) { this.listeners.set(type, [...this.listeners.get(type) ?? [], listener]); }
+  dispatch(type: string, event: { data?: string } = {}) { for (const listener of this.listeners.get(type) ?? []) listener(event); }
+  open() { this.readyState = 1; this.dispatch('open'); }
+  send(raw: string) {
+    const message = JSON.parse(raw); this.sent.push(message);
+    queueMicrotask(() => this.dispatch('message', { data: JSON.stringify({ id: message.id, result: {} }) }));
+  }
+  close() { if (this.readyState === 3) return; this.readyState = 3; this.dispatch('close'); }
+  frame(sessionId: number) {
+    this.dispatch('message', { data: JSON.stringify({ method: 'Page.screencastFrame', params: { sessionId, data: 'AAAA', metadata: { deviceWidth: 10, deviceHeight: 10 } } }) });
+  }
+}
+async function withFakeCdp(run: () => Promise<void>) {
+  const saved = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  FakeSocket.sockets = [];
+  globalThis.fetch = (async () => ({ json: async () => [{ id: 'T', type: 'page', url: APP_PAGE, title: 'Stingray' }] })) as unknown as typeof fetch;
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+  try { await run(); } finally { Object.assign(globalThis, saved); }
+}
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const acks = (socket: FakeSocket) => socket.sent.filter(m => m.method === 'Page.screencastFrameAck').map(m => m.params.sessionId);
+
+test('frames are acked to Chrome only after the renderer displayed them', () => withFakeCdp(async () => {
+  const events: LiveViewEvent[] = [];
+  const views = new LiveViews(event => events.push(event));
+  const started = views.start({ port: 9222 });
+  await tick(); FakeSocket.sockets[0].open();
+  const { sessionId } = await started;
+  const socket = FakeSocket.sockets[0];
+  socket.frame(1); socket.frame(2);
+  assert.equal(events.filter(e => e.kind === 'frame').length, 2);
+  assert.deepEqual(acks(socket), [], 'not acked before display');
+  views.ack(sessionId);
+  assert.deepEqual(acks(socket), [1, 2]);
+  views.ack(sessionId);
+  assert.deepEqual(acks(socket), [1, 2], 'nothing pending: no extra acks');
+  views.stopAll();
+}));
+
+test('stopAll() discards starts still connecting, and pending starts count toward the limit', () => withFakeCdp(async () => {
+  const views = new LiveViews(() => {});
+  const starts = Array.from({ length: MAX_LIVE_VIEWS }, () => views.start({ port: 9222 }));
+  await assert.rejects(views.start({ port: 9222 }), /limit/);
+  await tick();
+  views.stopAll(); // e.g. the renderer reloaded
+  for (const socket of FakeSocket.sockets) socket.open();
+  for (const start of starts) await assert.rejects(start, /closed/);
+  assert.ok(FakeSocket.sockets.every(socket => socket.readyState === 3), 'late sockets are closed');
+  const again = views.start({ port: 9222 });
+  await tick(); FakeSocket.sockets.at(-1)!.open();
+  assert.ok((await again).sessionId);
+  views.stopAll();
+}));

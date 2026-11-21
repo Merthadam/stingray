@@ -249,5 +249,6 @@ export const demoAPI: DesktopAPI = {
   liveViewInput: async () => undefined,
   liveViewResize: async () => undefined,
   liveViewStop: async () => undefined,
+  liveViewAck: async () => undefined,
   onLiveView: () => () => {},
 };

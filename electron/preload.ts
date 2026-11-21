@@ -70,6 +70,7 @@ const api: DesktopAPI = {
   liveViewInput: (sessionId, input) => ipcRenderer.invoke('live-view-input', sessionId, input),
   liveViewResize: (sessionId, maxWidth, maxHeight) => ipcRenderer.invoke('live-view-resize', sessionId, maxWidth, maxHeight),
   liveViewStop: sessionId => ipcRenderer.invoke('live-view-stop', sessionId),
+  liveViewAck: sessionId => ipcRenderer.invoke('live-view-ack', sessionId),
   onLiveView: listener => {
     const handler = (_event: unknown, payload: LiveViewEvent) => listener(payload);
     ipcRenderer.on('live-view-event', handler);

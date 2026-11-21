@@ -32,7 +32,7 @@ export function LiveView({ target, onClose }: { target: LiveViewTarget; onClose:
     api.liveViewStart({ port: target.port, ...frameSize(surface.current) }).then(started => {
       if (cancelled) { void api.liveViewStop(started.sessionId); return; }
       sessionId.current = started.sessionId; setSession(started);
-      if (early?.sessionId === started.sessionId) show(early);
+      if (early?.sessionId === started.sessionId) show(early); else ack(); // a missed early frame must not stall the stream
     }, e => { if (!cancelled) { setStatus('disconnected'); setError((e as Error).message); } });
     return () => { cancelled = true; off(); if (sessionId.current) void api.liveViewStop(sessionId.current); sessionId.current = ''; };
   }, [target.port, attempt]);
@@ -48,6 +48,7 @@ export function LiveView({ target, onClose }: { target: LiveViewTarget; onClose:
     if (surface.current) observer.observe(surface.current);
     return () => { clearTimeout(timer); observer.disconnect(); };
   }, []);
+  const ack = () => { if (sessionId.current) api.liveViewAck(sessionId.current).catch(() => {}); };
   const send = (input: LiveViewInput) => sessionId.current ? api.liveViewInput(sessionId.current, input).catch(e => setError((e as Error).message)) : Promise.resolve();
   const point = (e: React.MouseEvent) => {
     const img = image.current;
@@ -87,7 +88,7 @@ export function LiveView({ target, onClose }: { target: LiveViewTarget; onClose:
       onKeyDown={e => key('keyDown', e)} onKeyUp={e => key('keyUp', e)}
       onPaste={e => { e.preventDefault(); const text = e.clipboardData.getData('text/plain').slice(0, 10_000); if (text) void send({ type: 'text', text }); }}
       onContextMenu={e => e.preventDefault()}>
-      <img ref={image} alt="" draggable={false} />
+      <img ref={image} alt="" draggable={false} onLoad={ack} onError={ack} />
     </div>
   </section>;
 }

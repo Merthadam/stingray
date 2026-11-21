@@ -223,6 +223,7 @@ app.whenReady().then(async () => {
   handle('live-view-input', z.tuple([idSchema, liveViewInputSchema]), (id, input) => liveViews.input(id, input));
   handle('live-view-resize', z.tuple([idSchema, frameSize, frameSize]), (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight));
   handle('live-view-stop', z.tuple([idSchema]), id => liveViews.stop(id));
+  handle('live-view-ack', z.tuple([idSchema]), id => liveViews.ack(id));
   // A reloaded renderer has lost its session ids; a closed window has no viewer.
   win.webContents.on('did-start-loading', () => liveViews.stopAll());
   win.on('closed', () => liveViews.stopAll());

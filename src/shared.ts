@@ -151,6 +151,8 @@ export interface DesktopAPI {
   liveViewInput(sessionId: string, input: LiveViewInput): Promise<void>;
   liveViewResize(sessionId: string, maxWidth: number, maxHeight: number): Promise<void>;
   liveViewStop(sessionId: string): Promise<void>;
+  /** The latest frame was displayed; the next one may be sent. */
+  liveViewAck(sessionId: string): Promise<void>;
   onLiveView(listener: (event: LiveViewEvent) => void): () => void;
 }
 /** revision increases with every change in the main process, so late responses can be ignored. */

@@ -34,12 +34,19 @@ export function toCdpInput(input: LiveViewInput, metadata: Metadata): [string, R
 }
 
 type Session = { socket: WebSocket; nextId: number; pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
-  metadata: Metadata | null; size: { maxWidth?: number; maxHeight?: number }; stopped: boolean };
+  metadata: Metadata | null; size: { maxWidth?: number; maxHeight?: number }; stopped: boolean; unacked: number[] };
 export class LiveViews {
   private sessions = new Map<string, Session>();
+  private starting = 0;
+  /** Bumped by stopAll() so starts still connecting at that moment are discarded. */
+  private generation = 0;
   constructor(private emit: (event: LiveViewEvent) => void) {}
-  async start({ port, ...size }: LiveViewStartOptions): Promise<LiveViewSession> {
-    if (this.sessions.size >= MAX_LIVE_VIEWS) throw new Error(`Close a live view before opening another (limit ${MAX_LIVE_VIEWS}).`);
+  async start(options: LiveViewStartOptions): Promise<LiveViewSession> {
+    if (this.sessions.size + this.starting >= MAX_LIVE_VIEWS) throw new Error(`Close a live view before opening another (limit ${MAX_LIVE_VIEWS}).`);
+    this.starting++;
+    try { return await this.connect(options, this.generation); } finally { this.starting--; }
+  }
+  private async connect({ port, ...size }: LiveViewStartOptions, generation: number): Promise<LiveViewSession> {
     let list: unknown;
     try { list = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json(); }
     catch { throw new Error(`No test instance answers on 127.0.0.1:${port}. Is it running?`); }
@@ -51,7 +58,8 @@ export class LiveViews {
       socket.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
       socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Could not connect to the test instance.')); }, { once: true });
     });
-    const id = randomUUID(), session: Session = { socket, nextId: 1, pending: new Map(), metadata: null, size, stopped: false };
+    if (generation !== this.generation) { socket.close(); throw new Error('The live view was closed.'); }
+    const id = randomUUID(), session: Session = { socket, nextId: 1, pending: new Map(), metadata: null, size, stopped: false, unacked: [] };
     this.sessions.set(id, session);
     socket.addEventListener('message', ({ data }) => {
       let message: { id?: number; method?: string; params?: unknown; error?: { message?: string }; result?: unknown };
@@ -63,7 +71,8 @@ export class LiveViews {
         const frame = frameSchema.safeParse(message.params);
         if (!frame.success) return;
         session.metadata = frame.data.metadata;
-        this.call(session, 'Page.screencastFrameAck', { sessionId: frame.data.sessionId }).catch(() => {});
+        // Acked once the renderer displayed it (ack()), so Chrome sends no faster than frames are shown.
+        session.unacked.push(frame.data.sessionId);
         this.emit({ sessionId: id, kind: 'frame', data: frame.data.data });
       } else if (message.method === 'Inspector.detached' || message.method === 'Inspector.targetCrashed') socket.close();
     });
@@ -88,12 +97,17 @@ export class LiveViews {
     await this.call(session, 'Page.stopScreencast', {});
     await this.screencast(session);
   }
+  /** The renderer displayed the latest frame: release every frame Chrome is waiting on (at most a few). */
+  ack(id: string) {
+    const session = this.sessions.get(id);
+    for (const frame of session?.unacked.splice(0) ?? []) this.call(session!, 'Page.screencastFrameAck', { sessionId: frame }).catch(() => {});
+  }
   stop(id: string) {
     const session = this.sessions.get(id);
     if (!session) return;
     session.stopped = true; this.sessions.delete(id); session.socket.close();
   }
-  stopAll() { for (const id of [...this.sessions.keys()]) this.stop(id); }
+  stopAll() { this.generation++; for (const id of [...this.sessions.keys()]) this.stop(id); }
   private get(id: string) { const s = this.sessions.get(id); if (!s) throw new Error('This live view is closed. Reconnect.'); return s; }
   private screencast(session: Session) {
     return this.call(session, 'Page.startScreencast', { format: 'jpeg', quality: 70, everyNthFrame: 1, ...session.size });
