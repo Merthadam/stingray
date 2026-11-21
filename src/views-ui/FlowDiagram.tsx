@@ -8,7 +8,7 @@ import type { ErDiagramProps } from './types';
 import type { DiagramNode, ViewLocalState } from '../views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
-import { bandEntry, flowFrames, frameIndex, flowPositions, flowSize } from './flow-layout';
+import { bandEntry, flowFrames, flowGrid, frameIndex, flowPositions, flowSize } from './flow-layout';
 import { FlowGroup, FlowNode, FlowchartNode } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
@@ -29,7 +29,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const [positions, setPositions] = useState<Positions>(() => ({ ...result.layout?.positions, ...initialState.positions }));
   const [selected, setSelected] = useState<Selection>(null);
   const [revision, setRevision] = useState(0);
-  const [error, setError] = useState('');
+  const [gridded, setGridded] = useState(false);
   const [ready, setReady] = useState(false);
   const positionsRef = useRef(positions); positionsRef.current = positions;
   const stateCallback = useRef(onStateChange); stateCallback.current = onStateChange;
@@ -41,9 +41,14 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   useEffect(() => { if (ready) stateCallback.current(state); }, [state, ready]);
   useEffect(() => {
     let live = true, timer = 0;
-    setError('');
+    setGridded(false);
+    // elk-api never rejects when its worker fails to load, so a timeout makes the grid fallback reachable.
     const timeout = new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error('Flow layout timed out')), 10_000); });
-    Promise.race([flowPositions(sharedElk(), result), timeout]).then(next => {
+    Promise.race([flowPositions(sharedElk(), result), timeout]).finally(() => window.clearTimeout(timer)).catch(error => {
+      console.error('Flow layout failed; using a grid', error);
+      if (live) setGridded(true);
+      return flowGrid(result);
+    }).then(next => {
       if (!live) return;
       // Flowchart ids are kind@line: after a code edit other nodes take the old ids, so stored positions are kept only
       // when they are for exactly these nodes.
@@ -51,8 +56,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
         ? positionsRef.current : {};
       setPositions(Object.fromEntries(result.nodes.map(n => [n.id, fixed[n.id] ?? next[n.id]])));
       setReady(true);
-    }).catch(e => { if (live) setError(`Could not lay out the flow: ${e.message}`); })
-      .finally(() => window.clearTimeout(timer));
+    });
     return () => { live = false; window.clearTimeout(timer); };
   }, [result, revision, chart]);
 
@@ -108,7 +112,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const group = selected?.kind === 'group' ? result.groups.find(g => g.id === selected.id) : undefined;
   return <div className="er-diagram flow-diagram" data-testid="flow-diagram" onKeyDown={e => { if (e.key === 'Escape') setSelected(null); }}>
     <div className="er-toolbar" role="toolbar" aria-label="Diagram">
-      <span className="er-count">{result.nodes.length} nodes · {result.edges.length} transitions</span>
+      <span className="er-count">{result.nodes.length} nodes · {result.edges.length} transitions{gridded && ' · automatic layout failed, showing a grid'}</span>
       <button aria-label="Re-layout the diagram" onClick={() => { positionsRef.current = {}; setPositions({}); setReady(false); setRevision(r => r + 1); }}><LayoutGrid size={13} />Re-layout</button>
       <button aria-label="Save as view" disabled={!ready || !onSaveAs}
         title={onSaveAs ? undefined : 'Set the depth back to the view’s own to save it'} onClick={() => onSaveAs?.(state)}><Save size={13} />Save as view…</button>
@@ -116,8 +120,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
     </div>
     <div className="er-body">
       <div className="er-canvas">
-        {error ? <p className="er-status" role="alert">{error}. Use Re-layout to retry.</p>
-          : !result.nodes.length ? <p className="er-status">No steps found in this worktree.</p>
+        {!result.nodes.length ? <p className="er-status">No steps found in this worktree.</p>
           : !ready ? <p className="er-status">Laying out {result.nodes.length} nodes…</p>
           : <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange}
             onNodeClick={(_, n) => { if (byId.has(n.id)) setSelected({ kind: 'node', id: n.id }); }}

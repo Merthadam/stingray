@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, frameIndex, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -161,4 +161,13 @@ test('step cards list at most 8 fields plus a +N more row, and size for exactly 
   assert.deepEqual(cardFields(card(20)), { fields: fields(8), more: 12 });
   assert.equal(flowSize(card(8)).height + 18, flowSize(card(9)).height, '9 fields: 8 rows + the more row');
   assert.equal(flowSize(card(9)).height, flowSize(card(500)).height);
+});
+
+test('the grid fallback places every node without overlapping cards', () => {
+  const positions = flowGrid(result);
+  assert.equal(Object.keys(positions).length, result.nodes.length);
+  const boxes = result.nodes.map(n => ({ ...positions[n.id], ...flowSize(n) }));
+  for (const a of boxes) for (const b of boxes) if (a !== b) {
+    assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+  }
 });

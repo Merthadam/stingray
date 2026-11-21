@@ -71,6 +71,17 @@ export async function flowPositions(elk: ElkLayouter, result: ViewResult): Promi
   return positions;
 }
 
+/** Fallback when ELK fails or times out: cards in node order, rows of 6, each row as tall as its tallest card. */
+export function flowGrid(result: ViewResult): Positions {
+  const chart = result.kind === 'flowchart', positions: Positions = {};
+  for (let i = 0, y = 0; i < result.nodes.length; i += 6) {
+    const row = result.nodes.slice(i, i + 6);
+    row.forEach((n, j) => { positions[n.id] = { x: j * 320, y }; });
+    y += Math.max(...row.map(n => flowSize(n, chart).height)) + 100;
+  }
+  return positions;
+}
+
 // ELK's model-order options crash with nested hierarchies, so put branch targets in extractor order (router
 // condition order: 1., 2., ..., else) by swapping the x slots of same-layer siblings after layout.
 function orderBranches(result: ViewResult, positions: Positions) {
