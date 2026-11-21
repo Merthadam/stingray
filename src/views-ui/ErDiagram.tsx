@@ -6,7 +6,7 @@ import '@xyflow/react/dist/style.css';
 import './er-diagram.css';
 import type { DiagramNode, ViewLocalState } from '../views';
 import type { ErDiagramProps } from './types';
-import { cardSize, handleId, layoutPositions, storedPositions, visibleEdges, visibleNodes, type Positions } from './er-layout';
+import { cardSize, handleId, layoutPositions, separateCards, storedPositions, visibleEdges, visibleNodes, type Positions } from './er-layout';
 import { hideIsolated, onlyNeighbours } from './er-filter';
 import { describeDiff, diffResults } from './er-diff';
 import { sharedElk } from './elk-client';
@@ -67,6 +67,12 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
     if (firstState.current) { firstState.current = false; return; }
     callbacks.current.onStateChange(state);
   }, [state]);
+
+  // A new result can grow stored cards (an explanation band): push overlapping ones apart, even when none is missing.
+  useEffect(() => {
+    const moved = separateCards(visible, positionsRef.current, expandedSet);
+    if (Object.keys(moved).length) setPositions(p => ({ ...p, ...moved }));
+  }, [result]); // only on a new result, never while dragging
 
   // Lay out nodes without a stored position; one ELK run per distinct missing set.
   const missing = useMemo(() => visible.filter(n => !stored[n.id]).map(n => n.id).join('\n'), [visible, stored]);
