@@ -1,10 +1,17 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, ViewKind } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, ViewKind } from './views';
 
-export interface TextDiagramInput { kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean }
+export interface TextDiagramInput {
+  kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean;
+  sequence?: SequenceData | null; // kind: sequence
+}
 export const MAX_TEXT_LINES = 400;
 
-export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagramInput, maxLines = MAX_TEXT_LINES): string {
+export function formatText({ kind, groups, nodes, edges, truncated, sequence }: TextDiagramInput, maxLines = MAX_TEXT_LINES): string {
+  if (kind === 'sequence') {
+    const lines = sequence ? sequenceLines(sequence, truncated) : [`sequence: not computed${truncated ? ' (truncated: a limit was hit)' : ''}`];
+    return (lines.length > maxLines ? [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`] : lines).join('\n');
+  }
   // Labels name nodes; a label shared by several nodes gets its id appended so edges stay unambiguous.
   const counts = new Map<string, number>();
   for (const n of nodes) counts.set(n.label, (counts.get(n.label) ?? 0) + 1);
@@ -156,4 +163,44 @@ function timelineOrder(nodes: DiagramNode[], edges: DiagramEdge[]): DiagramNode[
     done.add(ready.id); result.push(ready);
     for (const to of next.get(ready.id) ?? []) indegree.set(to, indegree.get(to)! - 1);
   }
+}
+
+/** Sequence as arrows in row order (docs/sequence-view-spec.md §CLI text): indent = call level plus enclosing fragments,
+ * `-->` = return, fragments open with `alt|opt|loop|try <label>`, later arms with `else <label>`, close with `end`. */
+function sequenceLines({ participants, messages, fragments, notes }: SequenceData, truncated: boolean): string[] {
+  const name = (id: string) => participants.find(p => p.id === id)?.label ?? id;
+  const lines = [`sequence: ${participants.length} participants, ${messages.length} messages${truncated ? ' (truncated: a limit was hit)' : ''}`,
+    `participants: ${participants.map(p => p.kind === 'participant' ? p.label : `${p.label} (${p.kind})`).join(', ')}`];
+  let level = 0; // of the last message printed: notes indent like it
+  // Rows [from, to] of one fragment arm (or the whole diagram): its messages, child fragments and notes in row order.
+  const range = (from: number, to: number, parent: string | null, arm: number | null, nesting: number) => {
+    const children = fragments.filter(f => f.parent === parent && f.first >= from && f.first <= to);
+    const items: [number, () => void][] = [
+      ...children.map((f): [number, () => void] => [f.first - 0.5, () => fragment(f, nesting)]),
+      ...notes.filter(n => (n.fragment ?? null) === parent && (parent === null || n.arm === arm) && (n.after >= from - 1 && n.after <= to || parent !== null))
+        .map((n): [number, () => void] => [n.after + 0.25, () => lines.push(`${'  '.repeat(level + nesting)}note ${name(n.participant)}: ${n.text}`)]),
+    ];
+    for (let row = from; row <= to; row++) {
+      if (children.some(f => row >= f.first && row <= f.last)) continue;
+      const m = messages[row];
+      items.push([row, () => {
+        level = m.level;
+        lines.push(`${'  '.repeat(m.level + nesting)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
+          + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : '  (uncertain)'}`);
+      }]);
+    }
+    items.sort((a, b) => a[0] - b[0]).forEach(([, print]) => print());
+  };
+  const fragment = (f: SequenceData['fragments'][number], nesting: number) => {
+    const indent = '  '.repeat((messages[f.first]?.level ?? level) + nesting);
+    const arms = [{ label: f.label, first: f.first }, ...f.branches];
+    lines.push(`${indent}${f.kind}${f.label !== f.kind ? ` ${f.label}` : ''}`);
+    arms.forEach((a, i) => {
+      if (i) lines.push(`${indent}else${a.label !== 'else' ? ` ${a.label}` : ''}`);
+      range(a.first, Math.min(f.last, (arms[i + 1]?.first ?? f.last + 1) - 1), f.id, i, nesting + 1);
+    });
+    lines.push(`${indent}end`);
+  };
+  range(0, messages.length - 1, null, null, 0);
+  return lines;
 }

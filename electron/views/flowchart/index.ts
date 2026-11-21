@@ -22,15 +22,41 @@ export interface FlowchartOutput {
 }
 
 /** File extension -> grammar and adapter (v1: Python and TypeScript/TSX/JavaScript). */
-const LANGUAGES: Record<string, { grammar: string; adapter: Adapter }> = {
+export const LANGUAGES: Record<string, { grammar: string; adapter: Adapter }> = {
   '.py': { grammar: 'python', adapter: python },
   '.ts': { grammar: 'typescript', adapter: typescript }, '.mts': { grammar: 'typescript', adapter: typescript }, '.cts': { grammar: 'typescript', adapter: typescript },
   '.tsx': { grammar: 'tsx', adapter: typescript },
   '.js': { grammar: 'javascript', adapter: typescript }, '.mjs': { grammar: 'javascript', adapter: typescript },
   '.cjs': { grammar: 'javascript', adapter: typescript }, '.jsx': { grammar: 'javascript', adapter: typescript },
 };
-const FUNCTION_KINDS = new Set(['function', 'method']);
-const at = (s: GraphSymbol) => `${s.file}:${s.line}`;
+export const FUNCTION_KINDS = new Set(['function', 'method']);
+export const at = (s: GraphSymbol) => `${s.file}:${s.line}`;
+
+/** Parsed files and function bodies, each read and parsed once per evaluation; dispose() frees the trees. */
+export function createLoader(files: FileProvider, parse: ParseText, kind: 'flowchart' | 'sequence' = 'flowchart') {
+  const trees = new Map<string, Promise<Tree | null>>(), loaded = new Map<string, Promise<Loaded>>();
+  const tree = (file: string): Promise<Tree | null> => {
+    const language = LANGUAGES[path.posix.extname(file).toLowerCase()];
+    if (!language) return Promise.resolve(null);
+    let t = trees.get(file);
+    if (!t) trees.set(file, t = files.read(file).then(text => text === null ? null : parse(language.grammar, text)));
+    return t;
+  };
+  const load = (s: GraphSymbol) => {
+    let l = loaded.get(s.id);
+    if (!l) loaded.set(s.id, l = (async (): Promise<Loaded> => {
+      const ext = path.posix.extname(s.file).toLowerCase(), language = LANGUAGES[ext];
+      if (!language) return { error: `${kind} does not support ${ext.slice(1) || path.posix.basename(s.file)} files yet` };
+      const t = await tree(s.file);
+      if (!t) return { error: `${s.file} could not be read or parsed in time` };
+      const fn = language.adapter.findFunction(t.rootNode, s.name, s.line);
+      return fn ? { constructs: language.adapter.constructs(fn) } : { error: `function ${s.name} not found in ${at(s)}` };
+    })());
+    return l;
+  };
+  const dispose = () => { for (const t of trees.values()) void t.then(x => x?.delete(), () => {}); };
+  return { tree, load, dispose };
+}
 
 export async function runFlowchart(step: FlowchartStep, graph: GraphApi, files: FileProvider, parse: ParseText,
   inScope: (file: string) => boolean): Promise<FlowchartOutput> {
@@ -47,24 +73,7 @@ export async function runFlowchart(step: FlowchartStep, graph: GraphApi, files: 
   const entry = functions[0];
   diagnostic.start = `${entry.name} (${at(entry)})`;
 
-  const trees = new Map<string, Promise<Tree | null>>(), loaded = new Map<string, Promise<Loaded>>();
-  const tree = (file: string, grammar: string) => {
-    let t = trees.get(file);
-    if (!t) trees.set(file, t = files.read(file).then(text => text === null ? null : parse(grammar, text)));
-    return t;
-  };
-  const load = (s: GraphSymbol) => {
-    let l = loaded.get(s.id);
-    if (!l) loaded.set(s.id, l = (async (): Promise<Loaded> => {
-      const ext = path.posix.extname(s.file).toLowerCase(), language = LANGUAGES[ext];
-      if (!language) return { error: `flowchart does not support ${ext.slice(1) || path.posix.basename(s.file)} files yet` };
-      const t = await tree(s.file, language.grammar);
-      if (!t) return { error: `${s.file} could not be read or parsed in time` };
-      const fn = language.adapter.findFunction(t.rootNode, s.name, s.line);
-      return fn ? { constructs: language.adapter.constructs(fn) } : { error: `function ${s.name} not found in ${at(s)}` };
-    })());
-    return l;
-  };
+  const { load, dispose } = createLoader(files, parse);
 
   try {
     const body = await load(entry);
@@ -82,7 +91,5 @@ export async function runFlowchart(step: FlowchartStep, graph: GraphApi, files: 
       nodes: builder.nodes, edges: builder.sortedEdges(), groups, warnings, truncated: builder.truncated,
       diagnostic: { ...diagnostic, functions: builder.functions, nodes: builder.nodes.length, truncated: builder.truncated },
     };
-  } finally {
-    for (const t of trees.values()) void t.then(x => x?.delete(), () => {});
-  }
+  } finally { dispose(); }
 }

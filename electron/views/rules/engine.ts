@@ -4,13 +4,15 @@
 import path from 'node:path';
 import { Language, Parser, Query, type Node, type QueryMatch } from 'web-tree-sitter';
 import type {
-  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
+  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SequenceData, SequenceDiagnostic,
+  SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
 } from '../../../src/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { explanationOf, symbolRef } from '../explanation';
 import { runGraphStep } from './graph-steps';
 import { runFlowchart } from '../flowchart';
+import { runSequence } from '../sequence';
 import { runLayers } from './layers';
 import { inScope } from './schema';
 import { renderTemplate, templateCaptures } from './template';
@@ -304,24 +306,29 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       }
     }
     // ---- flowchart ----
+    /** Parsers for flowchart/sequence function bodies; freed by the caller. */
+    const bodyParsers = () => {
+      const parsers = new Map<string, Parser>();
+      // Same per-file budget as rule queries; returning true cancels the parse (web-tree-sitter 0.25).
+      const parseText = async (language: string, text: string) => {
+        if (text.length > LIMITS.fileBytes) return null;
+        let parser = parsers.get(language);
+        if (!parser) {
+          const lang = await loadLanguage(path.join(input.grammarDir, GRAMMAR_FILES[language]));
+          parser = new Parser(); parser.setLanguage(lang); parsers.set(language, parser);
+        }
+        const until = Math.min(performance.now() + LIMITS.queryMsPerFile, deadline);
+        return parser.parse(text, null, { progressCallback: () => performance.now() > until || !!signal?.aborted });
+      };
+      return { parseText, dispose: () => parsers.forEach(p => p.delete()) };
+    };
     let flowchartDiag: FlowchartDiagnostic | null = null;
     if (view.flowchart) {
       const step = view.flowchart;
       const failed = (error: string): FlowchartDiagnostic => ({ start: null, depth: step.depth, functions: 0, nodes: 0, truncated: false, error });
       if (!graph) flowchartDiag = failed(`code graph not ready (${input.graphStatus.state})`);
       else {
-        const flowParsers = new Map<string, Parser>();
-        // Same per-file budget as rule queries; returning true cancels the parse (web-tree-sitter 0.25).
-        const parseText = async (language: string, text: string) => {
-          if (text.length > LIMITS.fileBytes) return null;
-          let parser = flowParsers.get(language);
-          if (!parser) {
-            const lang = await loadLanguage(path.join(input.grammarDir, GRAMMAR_FILES[language]));
-            parser = new Parser(); parser.setLanguage(lang); flowParsers.set(language, parser);
-          }
-          const until = Math.min(performance.now() + LIMITS.queryMsPerFile, deadline);
-          return parser.parse(text, null, { progressCallback: () => performance.now() > until || !!signal?.aborted });
-        };
+        const { parseText, dispose } = bodyParsers();
         try {
           const out = await runFlowchart(step, graph, files, parseText, f => inScope(f, view.scope));
           flowchartDiag = out.diagnostic;
@@ -332,8 +339,33 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
           graphEdges.push(...out.edges);
         } catch (e) {
           flowchartDiag = failed((e as Error).message);
-        } finally { flowParsers.forEach(p => p.delete()); }
+        } finally { dispose(); }
       }
+    }
+    // ---- sequence ----
+    let sequenceDiag: SequenceDiagnostic | null = null, sequence: SequenceData | null = null;
+    if (view.sequence) {
+      const step = view.sequence;
+      const failed = (error: string): SequenceDiagnostic => ({ start: null, depth: step.depth, participants: step.participants === 'auto' ? 'file' : step.participants,
+        functions: 0, messages: 0, links: {}, truncated: false, error });
+      if (!graph) sequenceDiag = failed(`code graph not ready (${input.graphStatus.state})`);
+      else {
+        const { parseText, dispose } = bodyParsers();
+        try {
+          const out = await runSequence(step, graph, files, parseText, f => inScope(f, view.scope), view.exclude);
+          sequenceDiag = out.diagnostic;
+          sequence = out.sequence;
+          warnings.push(...out.warnings);
+          if (out.truncated) truncated = true;
+          for (const n of out.nodes) nodes.set(n.id, { ...n, symbolName: null, aliases: new Set(), fields: [] });
+        } catch (e) {
+          sequenceDiag = failed((e as Error).message);
+        } finally { dispose(); }
+      }
+      // shortcut: link rules (rules: emitting kind: link edges) are validated but not followed yet; Phase 2 feeds them to
+      // the walker as a LinkProvider (docs/sequence-view-plan.md).
+      if (view.rules.some(r => r.source === 'view')) warnings.push({ file: null, line: null, message: 'Link rules of sequence views are not applied yet' });
+      edges.length = 0; // their from/to are symbol names, not nodes: never joined as diagram edges
     }
     // ---- layers ----
     let layersDiag: LayersDiagnostic | null = null;
@@ -417,8 +449,10 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     const ms = Math.round(performance.now() - started);
     return {
       groups: [...groups.values()], nodes: finalNodes, edges: finalEdges, warnings, truncated,
-      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, ...(flowchartDiag ? { flowchart: flowchartDiag } : {}), ...(layersDiag ? { layers: layersDiag } : {}), unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
-      stats: { filesScanned, matches: totalMatches, nodes: finalNodes.length, edges: finalEdges.length },
+      diagnostics: { rules: compiled.map(c => c.diag), graph: graphDiag, ...(flowchartDiag ? { flowchart: flowchartDiag } : {}), ...(layersDiag ? { layers: layersDiag } : {}),
+        ...(sequenceDiag ? { sequence: sequenceDiag } : {}), unresolved, limits: { filesScanned, matches: totalMatches, truncated }, ms },
+      stats: { filesScanned, matches: totalMatches, nodes: finalNodes.length, edges: finalEdges.length, ...(sequence ? { messages: sequence.messages.length } : {}) },
+      ...(view.sequence ? { sequence } : {}),
     };
   };
 }

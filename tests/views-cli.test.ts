@@ -332,14 +332,17 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
     assert.equal(await failing.run('check', '.stingray/views/flow.yaml'), 1);
     assert.match(failing.out.join('\n'), /\n {2}error: start symbol not found: login/);
 
-    for (const argv of [['--depth', '5'], ['--depth'], ['--depth', 'x']]) {
+    for (const argv of [['--depth', '7'], ['--depth'], ['--depth', 'x']]) {
       const bad = harness(root, { loadViewPath });
       assert.equal(await bad.run('check', '.stingray/views/flow.yaml', ...argv), 2, argv.join(' '));
-      assert.match(bad.err.join('\n'), /--depth needs a number from 0 to 4/);
+      assert.match(bad.err.join('\n'), /--depth needs a number from 0 to 6/);
     }
+    const deep = harness(root, { loadViewPath });
+    assert.equal(await deep.run('check', '.stingray/views/flow.yaml', '--depth', '5'), 2);
+    assert.match(deep.err.join('\n'), /--depth of a flowchart view is 0 to 4/);
     const notFlowchart = harness(root);
     assert.equal(await notFlowchart.run('check', '.stingray/views/flow.yaml', '--depth', '1'), 2);
-    assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart views/);
+    assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart and kind: sequence views/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -358,5 +361,33 @@ test('views-cli check --depth overrides layers.depth (1-4) and prints the layers
     const zero = harness(root, { loadViewPath });
     assert.equal(await zero.run('check', '.stingray/views/flow.yaml', '--depth', '0'), 2);
     assert.match(zero.err.join('\n'), /--depth of a layers view is 1 to 4/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('views-cli check --depth overrides sequence.depth (0-6), prints the sequence diagnostic and text; its error fails', async () => {
+  const root = await repo();
+  try {
+    const seq: ResolvedView = { ...view, kind: 'sequence', rules: [], sequence: { start: { symbol: 'submit' }, actor: 'User', depth: 3, participants: 'auto',
+      internal: 'collapse', returns: true, links: ['http'], externals: {} } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'sequence' }, view: seq, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const result = (depth: number, error: string | null) => output({ nodes: [], edges: [],
+      sequence: { participants: [{ id: 'p:file:a.tsx', label: 'a.tsx', kind: 'participant', subtitle: 'a.tsx', column: 0, source: null, symbol: null },
+        { id: 'p:file:b.py', label: 'b.py', kind: 'participant', subtitle: 'b.py', column: 1, source: null, symbol: null }],
+      messages: [{ id: 'm0', from: 'p:file:a.tsx', to: 'p:file:b.py', kind: 'http', label: 'POST /login', detail: null, level: 0, certain: true, link: 'http', source: null, symbol: null }],
+      fragments: [], notes: [] },
+      diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1,
+        sequence: { start: 'submit (a.tsx:1)', depth, participants: 'file', functions: 2, messages: 1, links: { http: 1 }, truncated: false, error } } });
+    const h = harness(root, { loadViewPath, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }),
+      evaluate: async input => { h.calls.evaluate.push(input); return result(input.view.sequence!.depth, null); } });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--depth', '6'), 0);
+    assert.equal(h.calls.evaluate[0].view.sequence!.depth, 6);
+    const text = h.out.join('\n');
+    assert.match(text, /sequence: start submit \(a\.tsx:1\) {2}depth 6 {2}participants file {2}functions 2 {2}messages 1 {2}links http 1/);
+    assert.match(text, /\na\.tsx -> b\.py: POST \/login\n/);
+    const failing = harness(root, { loadViewPath, evaluate: async () => result(3, 'start symbol not found: submit'),
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await failing.run('check', '.stingray/views/flow.yaml'), 1);
+    assert.match(failing.out.join('\n'), /\n {2}error: start symbol not found: submit/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

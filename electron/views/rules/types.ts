@@ -2,7 +2,7 @@
 // The engine is pure: it reads files and the code graph only through the interfaces below, so the CodeGraph child
 // process, the `stingray-views` CLI and tests can all drive it.
 import type {
-  DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, GraphStepDiagnostic, ViewDiagnostics, ViewKind, ViewWarning,
+  DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, GraphStepDiagnostic, SequenceData, ViewDiagnostics, ViewKind, ViewWarning,
 } from '../../../src/views';
 
 // ---- Definitions (parsed from YAML; templates are unrendered strings like "@name") ----
@@ -64,6 +64,25 @@ export interface FlowchartStep {
   exclude?: string[];
 }
 
+export const LINK_SETS = ['http', 'auth', 'langgraph', 'events'] as const;
+export type LinkSet = typeof LINK_SETS[number];
+export const SEQUENCE_PARTICIPANTS = ['auto', 'service', 'module', 'file', 'class'] as const;
+
+/** `sequence:` of a `kind: sequence` view (see docs/sequence-view-spec.md). */
+export interface SequenceStep {
+  start: { symbol?: string; route?: string; file?: string }; // exactly one of symbol | route (schema-checked)
+  trigger?: string;                           // first arrow from the actor (label); no actor without it
+  actor: string;                              // default "User"
+  depth: number;                              // 0-6, default 3: call levels followed
+  participants: typeof SEQUENCE_PARTICIPANTS[number]; // lifeline granularity, default auto
+  internal: 'collapse' | 'show';              // calls inside one participant: folded away or drawn as self arrows
+  returns: boolean;                           // dashed return arrows
+  links: LinkSet[];                           // builtin link sets followed (default: all)
+  externals: Record<string, string>;          // import/module prefix -> external lifeline label
+  include?: string[];                         // files whose functions may be followed (default: the view scope)
+  exclude?: string[];
+}
+
 /** `layers:` of a `kind: graph` view: stinggraph's service layers drawn as a hierarchy (see layers.ts). */
 export interface LayersStep {
   depth: number;                              // 1-4, default 1: 1 services, 2 modules, 3 files, 4 symbols
@@ -81,6 +100,7 @@ export interface ResolvedView {
   graph: GraphStep | null;
   flowchart: FlowchartStep | null;
   layers?: LayersStep | null;
+  sequence?: SequenceStep | null;
   builtins: string[];         // TypeScript extractors computed by the main process, e.g. ["sqlalchemy"]
   include: string[];          // node ids/labels always kept
   exclude: string[];          // node ids/labels always dropped (wins)
@@ -106,6 +126,7 @@ export interface GraphRelation {
   kind: string;               // CodeGraph edge kind, e.g. "calls", "imports", "extends"
   line: number | null;
   certain: boolean;           // false for heuristic resolution
+  meta?: Record<string, unknown>; // CodeGraph edge metadata, e.g. { channel: "http", method, href } of a client call to a route
 }
 /** stinggraph's service layers (CodeGraph.getLayers; its `Layers` type fits this shape). */
 export interface GraphLayers {
@@ -150,6 +171,7 @@ export interface EvaluateOutput {
   diagnostics: ViewDiagnostics;
   truncated: boolean;
   stats: Record<string, number>;
+  sequence?: SequenceData | null; // kind: sequence views only
 }
 
 export interface GraphStepOutput {

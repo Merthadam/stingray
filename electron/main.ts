@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
   handle('views', z.tuple([idSchema]), async (id: string) => views.listViews(id, (await git.workspace(id)).path));
   // ViewService shares concurrent computations of the same view.
   const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
-  handle('view', z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(4).optional() }).optional()]),
+  handle('view', z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]),
     async (id: string, viewId: string, options?: { depth?: number }) => views.computeView(id, (await git.workspace(id)).path, viewId, options));
   handle('view-state', z.tuple([idSchema, viewIdSchema]), (id: string, viewId: string) => viewState.get(id, viewId));
   handle('save-view-state', z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), (id, viewId, state) => viewState.set(id, viewId, state));

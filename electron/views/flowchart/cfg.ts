@@ -10,6 +10,7 @@ export interface Call {
   awaited: boolean;
   outer: boolean;             // not an argument of another call of the same statement
   chained: boolean;           // called on another call's result (`(await run()).trim()`): that call names the step
+  path: string;               // callee expression without whitespace, capped ("self.mail.send_reset_email", "boto3.client")
 }
 /** A try handler; `types` are the caught exception names, null when it catches everything. */
 export interface Handler { label: string; line: number; types: string[] | null; body: Construct[] }
@@ -61,7 +62,8 @@ export function collectCalls(node: Node | null, syntax: CallSyntax): Call[] {
       visit(child, inCall || (isCall && child.id !== fn?.id));
       if (fn && child.id === fn.id) chained = out.length > before;
     }
-    if (fn) out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall, chained });
+    if (fn) out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall, chained,
+      path: fn.text.replace(/\s+/g, '').slice(0, 120) });
   };
   if (node) visit(node, false);
   return out;
