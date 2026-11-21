@@ -25,7 +25,7 @@ export interface SymbolRef {
   file: string;
   line: number;
   endLine?: number;            // last line of the symbol's body (fingerprints of `explain:` entries); absent when unknown
-  qualifiedName?: string;      // CodeGraph qualified name, e.g. "services/auth/api.py::create_app.identity" (fingerprint piece keys)
+  qualifiedName?: string;      // CodeGraph qualified name, file-relative, e.g. "create_app::identity" (fingerprint piece keys)
 }
 
 /** Where a node's or group's explanation comes from: absent = the symbol's docstring; otherwise the view file's `explain:`
