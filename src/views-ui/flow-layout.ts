@@ -8,8 +8,16 @@ const CHART_SIZES: Record<string, { width: number; height: number }> = {
   start: { width: 180, height: 36 }, end: { width: 180, height: 36 }, error: { width: 180, height: 36 },
   decision: { width: 220, height: 88 }, loop: { width: 220, height: 88 },
 };
-export const flowSize = (node: DiagramNode, flowchart = false) => flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 }
-  : node.role ? { width: 88, height: 32 } : { width: 220, height: 64 };
+// Room for an explanation (docstring summary) clamped to 3 lines: in a box (wider, taller) and under a frame title.
+const EXPLAINED_WIDTH = 260, EXPLANATION_HEIGHT = 48;
+export const FRAME_EXPLANATION_HEIGHT = 52;
+/** Whether the node's card shows its explanation (never diamonds or the plain flow's tiny start/end pills). */
+export const showsExplanation = (node: DiagramNode, flowchart = false) =>
+  !!node.explanation && (flowchart ? node.kind !== 'decision' && node.kind !== 'loop' : !node.role);
+export const flowSize = (node: DiagramNode, flowchart = false) => {
+  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 } : { width: 220, height: 64 };
+  return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
+};
 const BRANCH_KINDS = new Set(['branch', 'yes', 'no', 'case', 'except']);
 export const shortEdgeLabel = (label: string) => label.length > 38 ? `${label.slice(0, 37)}…` : label;
 const options = {
@@ -17,10 +25,11 @@ const options = {
   'elk.spacing.nodeNode': '90', 'elk.layered.spacing.nodeNodeBetweenLayers': '100',
   'elk.spacing.componentComponent': '100', 'elk.padding': '[top=50,left=40,bottom=40,right=100]',
 };
+const explainedOptions = { ...options, 'elk.padding': `[top=${50 + FRAME_EXPLANATION_HEIGHT},left=40,bottom=40,right=100]` };
 
 export function flowGraph(result: ViewResult): ElkNode {
   const chart = result.kind === 'flowchart';
-  const groups = new Map(result.groups.map((g, i) => [g.id, { id: `group:${i}`, children: [] as ElkNode[], layoutOptions: options }]));
+  const groups = new Map(result.groups.map((g, i) => [g.id, { id: `group:${i}`, children: [] as ElkNode[], layoutOptions: g.explanation ? explainedOptions : options }]));
   const children: ElkNode[] = [];
   // Use internal IDs so arbitrary extractor IDs cannot collide with compound IDs or ELK ports.
   const ids = new Map(result.nodes.map((n, i) => [n.id, `node:${i}`]));
@@ -87,7 +96,8 @@ export function flowFrames(result: ViewResult, positions: Positions) {
       }),
       ...result.groups.filter(g => g.parent === id).flatMap(g => box(g.id) ?? []),
     ];
-    const b = inner.length ? { x: Math.min(...inner.map(i => i.x)) - 40, y: Math.min(...inner.map(i => i.y)) - 50,
+    const top = 50 + (result.groups.find(g => g.id === id)?.explanation ? FRAME_EXPLANATION_HEIGHT : 0);
+    const b = inner.length ? { x: Math.min(...inner.map(i => i.x)) - 40, y: Math.min(...inner.map(i => i.y)) - top,
       right: Math.max(...inner.map(i => i.right)) + 100, bottom: Math.max(...inner.map(i => i.bottom)) + 40 } : null;
     boxes.set(id, b);
     return b;

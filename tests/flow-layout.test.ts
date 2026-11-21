@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -86,4 +86,27 @@ test('flowchart layout nests expanded callees as frames inside their caller and 
   assert.ok(positions.save.x < positions.fail.x, 'Yes branch left of No');
   const [a, b] = flowFrames(chart, positions);
   assert.ok(a.x < b.x && a.y < b.y && a.x + a.width > b.x + b.width && a.y + a.height > b.y + b.height);
+});
+
+test('explained nodes and frames get room for the explanation; others keep their size', async () => {
+  const chartNode = (id: string, kind: string, group: string | null, explanation?: string): DiagramNode => ({ ...node(id, group), kind, explanation });
+  const why = 'Accept a Cognito access token and return the signed-in user.';
+  assert.deepEqual(flowSize(chartNode('c', 'call', null, why), true), { width: 260, height: 104 });
+  assert.deepEqual(flowSize(chartNode('s', 'start', null, why), true), { width: 260, height: 84 });
+  assert.deepEqual(flowSize(chartNode('d', 'decision', null, why), true), { width: 220, height: 88 }, 'diamonds never show it');
+  assert.deepEqual(flowSize(chartNode('c', 'call', null), true), { width: 220, height: 56 });
+  assert.deepEqual(flowSize({ ...node('step', null), explanation: why }), { width: 260, height: 112 });
+  assert.deepEqual(flowSize({ ...node('start', null, 'start'), explanation: why }), { width: 88, height: 32 }, 'flow pills never show it');
+  const chart = {
+    kind: 'flowchart',
+    groups: [{ id: 'call:a', label: 'a', source: null, parent: null, explanation: why }, { id: 'call:b', label: 'b', source: null, parent: null }],
+    nodes: [chartNode('start', 'start', null, why), chartNode('save', 'call', 'call:a', why), chartNode('write', 'action', 'call:b')],
+    edges: [edge('start', 'save'), edge('save', 'write')],
+  } as ViewResult;
+  const positions = await flowPositions(new ELK(), chart);
+  const [a, b] = flowFrames(chart, positions);
+  assert.equal(positions.save.y - a.y, 50 + FRAME_EXPLANATION_HEIGHT);
+  assert.equal(positions.write.y - b.y, 50);
+  assert.ok(a.y >= positions.start.y + flowSize(chart.nodes[0], true).height, 'explained frame clears the start node');
+  assert.ok(b.y >= a.y + a.height, 'frames do not overlap');
 });
