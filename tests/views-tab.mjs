@@ -21,6 +21,7 @@ const models = [
   'from sqlalchemy.orm import Mapped, mapped_column, relationship',
   'from app.db import Base',
   'class User(Base):',
+  '    """A registered account that writes posts."""',
   '    __tablename__ = "users"',
   '    id: Mapped[int] = mapped_column(primary_key=True)',
   '    email: Mapped[str] = mapped_column(String(255), unique=True)',
@@ -134,6 +135,10 @@ try {
 
   await list.getByRole('button', { name: 'Database' }).click();
   await diagram.getByText('posts', { exact: true }).first().waitFor();
+  const usersExplanation = diagram.locator('.er-card-explanation', { hasText: 'A registered account that writes posts.' });
+  await usersExplanation.waitFor({ timeout: 30000 });
+  check('a table linked to its model class shows the class docstring under the card header',
+    await usersExplanation.getAttribute('title') === 'A registered account that writes posts.' && await diagram.locator('.er-card-explanation').count() === 1);
   await put('app/models.py', models + 'class Tag(Base):\n    __tablename__ = "tags"\n    id: Mapped[int] = mapped_column(primary_key=True)\n');
   await diagram.getByText('tags', { exact: true }).first().waitFor({ timeout: 30000 });
   check('editing a model file updates the diagram live', true);
