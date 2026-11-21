@@ -10,7 +10,6 @@ import type { DbSchemaResult } from '../src/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../src/views';
 import type { Evaluate, FileProvider, GraphApi } from './views/rules/types';
 import { computeView } from './views/compute';
-import { symbolRef } from './views/explanation';
 import { formatText } from '../src/views-text';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from './views/sets';
 import { listViewFiles, loadViewPath } from './views/view-file';
@@ -135,7 +134,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
       evaluate: view => deps.evaluate({ view, files: deps.createFileProvider(root), graph: api, graphStatus: graph.status, grammarDir: deps.grammarDir() }),
       findSymbols: async queries => queries.map(q => {
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
-        return s ? symbolRef(s) : null;
+        return s ?? null;
       }),
     });
   } finally { graph.close?.(); }

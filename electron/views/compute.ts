@@ -7,12 +7,13 @@
 // to tables resolve inside the engine first, so they need `create: to|from|both` (the placeholder becomes the table) or a rule
 // node with that id.
 import type { DbSchemaResult } from '../../src/db-schema';
-import type { DiagramEdge, DiagramNode, GraphStatus, SymbolRef, ViewResult, ViewWarning } from '../../src/views';
+import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../src/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
 import { applyExplain, type ReadSource } from './explain';
 import { TS_EXTRACTORS } from './sets';
-import type { EvaluateOutput, ResolvedView } from './rules/types';
+import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
+import { explanationOf, symbolRef } from './explanation';
 import { tablesView, type ViewFileEntry } from './view-file';
 
 export const MAX_WARNINGS = 200;
@@ -21,7 +22,7 @@ export interface ComputeDeps {
   evaluate: (view: ResolvedView) => Promise<EvaluateOutput>;
   sqlalchemy?: () => Promise<DbSchemaResult>;
   sql?: () => Promise<DbSchemaResult>;
-  findSymbols: (queries: SymbolQuery[]) => Promise<(SymbolRef | null)[]>;
+  findSymbols: (queries: SymbolQuery[]) => Promise<(GraphSymbol | null)[]>;
   readSource?: ReadSource;    // worktree files, for fingerprints of `explain:` entries (unchecked without it)
   graph: GraphStatus;
   workspaceId?: string;
@@ -84,13 +85,19 @@ export function mergeTables(output: Pick<EvaluateOutput, 'nodes' | 'edges'>, tab
   return { nodes: [...nodes.values()], edges: [...edges.values()] };
 }
 
-/** Link nodes without a symbol whose subtitle names a class in their file (e.g. a table's model), in one batch. */
+/** Link nodes without a symbol whose subtitle names a class in their file (e.g. a table's model), in one batch.
+ * A node without an explanation takes the class docstring summary as its explanation. */
 export async function linkSymbols(result: ViewResult, findSymbols: ComputeDeps['findSymbols']): Promise<ViewResult> {
   const queries = result.nodes.map(n => (!n.symbol && n.source && n.subtitle ? { file: n.source.file, name: n.subtitle, kinds: ['class'] } : null));
   if (!queries.some(q => q)) return result;
   const symbols = await findSymbols(queries.filter(q => q !== null));
   let found = 0;
-  return { ...result, nodes: result.nodes.map((n, i) => (queries[i] ? { ...n, symbol: symbols[found++] ?? null } : n)) };
+  return { ...result, nodes: result.nodes.map((n, i) => {
+    if (!queries[i]) return n;
+    const s = symbols[found++];
+    if (!s) return { ...n, symbol: null };
+    return { ...n, symbol: symbolRef(s), ...(n.explanation ? {} : explanationOf(s)) };
+  }) };
 }
 
 /** Preserve extractor groups (and their edge identities) when composing the Database view. */

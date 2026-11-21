@@ -44,7 +44,7 @@ export interface DiagramNode {
   order: number | null;        // position on a timeline; null = derive from edges
   detail: string | null;       // secondary text under the label, e.g. a LangGraph step's handler
   explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
-                               // rule nodes with `symbol:`) or the view's `explain:` entry; absent/null = none, nothing is shown
+                               // rule nodes with `symbol:`, tables linked to their model class) or the view's `explain:` entry; absent/null = none, nothing is shown
   explanationStatus?: ExplanationStatus;
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
 }

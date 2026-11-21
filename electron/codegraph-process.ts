@@ -10,8 +10,8 @@ import path from 'node:path';
 import { ignoredDirs, short } from './codegraph';
 import { excludeCodeGraphCache } from './git-exclude';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
-import type { GraphState, GraphStatus, SymbolRef } from '../src/views';
-import type { EvaluateOutput, ResolvedView } from './views/rules/types';
+import type { GraphState, GraphStatus } from '../src/views';
+import type { EvaluateOutput, GraphSymbol, ResolvedView } from './views/rules/types';
 import type { SharedBaseTarget } from './codegraph-overlay';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 
@@ -19,7 +19,7 @@ type Call = { type: 'close'; workspaceId: string } | { type: 'closeAll' } | { ty
   | { type: 'evaluateView'; workspaceId: string; root: string; view: ResolvedView }
   | { type: 'conflicts'; shared: SharedBaseTarget; workspaceIds: string[] };
 export type WorkerRequest = { type: 'open'; workspaceId: string; root: string; shared?: SharedBaseTarget | null } | (Call & { id: number });
-type Reply = { type: 'reply'; id: number; result: (SymbolRef | null)[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
+type Reply = { type: 'reply'; id: number; result: (GraphSymbol | null)[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
 export type WorkerEvent =
   | { type: 'status'; workspaceId: string; status: GraphStatus }
   | { type: 'change'; workspaceId: string; files: string[] }
@@ -89,7 +89,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
     async findSymbols(queries: SymbolQuery[]) {
       const ready = this.active && (this.current.state === 'ready' || this.current.state === 'read-only');
       const result = ready && queries.length ? await request({ type: 'findSymbols', workspaceId: this.workspaceId, queries }) : null;
-      return Array.isArray(result) && result.length === queries.length ? result as (SymbolRef | null)[] : queries.map(() => null);
+      return Array.isArray(result) && result.length === queries.length ? result as (GraphSymbol | null)[] : queries.map(() => null);
     }
     async evaluateView(view: ResolvedView) {
       const reply = await call({ type: 'evaluateView', workspaceId: this.workspaceId, root: this.root, view }, evaluateTimeoutMs);

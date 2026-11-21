@@ -5,8 +5,8 @@ import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
-import type { GraphState, GraphStatus, SymbolRef } from '../src/views';
-import type { Evaluate, GraphApi, ResolvedView } from './views/rules/types';
+import type { GraphState, GraphStatus } from '../src/views';
+import type { Evaluate, GraphApi, GraphSymbol, ResolvedView } from './views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './codegraph-process';
 import { evaluate } from './views/rules/engine';
 import { codegraphGrammarDir } from './views/rules/grammars';
@@ -63,7 +63,7 @@ class Graph implements WorktreeGraph {
   status() { return this.current; }
   onChange(listener: (change: GraphChange) => void) { this.changeListeners.add(listener); return () => { this.changeListeners.delete(listener); }; }
   onStatus(listener: (status: GraphStatus) => void) { this.statusListeners.add(listener); return () => { this.statusListeners.delete(listener); }; }
-  async findSymbols(queries: SymbolQuery[]): Promise<(SymbolRef | null)[]> {
+  async findSymbols(queries: SymbolQuery[]): Promise<(GraphSymbol | null)[]> {
     const { cg, overlay } = this, ready = this.current.state === 'ready' || this.current.state === 'read-only';
     const nodesIn = overlay ? (file: string) => overlay.getNodes({ filePath: file }) : cg ? (file: string) => cg.getNodesInFile(file) : null;
     const files = new Map<string, ReturnType<CodeGraph['getNodesInFile']>>();
@@ -72,7 +72,7 @@ class Graph implements WorktreeGraph {
       try {
         const nodes = files.get(file) ?? files.set(file, nodesIn(posix(file))).get(file)!;
         const node = nodes.find(n => n.name === name && (!kinds?.length || kinds.includes(n.kind)));
-        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine } : null;
+        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine, ...(node.docstring ? { docstring: node.docstring } : {}) } : null;
       } catch { return null; }
     });
   }

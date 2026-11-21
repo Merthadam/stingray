@@ -1,8 +1,9 @@
-// React Flow node for one table card: header, field rows with one source/target handle each, "+N more" toggle.
+// React Flow node for one table card: header, explanation band (when explained), field rows with one source/target handle each, "+N more" toggle.
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import type { DiagramNode } from '../views';
 import { cardRows } from './er-layout';
+import { StaleMark, explanationTitle } from './FlowNode';
 
 export interface TableNodeData extends Record<string, unknown> {
   node: DiagramNode;
@@ -29,6 +30,7 @@ export const TableNode = memo(function TableNode({ data }: NodeProps<TableFlowNo
       <strong>{node.label}</strong>
       {node.subtitle && <span>{node.subtitle}</span>}
     </div>
+    {node.explanation && <div className="er-card-explanation" title={explanationTitle(node.explanation, node.explanationStatus)}><span><StaleMark status={node.explanationStatus} />{node.explanation}</span></div>}
     {rows.map(f => <div key={f.id} className={`er-row${f.id === activeField ? ' active' : ''}`} title={f.detail ?? undefined}
       onClick={() => onField(node.id, f.id)}>
       <Handles id={`f:${f.id}`} />

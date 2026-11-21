@@ -180,7 +180,8 @@ flowchart:
 - Explanations: groups, `call` nodes and the start node (and `graph` step nodes and rule nodes linked with `symbol:`)
   carry `explanation` = the first paragraph of the function's docstring/JSDoc, when it has one. The text diagram
   appends it as ` — <explanation>` (e.g. `» identity — Accept a Cognito access token …`); `--json` has the field on
-  nodes and groups. Writing a one-line intent docstring is how to explain a step.
+  nodes and groups. Writing a one-line intent docstring is how to explain a step. Tables linked to their model class
+  get the class docstring summary the same way (shown under the table card header).
 - `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
   decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
   `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.

@@ -1,7 +1,7 @@
 // Contract between the view engine and the code-graph host (CodeGraph in a child process, see codegraph-process.ts).
 // The engine only depends on these interfaces, so it can be tested with a fake graph.
-import type { GraphStatus, SymbolRef } from '../../src/views';
-import type { EvaluateOutput, ResolvedView } from './rules/types';
+import type { GraphStatus } from '../../src/views';
+import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 
 export interface GraphChange {
   /** Worktree-relative POSIX paths whose content changed (added, modified or deleted) since the last event. */
@@ -19,7 +19,7 @@ export interface WorktreeGraph {
   /** Fires whenever status() changes, e.g. indexing -> ready. */
   onStatus(listener: (status: GraphStatus) => void): () => void;
   /** Look up symbols by exact name, one per query, in its file; null when not found or the graph is not ready. Never rejects. */
-  findSymbols(queries: SymbolQuery[]): Promise<(SymbolRef | null)[]>;
+  findSymbols(queries: SymbolQuery[]): Promise<(GraphSymbol | null)[]>;
   /** Run the rule engine on the worktree, with the code graph when it is ready (else without). Rejects on engine errors. */
   evaluateView(view: ResolvedView): Promise<EvaluateOutput>;
 }
