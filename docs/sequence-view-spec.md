@@ -76,13 +76,14 @@ The walker follows `calls` edges of the code graph, plus these hops (each can be
 | set | hop | source |
 | --- | --- | --- |
 | `http` | client call → route → handler | stinggraph: `calls` edge to a `route` node, `metadata.channel = "http"`, `method`, `href`; route `references` handler |
-| `auth` | handler → its auth dependencies before the body | FastAPI `Depends(...)`/`Security(...)` in parameters and decorators' `dependencies=[...]`; Python decorators (`@login_required`, `@requires_auth`, …: any decorator resolving to a repo function); Express/Next middleware passed before the handler (`app.get(path, auth, handler)`) |
-| `langgraph` | `graph.invoke/ainvoke/stream(...)` → the compiled graph's nodes in edge order | the `langgraph` builtin set's steps/edges; conditional edges → `alt` |
-| `events` | `emit/publish/send_task/delay(...)` → subscribers/handlers with the same event/topic/task name | tree-sitter (literal names only) |
+| `auth` | handler → its auth dependencies before the body | FastAPI `Depends(...)`/`Security(...)` in parameters (also `Annotated[…]` and type aliases of it), the route decorator's and the router's (`APIRouter(dependencies=[...])`) `dependencies=[...]`; Python decorators (`@login_required`, `@requires_auth`, …: any decorator resolving to a repo function); Express middleware passed before the handler (`app.get(path, auth, handler)`) and earlier `router.use(auth)` of the same router; top-level wrappers (`export default withAuth(handler)`). Same file as the handler; dependencies of dependencies follow (depth) |
+| `langgraph` | `graph.invoke/ainvoke/stream/astream(...)` → the compiled graph's nodes in edge order (label = node name) | the `langgraph` builtin set's steps/edges; the receiver is the target of `x = flow.compile()` (same file or imported), a function returning `flow.compile()`, else the only StateGraph in scope (uncertain); conditional edges → `alt` (arm = path-map key, else the router's condition); END stops; a node already on the path is drawn once as `name (loop)`; node objects run their `__call__` |
+| `events` | `emit/publish/send/send_task/enqueue('name')` → handlers registered for that name; `task.delay/apply_async(...)` / `queue.enqueue(fn)` → the task | text patterns over the followable files, literal names only: `on/once/subscribe('name', handler)`, `@x.on('name')`, `@app.task(name='name')`, `@app.task`/`@shared_task` functions (by function name); uncertain. Calls that resolve into the repo stay calls |
 
 **Link rules**: `rules:` in a sequence view may emit `edge: { from, to, kind: link, label? }` where `from`/`to` are
-symbol names (or `name@file`). When the walker reaches a function named `from` (or a call in it), it continues at `to`
-as a `link` message. Lets a repo teach the view its own dispatchers (RPC, Celery, DI containers) in a few lines.
+symbol names (or `name@file`). When the walker enters a function named `from`, it continues at `to` as a `link` message
+before the body; a call to `from` that does not resolve into the repo (a library dispatcher) is drawn as the hop to `to`.
+`SequenceMessage.link` is `rule:<id>`. Link rules apply regardless of `links:`. Lets a repo teach the view its own dispatchers (RPC, Celery, DI containers) in a few lines.
 
 ## Output
 
