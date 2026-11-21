@@ -19,6 +19,7 @@ function's own body and is a single opaque hash.
 | A4 | Fingerprints written before this change | A plain-string fingerprint is the **old format**. It gets a "old fingerprint format — run --restamp" warning, not "may be outdated". The map shape itself identifies the new format; no `v2:` prefix. |
 | B | Staleness for docstrings | **None.** Docstring explanations stay unchecked (they live next to the code and are reviewed with it). |
 | C | Strictness | Warnings by default. New **`stingray-views check --strict`** exits non-zero when any `explain:` entry is stale, unstamped or in the old format. |
+| C2 | `--strict` without a code index | **Passes** what it can't check (map stamps are applied unchecked); it still fails on legacy and unstamped entries. Documented in the skill. |
 | D | Plans (`expect:`, `status: planned`) | **Out of scope.** `explain:` only describes code that exists. |
 
 ## View file
