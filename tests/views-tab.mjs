@@ -52,6 +52,8 @@ await put('app/service.py', 'from app.repo import fetch_account, touch_login\n\n
 await put('app/repo.py', 'def fetch_account(email):\n    return {"email": email}\n\n\ndef touch_login(account):\n    return account\n');
 await put('.stingray/views/sign-in.yaml', 'version: 1\nname: Sign in sequence\nkind: sequence\nsequence:\n  start: { symbol: sign_in_route }\n  trigger: POST /sign-in\n  participants: file\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
+await put('infra/main.tf', 'resource "aws_s3_bucket" "uploads" {}\nresource "aws_lambda_function" "api" {\n  environment { variables = { BUCKET = aws_s3_bucket.uploads.id } }\n}\n');
+await put('.stingray/views/infra.yaml', 'version: 1\nname: Infrastructure\nkind: graph\nuse: [terraform]\nscope:\n  include: ["infra/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
 
@@ -160,6 +162,18 @@ try {
   await page.getByRole('button', { name: 'Show as diagram' }).click();
   await calls.getByRole('group', { name: 'Step load' }).waitFor({ timeout: 60000 });
   check('and back to the diagram', await page.getByRole('button', { name: 'Show as text' }).isVisible());
+
+  // Terraform resources drawn as their cloud service: official icon, resource name, service name, in an AWS group box.
+  await list.getByRole('button', { name: 'Infrastructure' }).click();
+  const infra = page.getByTestId('flow-diagram');
+  const lambda = infra.getByRole('group', { name: 'AWS Lambda aws_lambda_function.api' });
+  await lambda.waitFor();
+  check('terraform view draws resources as service icons in an AWS cloud frame', (await lambda.innerText()).replace(/\s+/g, ' ').trim() === 'api AWS Lambda'
+    && await infra.locator('.flow-infra-icon').evaluateAll(imgs => imgs.length === 2 && imgs.every(i => i.complete && i.naturalWidth > 0))
+    && await infra.locator('.flow-frame.cloud.aws .flow-frame-cloud-icon').count() === 1);
+  await lambda.click();
+  check('the inspector explains the service and links its docs', (await page.getByRole('region', { name: 'Service AWS Lambda' }).innerText()).includes('Runs your code')
+    && await page.getByRole('button', { name: 'Open AWS Lambda documentation' }).isVisible());
 
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();

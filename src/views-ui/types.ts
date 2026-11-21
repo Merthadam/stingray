@@ -12,6 +12,8 @@ export interface ErDiagramProps {
   onStateChange(state: ViewLocalState): void;
   /** Open a worktree file at a line (the shell routes it to api.openSource). */
   onOpenSource(file: string, line: number | null): void;
+  /** Open a cloud service's documentation (InfraService.id) in the browser; absent: no Docs link. */
+  onOpenServiceDocs?(serviceId: string): void;
   /** User clicked "Save as view…" with the current hidden nodes and positions; the shell shows the dialog. Absent: the
    * button is disabled (a flowchart shown at an overridden depth). */
   onSaveAs?(state: ViewLocalState): void;

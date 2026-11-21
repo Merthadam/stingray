@@ -24,7 +24,19 @@ npm ci && npm run setup     # deps + Electron binary / PTY helper
 npm run env:up                                       # = scripts/test-env.sh up --detach (working tree incl. uncommitted changes)
 scripts/test-env.sh up --detach --ref origin/main    # a specific ref, e.g. to compare with main
 scripts/test-env.sh up --detach --repo /path/to/repo # also clone that repo into the env as a project
+scripts/test-env.sh up --detach --with-my-data       # start from a snapshot of your own projects + settings
 ```
+
+`--with-my-data` (opt-in) snapshots `~/Library/Application Support/Stingray/stingray.db` (or `$STINGRAY_DATA_DIR`)
+with `sqlite3 .backup`, copies it into the container (never mounted; the host copy is deleted after `docker cp`), and
+mounts each registered repo read-only. Inside, every repo becomes a clone of its current branch at
+`/home/node/repos/<name>`, keeping its main checkout workspace, view state and settings. Worktrees, preview URLs,
+uncommitted changes and repos outside Colima's mounts (by default `$HOME`) are not copied.
+
+Containers carry `stingray.test-env=1`, `stingray.workspace=<realpath of the checkout>` and `stingray.cdp=9223`
+labels, so the host Stingray's ports chip shows the env under that worktree with **Inspect** (copies
+`127.0.0.1:<port>` and opens `chrome://inspect`), **Logs** and **Stop**. Discovery checks the current Docker
+context, `DOCKER_HOST` and every `~/.colima/<profile>/docker.sock`.
 
 The script starts Colima if needed, builds the image (deps layer is cached), runs Electron under Xvfb
 and prints the CDP endpoint (`http://127.0.0.1:9222`, or the next free port). A `sample` fixture repo

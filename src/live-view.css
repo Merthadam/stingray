@@ -1,0 +1,8 @@
+.live-view{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.live-view-bar{display:flex;align-items:center;gap:10px;height:40px;min-height:40px;padding:0 8px 0 14px;border-bottom:1px solid var(--border);background:#171311;font-size:11px;color:var(--muted)}
+.live-view-status{display:flex;align-items:center;gap:6px;font-weight:550}.live-view-status.live{color:var(--green)}.live-view-status.disconnected{color:#efb4a9}
+.live-view-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px ui-monospace,monospace}
+.live-view-bar .secondary{min-height:27px;padding:4px 10px}
+.live-view-surface{flex:1;min-height:0;display:flex;background:#0d0b0a;outline:none;cursor:default}
+.live-view-surface:focus{box-shadow:inset 0 0 0 2px var(--accent)}
+.live-view-surface img{width:100%;height:100%;object-fit:contain;user-select:none}

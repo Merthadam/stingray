@@ -119,6 +119,10 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     } catch (e) { setActionError((e as Error).message); }
   }, [ws, onOpenInMap]);
 
+  const onOpenServiceDocs = useCallback((serviceId: string) => {
+    api.openServiceDocs(serviceId).catch(e => setActionError((e as Error).message));
+  }, []);
+
   const toggleCollapsed = () => setCollapsed(v => { write(COLLAPSED_KEY, v ? '0' : '1'); return !v; });
   const result = view?.id === current ? view?.result ?? null : null;
   const loading = !!view?.loading;
@@ -174,7 +178,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
           <Diagram key={`${ws}:${current}:${computedDepth(result) ?? ''}`} result={result}
             initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}
-            onOpenSource={onOpenSource} onSaveAs={depths[current!] === undefined ? setSaveAs : undefined} toolbarExtra={tools} /></div>
+            onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} onSaveAs={depths[current!] === undefined ? setSaveAs : undefined} toolbarExtra={tools} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}
     </div>
     {diagnostics && <DiagnosticsDrawer result={result} onOpenSource={onOpenSource} onClose={() => setDiagnostics(false)} />}

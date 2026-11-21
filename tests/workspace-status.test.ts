@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { ContainerService, inspectFormat, parseContainers } from '../electron/containers';
-import { belongsToWorkspace, summarizeChanges } from '../src/workspace-status';
+import { belongsToWorkspace, summarizeChanges, workspacePorts } from '../src/workspace-status';
+import type { Workspace } from '../src/shared';
 
 const id = 'a'.repeat(64);
 const fixture = (overrides = {}) => JSON.stringify({ id, name: '/web', image: 'node:24', state: 'running', health: 'healthy', workingDir: '/projects/app', mounts: [{ Type: 'bind', Source: '/projects/app/src' }], ports: { '3000/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }, { HostIp: '::', HostPort: '8080' }] }, ...overrides });
@@ -44,12 +48,13 @@ test('Docker service pins local endpoint, requests only safe fields, deduplicate
   assert.ok(!inspectFormat.includes('.Config.Env'));
   assert.ok(!inspectFormat.includes('{{json .}}'));
 });
-test('Docker service refuses remote contexts and honors context precedence over DOCKER_HOST', async () => {
+test('Docker service skips remote contexts but still checks a local DOCKER_HOST', async () => {
   const calls: string[][] = [];
-  const service = new ContainerService(async args => { calls.push(args); return 'ssh://remote'; }, { DOCKER_CONTEXT: 'remote', DOCKER_HOST: 'unix:///local.sock' });
-  await assert.rejects(service.list(), /local Docker context/);
-  assert.equal(calls.length, 1);
+  const service = new ContainerService(async args => { calls.push(args); return args[0] === 'context' ? 'ssh://remote' : ''; }, { DOCKER_CONTEXT: 'remote', DOCKER_HOST: 'unix:///local.sock' });
+  assert.deepEqual(await service.list(), []);
   assert.deepEqual(calls[0].slice(0, 3), ['context', 'inspect', 'remote']);
+  assert.deepEqual(calls.slice(1).map(c => c.slice(0, 2)), [['--host', 'unix:///local.sock']]);
+  await assert.rejects(new ContainerService(async () => 'ssh://remote', { DOCKER_CONTEXT: 'remote' }).list(), /local Docker context/);
   await assert.rejects(new ContainerService(async () => { throw Error('must not execute'); }, { DOCKER_HOST: 'tcp://remote:2375' }).list(), /local Docker context/);
 });
 test('empty Docker list succeeds without inspect; failed reads recover and invalid IDs are refused', async () => {
@@ -62,4 +67,64 @@ test('empty Docker list succeeds without inspect; failed reads recover and inval
   assert.deepEqual(await service.list(), []);
   const invalid = new ContainerService(async () => '--unsafe', { DOCKER_HOST: 'unix:///local.sock' });
   await assert.rejects(invalid.list(), /unsupported container list/);
+});
+test('test-env labels map a container to its workspace and mark the DevTools port', () => {
+  const [c] = parseContainers(fixture({ name: '/stingray-test-wt-1a07f99-ab12', workingDir: null, mounts: [], workspace: '/projects/app', cdp: '9223', testEnv: '1',
+    ports: { '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: '9230' }], '3000/tcp': [{ HostIp: '127.0.0.1', HostPort: '3000' }] } }));
+  assert.equal(c.testEnv, true);
+  assert.deepEqual(c.paths, ['/projects/app']);
+  assert.deepEqual(c.ports.map(p => [p.port, p.cdp]), [[9230, true], [3000, undefined]]);
+  assert.deepEqual(workspacePorts({ id: 'w', path: '/projects/app' } as Workspace, [], [c]).map(p => [p.port, p.cdp, p.testEnv, p.containerId]),
+    [[3000, undefined, true, id], [9230, true, true, id]]);
+  // The labels alone (settable by any image) are not enough: name or image must come from scripts/test-env.sh.
+  const labelOnly = { cdp: '9223', testEnv: '1', ports: { '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: '9230' }] } };
+  const [spoofed] = parseContainers(fixture(labelOnly));
+  assert.equal(spoofed.testEnv, false);
+  assert.equal(spoofed.ports[0].cdp, undefined);
+  assert.equal(parseContainers(fixture({ ...labelOnly, image: 'stingray-test-env:wt-1a07f99' }))[0].testEnv, true);
+  const [plain] = parseContainers(fixture({ workspace: 'relative/path', testEnv: '' }));
+  assert.equal(plain.testEnv, false);
+  assert.ok(!plain.paths.includes('relative/path'));
+  assert.ok(inspectFormat.includes('"stingray.workspace"') && inspectFormat.includes('"stingray.cdp"') && inspectFormat.includes('"stingray.test-env"'));
+});
+test('Docker discovery checks the active context and every Colima socket, deduplicating sockets and containers', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'stingray-colima-'));
+  for (const profile of ['default', 'work', '_lima']) { await mkdir(path.join(home, '.colima', profile), { recursive: true }); await writeFile(path.join(home, '.colima', profile, 'docker.sock'), ''); }
+  await symlink(path.join(home, '.colima', 'default', 'docker.sock'), path.join(home, '.colima', 'docker.sock'));
+  await mkdir(path.join(home, '.colima', 'stopped'));
+  const work = 'b'.repeat(64), hosts: string[] = [];
+  const service = new ContainerService(async args => {
+    if (args[0] === 'context') return 'unix:///context.sock\n';
+    if (args.includes('ls')) { hosts.push(args[1]); return args[1].endsWith('work/docker.sock') ? `${id}\n${work}\n` : id + '\n'; }
+    return args.slice(args.indexOf(inspectFormat) + 1).map(i => fixture({ id: i, name: '/' + i.slice(0, 3) })).join('\n');
+  }, { HOME: home });
+  const list = await service.list();
+  assert.deepEqual(hosts.sort(), ['unix:///context.sock', `unix://${home}/.colima/docker.sock`, `unix://${home}/.colima/work/docker.sock`].sort());
+  assert.deepEqual(list.map(c => c.id), [id, work]);
+});
+test('a failing endpoint does not hide containers from a healthy one; all failing is an error', async () => {
+  const run = (healthy: boolean) => async (args: string[]) => {
+    if (args[0] === 'context') return 'unix:///broken.sock';
+    if (args[1] === 'unix:///broken.sock' || !healthy) throw new Error('Docker is unavailable.');
+    return args.includes('ls') ? id + '\n' : fixture();
+  };
+  assert.equal((await new ContainerService(run(true), { DOCKER_HOST: 'unix:///ok.sock', DOCKER_CONTEXT: 'x' }).list()).length, 1);
+  await assert.rejects(new ContainerService(run(false), { DOCKER_HOST: 'unix:///ok.sock', DOCKER_CONTEXT: 'x' }).list(), /unavailable/);
+});
+test('stop and logs act only on running test-env containers, pinned to their endpoint', async () => {
+  const other = 'c'.repeat(64), calls: string[][] = [];
+  const service = new ContainerService(async (args, options) => {
+    calls.push(args);
+    if (args.includes('ls')) return `${id}\n${other}\n`;
+    if (args.includes('inspect')) return [fixture({ testEnv: '1', name: '/stingray-test-wt-1-abcd' }), fixture({ id: other, testEnv: '1' })].join('\n');
+    if (args.includes('logs')) { assert.equal(options?.stderr, true); return '2026-01-01T00:00:00.5Z out late\n2026-01-01T00:00:00.25Z out early\n2026-01-01T00:00:00.3Z err middle\n'; }
+    return '';
+  }, { DOCKER_HOST: 'unix:///local.sock' });
+  assert.equal(await service.logs(id), '2026-01-01T00:00:00.25Z out early\n2026-01-01T00:00:00.3Z err middle\n2026-01-01T00:00:00.5Z out late');
+  await service.stop(id);
+  const stop = calls.find(c => c.includes('stop'))!;
+  assert.deepEqual(stop, ['--host', 'unix:///local.sock', 'container', 'stop', '--time', '5', id]);
+  await assert.rejects(service.stop(other), /test environments/);
+  await assert.rejects(service.logs('d'.repeat(64)), /test environments/);
+  assert.equal(calls.filter(c => c.includes('stop')).length, 1);
 });

@@ -26,7 +26,7 @@ const dockerPort = unrelatedPort;
 const rows = [{ id: 'a'.repeat(64), name: '/fixture-web', image: 'node:24', state: 'running', health: 'healthy', workingDir: repo, mounts: [], ports: { '3000/tcp': [{ HostIp: '0.0.0.0', HostPort: String(dockerPort) }] } }];
 await writeFile(fixturePath, JSON.stringify({ delay: 1200, rows: [] }));
 const docker = path.join(bin, 'docker');
-await writeFile(docker, `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); const value = JSON.parse(fs.readFileSync(${JSON.stringify(fixturePath)}, 'utf8')); setTimeout(() => { if(value.error) process.exit(1); const rows=value.rows; if (args[0] === 'context') console.log('unix:///fixture/docker.sock'); else if (args.includes('ls')) console.log(rows.map(r => r.id).join('\\n')); else if (args.includes('inspect')) console.log(rows.map(r => JSON.stringify(r)).join('\\n')); else process.exit(2); }, value.delay||0);\n`);
+await writeFile(docker, `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); const value = JSON.parse(fs.readFileSync(${JSON.stringify(fixturePath)}, 'utf8')); setTimeout(() => { if(value.error) process.exit(1); const rows=value.rows; if (args[0] === 'context') console.log('unix:///fixture/docker.sock'); else if (args.includes('ls')) console.log(rows.map(r => r.id).join('\\n')); else if (args.includes('logs')) { console.log('2026-01-01T00:00:00.1Z fixture stdout line'); console.error('2026-01-01T00:00:00.2Z fixture stderr line'); } else if (args.includes('stop')) fs.writeFileSync(${JSON.stringify(fixturePath)}, JSON.stringify({ rows: rows.filter(r => r.id !== args.at(-1)) })); else if (args.includes('inspect')) console.log(rows.map(r => JSON.stringify(r)).join('\\n')); else process.exit(2); }, value.delay||0);\n`);
 await chmod(docker, 0o755);
 const serverScript = path.join(root, 'server.cjs');
 await writeFile(serverScript, `const http=require('node:http'),fs=require('node:fs'); const server=http.createServer((req,res)=>{const respond=()=>{res.setHeader('Content-Type','text/html');res.end('<h1>Real PTY server '+process.argv[3]+'</h1>');}; if(req.url==='/slow')setTimeout(respond,10000);else respond();});server.listen(0,'127.0.0.1',()=>{fs.writeFileSync(process.argv[2],String(server.address().port));console.log('LISTENING '+server.address().port);});`);
@@ -61,7 +61,7 @@ async function startServer(workspaceId, label) {
   throw new Error('PTY server did not start');
 }
 async function waitPreview(expected) {
-  await page.waitForFunction(expected => { try { return document.querySelector('webview')?.getURL() === expected && !document.querySelector('.preview-loading'); } catch { return false; } }, expected);
+  await page.waitForFunction(expected => { try { return document.querySelector('.browser-pane:not([hidden]) webview')?.getURL() === expected && !document.querySelector('.browser-pane:not([hidden]) .preview-loading'); } catch { return false; } }, expected);
 }
 try {
   app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
@@ -80,9 +80,11 @@ try {
   await page.getByRole('button', { name: 'main: 0 lines added, 0 lines deleted', exact: true }).waitFor();
   check('Git details and ports live in compact sidebar cards; large cards are removed', await page.locator('.workspace-overview,.container-card').count() === 0);
   await writeFile(path.join(repo, 'README.md'), '# Edited\n'); await writeFile(path.join(repo,'new.txt'),'new');
+  // Unstaged edits don't touch .git: they appear on focus (or the one-minute fallback poll); commits/staging update via the .git watcher.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   const gitChip = page.getByRole('button',{name:'main: 1 lines added, 1 lines deleted',exact:true});
   await gitChip.waitFor();
-  check('Git line counts refresh automatically with honest exclusions in the tooltip', (await gitChip.getAttribute('title')).includes('Excludes untracked'));
+  check('Git line counts refresh on focus with honest exclusions in the tooltip', (await gitChip.getAttribute('title')).includes('Excludes untracked'));
   await gitChip.click(); await page.getByRole('button',{name:'New file new.txt',exact:true}).waitFor(); check('Git line counts open Repo Map including untracked files');
   const state = await page.evaluate(() => window.stingray.state());
   const main = state.workspaces[0];
@@ -102,7 +104,7 @@ try {
   await popover.getByRole('button',{name:new RegExp(':'+second.port)}).click();
   await waitPreview(`http://127.0.0.1:${second.port}/`);
   check('opening a background workspace port selects its workspace and loads the real preview', await page.locator('.workspace-link.selected').innerText() === 'other');
-  await page.getByLabel('Preview URL').fill(`http://127.0.0.1:${second.port}/slow`);
+  await page.locator('.browser-pane:not([hidden])').getByLabel('Preview URL').fill(`http://127.0.0.1:${second.port}/slow`);
   await page.getByRole('button',{name:'Load preview',exact:true}).click();
   await page.getByText('Loading preview…',{exact:true}).waitFor();
   await page.getByText('Still waiting for the server… Check its terminal output.',{exact:true}).waitFor();
@@ -139,7 +141,7 @@ try {
   check('compact layout has no horizontal overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.screenshot({path:path.join(evidence,'ports-compact.png')});
   await popover.getByRole('button',{name:new RegExp(':'+first.port)}).click();
-  check('compact quick-open reveals the preview',await page.evaluate(()=>{const p=document.querySelector('.browser-pane').getBoundingClientRect(),c=document.querySelector('.workspace-content').getBoundingClientRect();return p.top<c.bottom&&p.bottom>c.top;}));
+  check('compact quick-open reveals the preview',await page.evaluate(()=>{const p=document.querySelector('.browser-pane:not([hidden])').getBoundingClientRect(),c=document.querySelector('.workspace-content').getBoundingClientRect();return p.top<c.bottom&&p.bottom>c.top;}));
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1440,940));
   await writeFile(fixturePath, JSON.stringify({error:true, rows:[]}));
   popover=await openDetails('main');
@@ -150,6 +152,22 @@ try {
   await popover.getByRole('button',{name:'Retry discovery',exact:true}).click();
   await popover.getByText(/Docker discovery:/).waitFor({state:'hidden'});
   check('discovery retry recovers without restarting the app');
+  // A scripts/test-env.sh container: mapped by its stingray.workspace label alone (no Compose dir or bind mount).
+  const testEnv = { id: 'e'.repeat(64), name: '/stingray-test-fixture', image: 'stingray-test-env:fixture', state: 'running', health: '', workingDir: '', mounts: [], workspace: repo, cdp: '9223', testEnv: '1', ports: { '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: String(dockerPort) }] } };
+  await writeFile(fixturePath, JSON.stringify({ rows: [testEnv] }));
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'main: 2 active ports',exact:true}).waitFor();
+  popover = await openDetails('main');
+  check('labelled test env joins its workspace with DevTools actions', (await popover.innerText()).includes('Test env · DevTools') && await popover.getByRole('button',{name:`Inspect port ${dockerPort} in Chrome`,exact:true}).isVisible());
+  await popover.getByRole('button',{name:'Logs of stingray-test-fixture',exact:true}).click();
+  const logs = page.getByRole('dialog',{name:'Logs · stingray-test-fixture',exact:true});
+  await logs.waitFor();
+  check('test env logs merge stdout and stderr in time order', (await logs.locator('pre').innerText()) === '2026-01-01T00:00:00.1Z fixture stdout line\n2026-01-01T00:00:00.2Z fixture stderr line');
+  await logs.getByRole('button',{name:'Close dialog',exact:true}).click();
+  popover = await openDetails('main');
+  await popover.getByRole('button',{name:'Stop stingray-test-fixture',exact:true}).click();
+  await page.getByRole('button',{name:'main: 1 active port',exact:true}).waitFor();
+  check('stopping a test env removes its port from the workspace');
   await page.keyboard.press('Escape');
   await openDetails('main');
   await page.evaluate(id=>window.stingray.writeTerminal(id,'\u0003'),first.info.id);

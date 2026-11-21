@@ -14,6 +14,7 @@ import { applyExplain, type ReadSource } from './explain';
 import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 import { explanationOf, symbolRef } from './explanation';
+import { withInfraServices } from './infra';
 import { tablesView, type ViewFileEntry } from './view-file';
 
 export const MAX_WARNINGS = 200;
@@ -48,11 +49,11 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   const schema = schemas.length ? combineSchemas(schemas) : null;
   const tables = schema ? tablesView(databaseView(schema, deps.graph), summary, view) : null;
   const merged = tables ? mergeTables(output, tables) : { nodes: output.nodes, edges: output.edges };
+  const infra = withInfraServices(view, merged.nodes, [...new Map([...output.groups, ...tables?.groups ?? []].map(g => [g.id, g])).values()]);
   const warnings: ViewWarning[] = [...output.warnings, ...tables?.warnings ?? []];
   const result: ViewResult = {
     ...summary, workspaceId: deps.workspaceId ?? '', computedAt: evaluated || !tables ? Date.now() : tables.computedAt, truncated: output.truncated || !!tables?.truncated,
-    groups: [...new Map([...output.groups, ...tables?.groups ?? []].map(g => [g.id, g])).values()],
-    nodes: merged.nodes, edges: merged.edges,
+    groups: infra.groups, nodes: infra.nodes, edges: merged.edges,
     warnings: warnings.slice(0, MAX_WARNINGS),
     stats: { ...tables?.stats, ...output.stats, nodes: merged.nodes.length, edges: merged.edges.length,
       ...(warnings.length > MAX_WARNINGS ? { warningsDropped: warnings.length - MAX_WARNINGS } : {}) },
