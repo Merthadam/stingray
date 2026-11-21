@@ -24,10 +24,11 @@ async function fixture(options: { visible?: () => boolean; prPollMs?: number } =
   const state = await service.openRepository(repo);
   const resolves: { cwd: string; branch: string; remote: string | null; refresh: boolean }[] = [];
   const events: WorkspaceGitState[] = [];
+  let checkedAt = 0;
   const gitState = new GitStateService(service, {
     resolve: async (cwd, branch, remote, refresh = false): Promise<PullRequestStatus> => {
       resolves.push({ cwd, branch, remote, refresh });
-      return { kind: 'none', branch, repository: 'owner/app', checkedAt: 1 };
+      return { kind: 'none', branch, repository: 'owner/app', checkedAt: ++checkedAt };
     },
   }, event => events.push(event), options.visible, { debounceMs: 20, prPollMs: options.prPollMs ?? 60000 });
   service.onStatus = (id, status) => gitState.observe(id, status);
@@ -98,9 +99,10 @@ test('linked worktree changes refresh only that workspace; PR poll runs only whi
     f.resolves.length = 0;
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(f.resolves.length, 0, 'hidden window: no PR polling');
-    visible = true;
-    await waitFor(() => new Set(f.resolves.map(r => r.cwd)).size === 2);
+    f.events.length = 0; visible = true;
+    await waitFor(() => new Set(f.resolves.map(r => r.cwd)).size === 2 && f.resolves.length >= 6);
     assert.ok(f.resolves.every(r => !r.refresh));
+    assert.equal(f.events.length, 0, 'unchanged PR state (only checkedAt moved) is not re-emitted');
     visible = false; await new Promise(resolve => setTimeout(resolve, 100)); f.resolves.length = 0;
     f.gitState.listChanged(); // another workspace's re-query changed the repository list
     assert.deepEqual(f.resolves.map(r => r.cwd).sort(), [f.repo, other.path].sort());

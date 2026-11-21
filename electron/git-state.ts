@@ -170,7 +170,9 @@ export class GitStateService {
 
   private apply(id: string, next: Pick<WorkspaceGitState, 'status' | 'error' | 'pr'>) {
     const previous = this.states.get(id);
-    if (previous && JSON.stringify([previous.status, previous.error, previous.pr]) === JSON.stringify([next.status, next.error, next.pr])) return previous;
+    // A 304 only moves checkedAt: not a change worth a renderer update.
+    const key = (value: typeof next) => JSON.stringify([value.status, value.error, value.pr && { ...value.pr, checkedAt: 0 }]);
+    if (previous && key(previous) === key(next)) return previous;
     const state: WorkspaceGitState = { workspaceId: id, revision: ++this.revision, ...next };
     if (!this.tracked.has(id)) return state;
     this.states.set(id, state);
