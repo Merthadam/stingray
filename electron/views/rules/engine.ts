@@ -8,7 +8,7 @@ import type {
 } from '../../../src/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
 import { LangGraphRouters } from '../sets/langgraph-routers';
-import { explanationOf } from '../explanation';
+import { explanationOf, symbolRef } from '../explanation';
 import { runGraphStep } from './graph-steps';
 import { runFlowchart } from '../flowchart';
 import { runLayers } from './layers';
@@ -356,7 +356,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         if (n.symbol || !n.symbolName) continue;
         const local = n.source ? g.findSymbols(n.symbolName, n.source.file) : [];
         const found = local[0] ?? (() => { const all = g.findSymbols(n.symbolName!); return all.length === 1 ? all[0] : undefined; })();
-        if (found) { n.symbol = { id: found.id, name: found.name, kind: found.kind, file: found.file, line: found.line }; Object.assign(n, explanationOf(found)); }
+        if (found) { n.symbol = symbolRef(found); Object.assign(n, explanationOf(found)); }
       }
     }
 
@@ -399,7 +399,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     const include = new Set(view.include), exclude = new Set(view.exclude);
     let finalNodes: DiagramNode[] = [...nodes.values()].map(n => ({
       id: n.id, label: n.label ?? n.id, kind: n.kind ?? 'node', subtitle: n.subtitle, group: n.group, fields: n.fields,
-      source: n.source, symbol: n.symbol, role: n.role, order: n.order, detail: n.detail, ...(n.explanation ? { explanation: n.explanation } : {}),
+      source: n.source, symbol: n.symbol, role: n.role, order: n.order, detail: n.detail, ...(n.explanation ? { explanation: n.explanation } : {}), ...(n.aliases.size ? { aliases: [...n.aliases] } : {}),
     })).filter(n => !exclude.has(n.id) && !exclude.has(n.label));
     if (finalNodes.length > LIMITS.nodes) {
       const kept = (n: DiagramNode) => include.has(n.id) || include.has(n.label);

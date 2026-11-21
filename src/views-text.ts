@@ -1,5 +1,5 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ViewKind } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, ViewKind } from './views';
 
 export interface TextDiagramInput { kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean }
 export const MAX_TEXT_LINES = 400;
@@ -56,8 +56,9 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
   return lines.join('\n');
 }
 
-/** " — <explanation>" (a symbol's docstring summary) or nothing. */
-const explained = (x: { explanation?: string | null }) => x.explanation ? ` — ${x.explanation}` : '';
+/** " — <explanation>" (a symbol's docstring summary or the view's `explain:` text, marked when its code changed since) or nothing. */
+const explained = (x: { explanation?: string | null; explanationStatus?: ExplanationStatus }) =>
+  x.explanation ? ` — ${x.explanation}${x.explanationStatus === 'stale' ? ' (may be outdated)' : ''}` : '';
 const MARKERS: Record<string, string> = { start: '(start)', end: '(end)', error: '(error)', decision: '<?>', loop: '<loop>', call: '[call]', action: '[ ]' };
 const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : e.kind === 'except' ? `except ${e.label}` : e.label ?? e.kind;
 

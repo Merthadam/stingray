@@ -1,7 +1,7 @@
 // YAML view files (.stingray/views/<slug>.yaml) and rule files (.stingray/rules/<name>.yaml): parsing and validation.
 // Errors carry the YAML file and 1-based line so agents can fix them from `stingray-views check` output.
 import path from 'node:path';
-import { LineCounter, isMap, isScalar, parseDocument, type Document } from 'yaml';
+import { LineCounter, isMap, isScalar, parseDocument, type Document, type Pair } from 'yaml';
 import { z } from 'zod';
 import type { ViewKind, ViewLayout } from '../../../src/views';
 import { GRAMMAR_FILES } from './grammars';
@@ -90,6 +90,14 @@ export const positionsSchema = z.record(z.string().min(1).max(300), point)
   .refine(p => Object.keys(p).length <= 1000, { error: 'At most 1000 positions' });
 export const layoutSchema = z.strictObject({ positions: positionsSchema.optional() });
 
+export const FINGERPRINT = /^[0-9a-f]{12}$/, MAX_EXPLAIN = 200;
+/** `explain:` entries keyed by node id, alias, group id or symbol name: prose that overrides the docstring explanation.
+ * Entries are objects so planning keys (e.g. a future `note:`) can be added next to `text` later. */
+export const explainSchema = z.record(z.string().min(1).max(300), z.strictObject({
+  text: z.string().trim().min(1).max(500),
+  fingerprint: z.string().regex(FINGERPRINT, { error: 'fingerprint must be 12 hex characters (written by stingray-views check --restamp)' }).optional(),
+})).refine(e => Object.keys(e).length <= MAX_EXPLAIN, { error: `At most ${MAX_EXPLAIN} explain entries` });
+
 export const viewSchema = z.strictObject({
   version: z.literal(1),
   name: z.string().min(1).max(80),
@@ -104,6 +112,7 @@ export const viewSchema = z.strictObject({
   include: names.optional(),   // node ids/labels always kept
   exclude: names.optional(),   // node ids/labels always dropped (wins over include)
   layout: layoutSchema.optional(),
+  explain: explainSchema.optional(),
 }).superRefine((v, ctx) => {
   if (v.kind === 'flowchart' && !v.flowchart) ctx.addIssue({ code: 'custom', path: ['kind'], message: 'kind: flowchart needs a flowchart: section' });
   if (v.flowchart && v.kind !== 'flowchart') ctx.addIssue({ code: 'custom', path: ['flowchart'], message: 'flowchart: needs kind: flowchart' });
@@ -163,6 +172,16 @@ function validate<S extends z.ZodType>(schema: S, src: Located & { value: unknow
   throw new YamlError(src.file, lineAt(src, issue.path), issueText(issue));
 }
 
+/** The `explain:` pair whose key reads as `key` (YAML keys like `123:` are numbers in the document). */
+export function explainPair(doc: Document, key: string): Pair | undefined {
+  const map = doc.get('explain', true);
+  return isMap(map) ? map.items.find(p => isScalar(p.key) && String(p.key.value) === key) as Pair | undefined : undefined;
+}
+const keyLine = (src: Located, pair: Pair | undefined) => {
+  const range = (pair?.key as { range?: [number, number, number] } | undefined)?.range;
+  return range ? src.lines.linePos(range[0]).line : null;
+};
+
 const issueText = (issue: z.ZodError['issues'][number]) => issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message;
 
 function sourced(src: Located, rules: z.infer<typeof ruleSchema>[], source: RuleSourceName): SourcedRule[] {
@@ -188,7 +207,11 @@ export interface ViewDefinition {
   include: string[];
   exclude: string[];
   layout: ViewLayout | null;
+  explain: ExplainEntry[];
 }
+
+/** One `explain:` entry; `line` is the 1-based line of its key in the view file. */
+export interface ExplainEntry { key: string; text: string; fingerprint: string | null; line: number | null }
 
 /** Parse and validate a view file. Throws YamlError. */
 export function parseViewYaml(text: string, file: string): ViewDefinition {
@@ -200,6 +223,7 @@ export function parseViewYaml(text: string, file: string): ViewDefinition {
     rules: sourced(src, v.rules ?? [], 'view'),
     graph: v.graph ?? null, flowchart: v.flowchart ?? null, layers: v.layers ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
     layout: v.layout ? { positions: v.layout.positions ?? {} } : null,
+    explain: Object.entries(v.explain ?? {}).map(([key, e]) => ({ key, text: e.text, fingerprint: e.fingerprint ?? null, line: keyLine(src, explainPair(src.doc, key)) })),
   };
 }
 

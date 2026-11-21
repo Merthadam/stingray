@@ -5,7 +5,7 @@ import { lstat, open, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import type { DiagramNode, ViewKind, ViewLayout, ViewResult, ViewSummary, ViewWarning } from '../../src/views';
-import { SLUG, YamlError, inScope, parseRuleFileYaml, parseViewYaml } from './rules/schema';
+import { SLUG, YamlError, inScope, parseRuleFileYaml, parseViewYaml, type ExplainEntry } from './rules/schema';
 import type { ResolvedView, SourcedRule } from './rules/types';
 import { BUILTIN_SETS, TS_EXTRACTORS } from './sets';
 
@@ -21,6 +21,7 @@ export interface ViewFileEntry {
   ruleFiles: string[];        // worktree-relative rule files the view uses (also when they are invalid)
   errors: ViewWarning[];
   layout?: ViewLayout | null; // the file's `layout:`; absent/null when it has none
+  explain?: ExplainEntry[];   // the file's `explain:`; absent when it has none
 }
 
 /** Builtin view of stinggraph's service layers (inferred, refined by `.stinggraph/layers.yaml`): works in any worktree. */
@@ -113,7 +114,7 @@ async function loadView(root: string, file: string, sets: BuiltinSets): Promise<
   const named = { ...summary, name: definition.name, kind: definition.kind, description: definition.description };
   if (use.errors.length) return { ...fail(use.errors, use.ruleFiles), summary: { ...named, error: errorText(file, use.errors[0]!) } };
   return {
-    summary: named, ruleFiles: use.ruleFiles, errors: [], layout: definition.layout,
+    summary: named, ruleFiles: use.ruleFiles, errors: [], layout: definition.layout, ...(definition.explain.length ? { explain: definition.explain } : {}),
     view: {
       id: slug, kind: definition.kind, scope: definition.scope, rules: [...use.rules, ...definition.rules], graph: definition.graph, flowchart: definition.flowchart, layers: definition.layers,
       builtins: use.builtins, include: definition.include, exclude: definition.exclude,

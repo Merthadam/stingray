@@ -44,6 +44,7 @@ test('alembic: alias joins chain revisions, within picks upgrade, create makes p
   assert.deepEqual(out.nodes.map(x => [x.id, x.label, x.kind, x.subtitle, x.detail]), [
     ['versions/a.py', 'a1', 'migration', 'a', 'rev a1'], ['versions/b.py', 'b2', 'migration', 'b', 'rev b2'], ['versions/c.py', 'c3', 'migration', 'c', 'rev c3'], ['users', 'users', 'placeholder', null, null],
   ]);
+  assert.deepEqual(out.nodes.map(x => x.aliases), [['a1'], ['b2'], ['c3'], undefined]); // for explain: keys
   assert.deepEqual(out.nodes[0].fields.map(f => [f.id, f.label, f.badges, f.source]), [['create_table-users', 'create_table users', ['upgrade'], { file: 'versions/a.py', line: 5 }]]);
   assert.deepEqual(out.nodes[1].fields.map(f => f.id), ['add_column-users']);
   assert.deepEqual(out.edges.map(e => [e.id, e.style, e.certain]), [
