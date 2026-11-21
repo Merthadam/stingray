@@ -20,7 +20,9 @@ export class Terminals {
   portRoots() {
     return [...this.entries.values()].filter(t => !t.exited).map(t => ({ id: t.id, workspaceId: t.workspaceId, title: t.title, pid: t.process.pid }));
   }
-  hasWorkspace(id: string) { return [...this.entries.values()].some(t => t.workspaceId === id); }
+  hasWorkspace(id: string) { return this.countWorkspace(id) > 0; }
+  countWorkspace(id: string) { return [...this.entries.values()].filter(t => t.workspaceId === id).length; }
+  closeWorkspace(id: string) { for (const [key, t] of this.entries) if (t.workspaceId === id) this.close(key); }
   create(workspaceId: string, cwd: string): TerminalInfo {
     if (this.entries.size >= 24) throw new Error('Close a terminal before opening another (limit 24).');
     const shell = os.userInfo().shell || '/bin/zsh';

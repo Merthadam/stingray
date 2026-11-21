@@ -1,21 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import type { RemovalReview, State, Workspace } from './shared';
+import type { RemovalResult, RemovalReview, Workspace } from './shared';
 import './worktree-removal.css';
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 export function RemoveWorktreeForm({ workspace, busy, onBusy, onRemoved, onCancel }: {
   workspace: Workspace; busy: boolean; onBusy: (busy: boolean) => void;
-  onRemoved: (state: State) => void; onCancel: () => void;
+  onRemoved: (result: RemovalResult) => void; onCancel: () => void;
 }) {
   const [review, setReview] = useState<RemovalReview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [acknowledge, setAcknowledge] = useState(false);
+  const [discard, setDiscard] = useState(false);
+  const [deleteBranch, setDeleteBranch] = useState(false);
   const sequence = useRef(0);
   async function refresh(clearError = true) {
     const current = ++sequence.current;
-    setLoading(true); setReview(null); setAcknowledge(false); setConfirmation('');
+    setLoading(true); setReview(null); setDiscard(false); setDeleteBranch(false);
     if (clearError) setError('');
     try {
       const result = await api.reviewRemoval(workspace.id);
@@ -24,39 +26,42 @@ export function RemoveWorktreeForm({ workspace, busy, onBusy, onRemoved, onCance
     finally { if (current === sequence.current) setLoading(false); }
   }
   useEffect(() => { void refresh(); return () => { ++sequence.current; }; }, [workspace.id]);
-  const warning = review && (review.push.kind === 'unknown' || review.push.ahead > 0);
+  const dirty = Boolean(review && review.changes.tracked + review.changes.untracked > 0);
   const blocked = !review || review.blockers.length > 0;
+  const disabled = busy || loading || blocked || (dirty && !discard);
   async function submit() {
-    if (busy || loading || blocked || confirmation !== review!.branch || (warning && !acknowledge)) return;
+    if (disabled) return;
     onBusy(true); setError('');
     try {
-      const next = await api.removeWorkspace(workspace.id, confirmation, { token: review!.token, acknowledge });
-      onRemoved(next);
+      onRemoved(await api.removeWorkspace(workspace.id, { discard: dirty && discard, deleteBranch: Boolean(review!.merged) && deleteBranch }));
     } catch (e) {
       setError((e as Error).message);
       await refresh(false);
     } finally { onBusy(false); }
   }
+  const hidden = review ? review.changes.tracked + review.changes.untracked - review.changes.paths.length : 0;
   return <form className="remove-worktree-form" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    <p className="modal-description">Removes <strong>{workspace.name}</strong>'s worktree directory. <strong>Keeps its branch and commits</strong>, including unpushed commits. Does not stop terminals or delete the branch.</p>
+    <p className="modal-description">Deletes <strong>{workspace.name}</strong>'s worktree folder, including ignored files such as dependencies and build output. The branch <strong>{workspace.branch}</strong> and its commits are kept{review?.merged ? ' unless you choose to delete it below' : ''}.</p>
     <code className="removal-path">{workspace.path}</code>
     {error && <div className="inline-error" role="alert">{error}</div>}
-    {loading && <p role="status">Checking worktree safety…</p>}
-    {review && <div className="removal-review" aria-label="Worktree safety checks">
-      {review.blockers.length > 0 ? <div className="inline-error" role="alert"><strong>Removal is blocked</strong><ul>{review.blockers.map(message => <li key={message}>{message}</li>)}</ul></div> : <p>No local file changes or open terminals found.</p>}
-      <div className={warning ? 'removal-warning' : 'info-box'} role="status">
-        {review.push.kind === 'unknown' ? review.push.message : <span>
-          {review.push.ahead > 0 ? `${review.push.ahead} unpushed commit${review.push.ahead === 1 ? '' : 's'} ahead of ` : 'No commits ahead of '}
-          <strong>{review.push.upstream}</strong> in local tracking data.
-          {review.push.behind > 0 && ` ${review.push.behind} commits behind.`}
-        </span>}
-      </div>
-      <p className="fine-print">Local remote-tracking data may be stale. No fetch or remote check is performed. Branch deletion is not part of this action.</p>
-      {warning && <label className="removal-ack"><input type="checkbox" checked={acknowledge} disabled={busy || loading} onChange={e => setAcknowledge(e.target.checked)} />I understand commits may not be pushed; the branch and commits will be kept.</label>}
+    {loading && <p role="status">Checking worktree…</p>}
+    {review && <div className="removal-review" aria-label="Worktree checks">
+      {review.blockers.length > 0 && <div className="inline-error" role="alert"><strong>Removal is blocked</strong><ul>{review.blockers.map(message => <li key={message}>{message}</li>)}</ul></div>}
+      {dirty ? <div className="removal-warning" role="status">
+        <strong>{[review.changes.tracked && plural(review.changes.tracked, 'modified file'), review.changes.untracked && plural(review.changes.untracked, 'untracked item')].filter(Boolean).join(' and ')} will be permanently deleted.</strong>
+        <ul className="removal-files">{review.changes.paths.map(file => <li key={file}><code>{file}</code></li>)}{hidden > 0 && <li>…and {hidden} more</li>}</ul>
+        <label className="removal-ack"><input type="checkbox" checked={discard} disabled={busy || loading || blocked} onChange={e => setDiscard(e.target.checked)} />Discard these uncommitted changes</label>
+      </div> : review.blockers.length === 0 && <p>No uncommitted changes.</p>}
+      {review.terminals > 0 && <p className="info-box" role="status">{plural(review.terminals, 'open terminal')} in this workspace will be closed.</p>}
+      <p className="fine-print">{review.push.kind === 'unknown' ? review.push.message : <>
+        {review.push.ahead > 0 ? `${plural(review.push.ahead, 'commit')} not pushed to ` : 'No unpushed commits on '}<strong>{review.push.upstream}</strong> (local tracking data).
+      </>}</p>
+      {review.merged && <label className="removal-ack"><input type="checkbox" checked={deleteBranch} disabled={busy || loading || blocked} onChange={e => setDeleteBranch(e.target.checked)} /><span>Also delete branch <strong>{review.branch}</strong> (merged into {review.merged})</span></label>}
     </div>}
-    <button type="button" className="secondary" disabled={busy || loading} onClick={() => void refresh()}>Recheck safety</button>
-    <p className="confirm-branch">Type <strong>{review?.branch || workspace.branch}</strong> to confirm.</p>
-    <label className="field">Branch confirmation<input autoFocus aria-label="Branch confirmation" autoComplete="off" value={confirmation} disabled={busy || loading} onChange={e => setConfirmation(e.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={onCancel}>Keep worktree</button><button className="danger" disabled={busy || loading || blocked || confirmation !== review?.branch || Boolean(warning && !acknowledge)}>{busy ? 'Checking…' : 'Remove worktree'}</button></div>
+    <div className="modal-actions">
+      <button type="button" className="secondary" disabled={busy || loading} onClick={() => void refresh()}>Check again</button>
+      <button type="button" className="secondary" disabled={busy} onClick={onCancel}>Keep worktree</button>
+      <button className="danger" disabled={disabled}>{busy ? 'Removing…' : dirty ? 'Discard changes and remove' : 'Remove worktree'}</button>
+    </div>
   </form>;
 }

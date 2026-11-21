@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { RemovalReview } from '../src/shared';
 
 // Inject the existing bounded, noninteractive Git runner. No fetch or remote calls.
@@ -18,6 +17,16 @@ export async function reviewPushStatus(run: (args: string[]) => Promise<string>,
   }
 }
 
-export function removalToken(value: unknown) {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// The branch counts as merged when its tip is contained in the remote default branch (origin/HEAD) or the
+// primary checkout's current branch. Squash/rebase merges are not detected, so such branches are simply kept.
+export async function mergedInto(repo: string, branch: string, run: (cwd: string, args: string[]) => Promise<string>): Promise<string | null> {
+  const targets: string[] = [];
+  for (const args of [['rev-parse', '--abbrev-ref', '--verify', '--quiet', 'refs/remotes/origin/HEAD'], ['branch', '--show-current']]) {
+    const name = (await run(repo, args).catch(() => '')).trim();
+    if (name && name !== branch && name !== 'origin/' + branch && !targets.includes(name)) targets.push(name);
+  }
+  for (const target of targets) {
+    try { await run(repo, ['merge-base', '--is-ancestor', 'refs/heads/' + branch, target]); return target; } catch { /* not merged into this target */ }
+  }
+  return null;
 }

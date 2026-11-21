@@ -13,3 +13,5 @@
 .workspace-entry .workspace-link::after{content:"";position:absolute;inset:0;border-radius:6px;z-index:1}
 .workspace-entry .git-lines,.workspace-entry .workspace-git-badges,.workspace-entry .pr-symbol,.workspace-entry .workspace-activity{position:relative;z-index:2}
 .workspace-entry:has(.workspace-link:disabled){cursor:not-allowed}
+.removal-files{max-height:120px;overflow:auto;font-size:11px}.removal-files code{font-size:11px}
+.removal-review .info-box{margin:10px 0 0}

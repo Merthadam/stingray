@@ -53,10 +53,20 @@ export type GitLineStats =
   | { kind: 'unavailable'; message: string };
 export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
 export type RemovalReview = {
-  branch: string; blockers: string[]; token: string;
+  branch: string;
+  /** Rare states that removal refuses outright (detached HEAD, switched branch, locked worktree). */
+  blockers: string[];
+  /** Open terminals in the workspace; removal closes them. */
+  terminals: number;
+  /** Uncommitted work that removal deletes (ignored files are never counted). Paths are capped. */
+  changes: { tracked: number; untracked: number; paths: string[] };
+  /** Informational only: the branch and its commits are kept unless deleteBranch is chosen. */
   push: { kind: 'known'; upstream: string; ahead: number; behind: number } | { kind: 'unknown'; message: string };
+  /** Branch the worktree's branch is merged into, or null when it may not be deleted. */
+  merged: string | null;
 };
-export const removalConsentSchema = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), acknowledge: z.boolean() }).strict();
+export type RemovalResult = { state: State; warning?: string };
+export const removalConsentSchema = z.object({ discard: z.boolean(), deleteBranch: z.boolean() }).strict();
 export type RemovalConsent = z.infer<typeof removalConsentSchema>;
 export type PullRequestStatus =
   | { kind: 'pr'; branch: string; repository: string; checkedAt: number; number: number; state: 'open' | 'draft' | 'merged' | 'closed' }
@@ -80,7 +90,7 @@ export interface DesktopAPI {
   cloneRepository(url: string, destination: string): Promise<State>;
   createWorkspace(repoId: string, branch: string): Promise<State>;
   reviewRemoval(id: string): Promise<RemovalReview>;
-  removeWorkspace(id: string, confirmation: string, consent: RemovalConsent): Promise<State>;
+  removeWorkspace(id: string, consent: RemovalConsent): Promise<RemovalResult>;
   gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;

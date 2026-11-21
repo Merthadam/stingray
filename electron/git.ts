@@ -3,8 +3,8 @@ import { promisify } from 'node:util';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { reviewPushStatus, removalToken } from './worktree-removal';
-import { removalConsentSchema, type RemovalConsent, type RemovalReview } from '../src/shared';
+import { reviewPushStatus, mergedInto } from './worktree-removal';
+import { removalConsentSchema, type RemovalConsent, type RemovalReview, type RemovalResult } from '../src/shared';
 import { Store } from './store';
 import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type RepoSnapshot } from '../src/shared';
 import { cloneGit } from './clone';
@@ -40,8 +40,8 @@ const CACHE_DIR = '.codegraph';
 const isCacheDirectory = (root: string) => lstat(path.join(root, CACHE_DIR)).then(s => s.isDirectory(), () => false);
 export class GitService {
   private pending: Promise<unknown> = Promise.resolve();
-  constructor(readonly store: Store, private hasTerminals: (id: string) => boolean = () => false,
-    // Removal hooks: stop writers to the code-graph cache (<worktree>/.codegraph) first; undo if removal fails.
+  constructor(readonly store: Store, private terminalCount: (id: string) => number = () => 0,
+    // Removal hooks: close the workspace's terminals and stop writers to the code-graph cache first; undo what can be undone if removal fails.
     private hooks: { beforeRemove(id: string): Promise<void>; removeFailed(id: string): void } = { beforeRemove: async () => {}, removeFailed: () => {} }) {}
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.pending.then(action, action); this.pending = next.catch(() => undefined); return next;
@@ -133,57 +133,64 @@ export class GitService {
     const repo = state.repos.find(r => r.id === w.repoId);
     if (!repo) throw new Error('Repository not found.');
     const listing = await git(repo.path, ['worktree', 'list', '--porcelain', '-z']);
-    const record = listing.split('\0\0').find(row => row.split('\0').includes('worktree ' + w.path));
+    const records = listing.split('\0\0').map(row => row.split('\0'));
+    const record = records.find(rows => rows.includes('worktree ' + w.path));
     if (!record) throw new Error('Git no longer recognizes this worktree.');
     const branch = (await git(w.path, ['branch', '--show-current'])).trim();
-    const head = (await git(w.path, ['rev-parse', '--verify', 'HEAD'])).trim();
-    const dirty = await git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored']);
-    // Stingray's regenerable code-graph cache is not user work: its untracked/ignored files don't block removal and are
-    // cleaned right before it. Tracked files under it and a .codegraph that is not a real directory still block.
+    // Ignored files (node_modules, build output, caches) are regenerable and never block removal; they are
+    // deleted with the folder. Only tracked changes and untracked files are reported as work that will be lost.
+    const dirty = await git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']);
+    // Stingray's code-graph cache is not user work either.
     const cache = await isCacheDirectory(w.path);
-    const changes = parseStatus(dirty).filter(c => !(cache && (c.status === '??' || c.status === '!!') && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
+    const changes = parseStatus(dirty).filter(c => !(cache && c.status === '??' && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
+    const untracked = changes.filter(c => c.status === '??').length;
     const blockers: string[] = [];
-    if (this.hasTerminals(id)) blockers.push('Close every terminal in this workspace first.');
     if (!branch) blockers.push('Detached HEAD: attach these commits to a branch before removing the worktree.');
     else if (branch !== w.branch) blockers.push(`The checked-out branch changed. Restore ${w.branch} before removing this worktree.`);
-    if (record.split('\0').some(row => row === 'locked' || row.startsWith('locked '))) blockers.push('This worktree is locked. Unlock it yourself only after checking why.');
-    if (changes.length) {
-      const untracked = changes.filter(c => c.status === '??').length;
-      const ignored = changes.filter(c => c.status === '!!').length;
-      blockers.push(`Worktree has modified, untracked, or ignored files: ${changes.length - untracked - ignored} tracked changes, ${untracked} untracked entries, ${ignored} ignored entries. Nothing will be deleted.`);
-    }
-    const { push, identity } = branch ? await reviewPushStatus(args => git(w.path, args), branch)
-      : { push: { kind: 'unknown' as const, message: 'Detached HEAD has no branch upstream.' }, identity: 'detached' };
-    return { branch: w.branch, blockers, push, token: removalToken({ id, path: w.path, branch, head, dirty: JSON.stringify(changes), blockers, push, identity }) };
+    if (record.some(row => row === 'locked' || row.startsWith('locked '))) blockers.push('This worktree is locked. Unlock it yourself only after checking why.');
+    const { push } = branch ? await reviewPushStatus(args => git(w.path, args), branch)
+      : { push: { kind: 'unknown' as const, message: 'Detached HEAD has no branch upstream.' } };
+    // The branch may optionally be deleted, but only when Git proves it is merged and no other worktree uses it.
+    const usedElsewhere = records.some(rows => !rows.includes('worktree ' + w.path) && rows.includes('branch refs/heads/' + w.branch));
+    const merged = branch === w.branch && !usedElsewhere ? await mergedInto(repo.path, w.branch, git) : null;
+    return {
+      branch: w.branch, blockers, push, terminals: this.terminalCount(id), merged,
+      changes: { tracked: changes.length - untracked, untracked, paths: changes.slice(0, 20).map(c => c.path) },
+    };
   }
-  removeWorkspace(id: string, confirmation: string, consent?: RemovalConsent) {
-    return this.serial(async () => {
+  removeWorkspace(id: string, consent?: RemovalConsent) {
+    return this.serial(async (): Promise<RemovalResult> => {
       const state = await this.store.load();
       const w = state.workspaces.find(w => w.id === id);
       if (!w || !w.managed) throw new Error('Only worktrees created by Stingray can be removed.');
-      if (confirmation !== w.branch) throw new Error('Type the exact branch name to confirm.');
       const repo = state.repos.find(r => r.id === w.repoId);
       if (!repo) throw new Error('Repository not found.');
-      // Re-read ownership, files, branch, terminals and upstream instead of trusting
-      // a renderer's earlier result. App-owned Git/terminal creation is serialized;
-      // external Git/filesystem writes are not an atomic transaction with removal.
+      const parsedConsent = removalConsentSchema.safeParse(consent);
+      if (!parsedConsent.success) throw new Error('Confirm the removal first.');
+      const { discard, deleteBranch } = parsedConsent.data;
+      // Re-read ownership, files, branch and merge state instead of trusting a renderer's earlier result.
       const review = await this.removalReview(id);
       if (review.blockers.length) throw new Error(review.blockers.join(' '));
-      const parsedConsent = removalConsentSchema.safeParse(consent);
-      if (!parsedConsent.success || parsedConsent.data.token !== review.token) {
-        throw new Error('Worktree safety review changed or is missing. Review the updated checks and confirm again.');
-      }
-      if ((review.push.kind === 'unknown' || review.push.ahead > 0) && !parsedConsent.data.acknowledge) {
-        throw new Error('Acknowledge the unpushed or unknown push status before removal. The branch and commits will be kept.');
-      }
-      await this.hooks.beforeRemove(id);
+      const dirty = review.changes.tracked + review.changes.untracked > 0;
+      if (dirty && !discard) throw new Error('This worktree has uncommitted changes. Confirm discarding them to remove it.');
+      if (deleteBranch && !review.merged) throw new Error(`${w.branch} is not merged, so it was not deleted. Nothing was removed.`);
+      await this.hooks.beforeRemove(id); // closes the workspace's terminals and stops its code graph
       try {
         if (await isCacheDirectory(w.path)) await git(w.path, ['clean', '-f', '-d', '-x', '-q', '--', CACHE_DIR + '/']);
-        await git(repo.path, ['worktree', 'remove', '--', w.path]);
-      } catch (error) { this.hooks.removeFailed(id); throw error; }
+        // Without discard consent Git itself refuses if changes appeared after the review.
+        await git(repo.path, ['worktree', 'remove', ...(discard ? ['--force'] : []), '--', w.path]);
+      } catch {
+        this.hooks.removeFailed(id);
+        throw new Error('Git could not remove the worktree. If files changed since the review, check again and confirm.');
+      }
       state.workspaces = state.workspaces.filter(x => x.id !== id);
       await this.store.save(state);
-      return state;
+      if (deleteBranch) {
+        try { await git(repo.path, ['branch', '-D', w.branch]); } catch {
+          return { state, warning: `The worktree was removed, but deleting branch ${w.branch} failed. The branch was kept.` };
+        }
+      }
+      return { state };
     });
   }
   async status(id: string): Promise<GitStatus> {
