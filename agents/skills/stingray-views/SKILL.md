@@ -32,7 +32,8 @@ files. Prefer a builtin set (`use:`) when one fits; write rules for the project'
    links you did not expect). Rules with 0 matches get a warning: the query or the scope is probably wrong.
 
 Other commands: `stingray-views list` (views of this worktree, with errors), `stingray-views check <file> --json`
-(full result as JSON), `stingray-views help` (this guide).
+(full result as JSON), `stingray-views check <file> --restamp` (stamp `explain:` fingerprints, below),
+`stingray-views help` (this guide).
 
 ## View file
 
@@ -52,6 +53,7 @@ layers: { ... }                        # kind: graph only (below)
 include: [AuditLog]                    # node ids/labels always kept
 exclude: [Base]                        # node ids/labels always dropped (wins over include)
 layout: {}                             # reserved for the UI
+explain: { ... }                       # optional prose per node/group (below)
 ```
 
 At least one of `use`, `rules`, `graph`, `flowchart`, `layers` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
@@ -189,6 +191,33 @@ flowchart:
 - Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
 - Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
   Without a code graph the flowchart is skipped.
+
+## Explanations (`explain:`)
+
+Docstrings explain symbol-backed nodes for free (see Flowcharts). For intent that is not one function's docstring, or
+for nodes without a symbol (tables, LangGraph steps, infra), write it in the view file:
+
+```yaml
+explain:
+  identity:                        # node id, group id, alias (rule `aliases`, a table's name or model class) or symbol name
+    text: Accept only genuine, unrevoked tokens of verified travelers   # 1-500 chars; replaces the docstring explanation
+    fingerprint: 3f9a0c1d2b4e      # written by --restamp; do not edit by hand
+  users:
+    text: Everyone who signed up, including invited but unconfirmed users
+```
+
+- A key is matched in that order: node id, group id, alias, then every node and group linked to that symbol (e.g. a
+  flowchart's `call` node and the expanded `» identity` group). The first kind that matches wins. A key matching nothing
+  is listed under "unresolved links" as `explain: "<key>"` (a warning, not an error).
+- The fingerprint is a hash of the code the text was written for: a symbol's own body (its lines, not its callees;
+  trailing whitespace and line endings ignored), or for a node without a symbol the node as drawn (label, kind,
+  subtitle, detail, fields with types and badges — a table's changes when its columns do).
+- When the code changes, check warns `explanation for "<key>" may be outdated …`, the text diagram appends
+  `(may be outdated)` and the Views tab marks the explanation. Entries without a fingerprint warn too.
+- Workflow: write or update the texts, run `check`, read each flagged explanation against the code and fix it, then
+  run `stingray-views check <file> --restamp`. It writes the current fingerprints of entries that resolve into the file
+  (comments kept) and prints what it stamped; plain `check` never writes. Restamping needs the code graph; without it
+  fingerprints are not checked at all. `diagnostics.explain` in `--json` has each entry's matches and current fingerprint.
 
 ## Layers
 
