@@ -332,14 +332,17 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
     assert.equal(await failing.run('check', '.stingray/views/flow.yaml'), 1);
     assert.match(failing.out.join('\n'), /\n {2}error: start symbol not found: login/);
 
-    for (const argv of [['--depth', '5'], ['--depth'], ['--depth', 'x']]) {
+    for (const argv of [['--depth', '7'], ['--depth'], ['--depth', 'x']]) {
       const bad = harness(root, { loadViewPath });
       assert.equal(await bad.run('check', '.stingray/views/flow.yaml', ...argv), 2, argv.join(' '));
-      assert.match(bad.err.join('\n'), /--depth needs a number from 0 to 4/);
+      assert.match(bad.err.join('\n'), /--depth needs a number from 0 to 6/);
     }
+    const deep = harness(root, { loadViewPath });
+    assert.equal(await deep.run('check', '.stingray/views/flow.yaml', '--depth', '5'), 2);
+    assert.match(deep.err.join('\n'), /--depth of a flowchart view is 0 to 4/);
     const notFlowchart = harness(root);
     assert.equal(await notFlowchart.run('check', '.stingray/views/flow.yaml', '--depth', '1'), 2);
-    assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart views/);
+    assert.match(notFlowchart.err.join('\n'), /--depth only applies to kind: flowchart and kind: sequence views/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

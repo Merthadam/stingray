@@ -19,12 +19,12 @@ interface Worktree {
 }
 
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
- * class or mixin outside the scope changes the tables inside it), any code file with a graph, flowchart or layers step, or a file its rules read. */
+ * class or mixin outside the scope changes the tables inside it), any code file with a graph, flowchart, layers or sequence step, or a file its rules read. */
 function affects(v: ViewFileEntry, changed: string[], code: string[], python: boolean, sql: boolean): boolean {
   if (v.ruleFiles.some(r => changed.includes(r))) return true;
   const view = v.view;
   if (!view) return false;
-  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && (view.graph || view.flowchart || view.layers))) return true;
+  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && (view.graph || view.flowchart || view.layers || view.sequence))) return true;
   return code.some(f => inScope(f, view.scope) && view.rules.some(({ rule }) => !rule.files || inScope(f, { include: rule.files, exclude: [] })));
 }
 
@@ -89,8 +89,9 @@ export class ViewService {
     if (!view) throw new Error(`View file ${file.summary.file} is invalid: ${file.summary.error}`);
     let layout = file.layout;
     // Another depth draws other nodes: the file's saved positions belong to its own depth.
-    if (depth !== undefined && view.flowchart && depth !== view.flowchart.depth) { view = { ...view, flowchart: { ...view.flowchart, depth } }; layout = null; }
-    if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.max(1, depth) } }; layout = null; }
+    if (depth !== undefined && view.flowchart && depth !== view.flowchart.depth) { view = { ...view, flowchart: { ...view.flowchart, depth: Math.min(4, depth) } }; layout = null; }
+    if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
+    if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
     return computeView({ ...file, view, layout }, {
       workspaceId, graph: w.graph.status(), findSymbols, readSource: createFileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),

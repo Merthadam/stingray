@@ -36,7 +36,7 @@ const EMPTY: EvaluateOutput = {
 export async function computeView(entry: ViewFileEntry & { view: ResolvedView }, deps: ComputeDeps): Promise<ViewResult> {
   const { view, summary } = entry;
   // Views with only builtins (e.g. a plain sqlalchemy tables view) do not need the engine.
-  const evaluated = view.rules.length > 0 || view.graph !== null || view.flowchart !== null || !!view.layers;
+  const evaluated = view.rules.length > 0 || view.graph !== null || view.flowchart !== null || !!view.layers || !!view.sequence;
   const [output, schemas] = await Promise.all([
     evaluated ? deps.evaluate(view) : EMPTY,
     Promise.all(TS_EXTRACTORS.filter(name => view.builtins.includes(name) && deps[name]).map(name => deps[name]!())),
@@ -53,13 +53,19 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
     stats: { ...tables?.stats, ...output.stats, nodes: merged.nodes.length, edges: merged.edges.length,
       ...(warnings.length > MAX_WARNINGS ? { warningsDropped: warnings.length - MAX_WARNINGS } : {}) },
     graph: deps.graph, diagnostics: output.diagnostics, layout: entry.layout ?? null,
+    ...(output.sequence !== undefined ? { sequence: output.sequence } : {}),
   };
   const linked = await linkSymbols(result, deps.findSymbols);
   if (!entry.explain?.length) return linked;
   // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
   const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
   const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource });
-  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS) };
+  // Participants mirror their nodes: `explain:` entries reach them through the nodes.
+  const sequence = explained.sequence && { ...explained.sequence, participants: explained.sequence.participants.map(p => {
+    const n = explained.nodes.find(x => x.id === p.id);
+    return n?.explanation ? { ...p, explanation: n.explanation } : p;
+  }) };
+  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS), ...(sequence ? { sequence } : {}) };
 }
 
 /** Merge narrowed sqlalchemy tables into engine output (see the header for the key semantics). Pure. */

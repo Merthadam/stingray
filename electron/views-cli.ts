@@ -41,6 +41,7 @@ export const USAGE = `Usage:
                                               validate a view and print diagnostics + a text diagram
                                               (--depth 0-4: flowchart call levels, overrides flowchart.depth;
                                                1-4: layers level, overrides layers.depth;
+                                               0-6: sequence call levels, overrides sequence.depth;
                                                --restamp: after reviewing explain: texts, write the current
                                                fingerprints into the file)
   stingray-views list                         views of this worktree
@@ -75,7 +76,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
       let depth: number | null = null;
       const at = args.indexOf('--depth');
       if (at >= 0) {
-        if (!/^[0-4]$/.test(args[at + 1] ?? '')) { deps.err('--depth needs a number from 0 to 4'); return 2; }
+        if (!/^[0-6]$/.test(args[at + 1] ?? '')) { deps.err('--depth needs a number from 0 to 6'); return 2; }
         depth = Number(args.splice(at, 2)[1]);
       }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
@@ -124,10 +125,13 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
 
   if (depth !== null) {
     if (loaded.view.layers) {
-      if (depth < 1) { deps.err('--depth of a layers view is 1 to 4'); return 2; }
+      if (depth < 1 || depth > 4) { deps.err('--depth of a layers view is 1 to 4'); return 2; }
       loaded.view = { ...loaded.view, layers: { ...loaded.view.layers, depth } };
-    } else if (loaded.view.flowchart) loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
-    else { deps.err('--depth only applies to kind: flowchart views and views with layers:'); return 2; }
+    } else if (loaded.view.flowchart) {
+      if (depth > 4) { deps.err('--depth of a flowchart view is 0 to 4'); return 2; }
+      loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
+    } else if (loaded.view.sequence) loaded.view = { ...loaded.view, sequence: { ...loaded.view.sequence, depth } };
+    else { deps.err('--depth only applies to kind: flowchart and kind: sequence views and views with layers:'); return 2; }
   }
   const graph = await deps.openGraph(root), api = graph.api;
   let result, lagging = new Set<string>();
@@ -145,7 +149,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
 
   const d = result.diagnostics!;
   // A missing/unreadable code graph is the environment, not the view; graph-step errors with a graph are the view's.
-  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error || !!d.layers?.error));
+  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error || !!d.layers?.error || !!d.sequence?.error));
   if (json) { deps.out(JSON.stringify({ summary: loaded.summary, result }, null, 2)); return failed ? 1 : 0; }
 
   deps.out(`${result.name} (${result.kind}) — ${relFile}`);
@@ -164,6 +168,10 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   if (d.flowchart) {
     const f = d.flowchart;
     deps.out(`flowchart: start ${f.start ?? '-'}  depth ${f.depth}  functions ${f.functions}  nodes ${f.nodes}${f.truncated ? '  (truncated)' : ''}${f.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${f.error}` : ''}`);
+  }
+  if (d.sequence) {
+    const q = d.sequence, links = Object.entries(q.links).map(([k, n]) => `${k} ${n}`).join(', ');
+    deps.out(`sequence: start ${q.start ?? '-'}  depth ${q.depth}  participants ${q.participants}  functions ${q.functions}  messages ${q.messages}${links ? `  links ${links}` : ''}${q.truncated ? '  (truncated)' : ''}${q.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${q.error}` : ''}`);
   }
   if (d.layers) {
     const l = d.layers;

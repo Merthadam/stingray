@@ -157,8 +157,13 @@ export interface SequenceFragment {
   source: SourceRef | null;
 }
 
-/** A note on a lifeline after row `after` (-1 = before the first message), e.g. "error: HTTPException". */
-export interface SequenceNote { id: string; participant: string; after: number; text: string; kind: 'error' | 'info'; source: SourceRef | null }
+/** A note on a lifeline after row `after` (-1 = before the first message), e.g. "error: HTTPException". `fragment`/`arm`
+ * place it inside a fragment: the innermost SequenceFragment.id containing it and the arm (0 = the fragment's first arm,
+ * i = branches[i - 1]); absent/null = outside every fragment. An arm holding only notes has `first = fragment.last + 1`. */
+export interface SequenceNote {
+  id: string; participant: string; after: number; text: string; kind: 'error' | 'info'; source: SourceRef | null;
+  fragment?: string | null; arm?: number;
+}
 
 export interface SequenceData {
   participants: SequenceParticipant[];
