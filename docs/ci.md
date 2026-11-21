@@ -4,7 +4,7 @@ One pipeline, `.github/workflows/ci.yml`, runs on every PR, on pushes to `main`,
 
 | Stage | Job | Runner | Blocking | What |
 |---|---|---|---|---|
-| 1 | `check (ubuntu-latest)`, `check (macos-14)` | Linux, macOS arm64 | yes | `npm ci`, `npm run setup`, typecheck, build, `npm test` |
+| 1 | `check (ubuntu-latest)`, `check (macos-latest)` | Linux, macOS arm64 | yes | `npm ci`, `npm run setup`, typecheck, build, `npm test` |
 | 2a | `e2e (linux, docker test-env)` | Linux | yes* | Electron e2e suites in the Docker test env (`scripts/test-env.sh test`), then a smoke of the local-run env (`scripts/test-env.sh up`) |
 | 2b | `e2e (macos)` | macOS arm64 | no (for now) | all e2e suites (`npm run test:e2e`) |
 | 3 | `package (macos arm64)` | macOS arm64 | yes | `npm run package:mac`, signature check, packaged-launch smoke, zip + sha256 uploaded as the `stingray-mac-arm64` artifact |
