@@ -204,7 +204,7 @@ explain:
   identity:                        # node id, group id, alias (rule `aliases`, a table's name or model class) or symbol name
     text: Accept only genuine, unrevoked tokens of verified travelers   # 1-500 chars; replaces the docstring explanation
     fingerprint:                   # written by --restamp; do not edit by hand
-      services/auth/api.py::identity: 3f9a0c1d2b4e                          # <file>::<qualified name>: hash
+      services/auth/api.py::create_app::identity: 3f9a0c1d2b4e              # <file>::<qualified name>: hash
       services/auth/session_store.py::SessionStore::get_user: 0d44b9e1a2c7  # a function identity calls
   users:
     text: Everyone who signed up, including invited but unconfirmed users

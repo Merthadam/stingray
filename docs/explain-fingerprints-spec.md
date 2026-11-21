@@ -28,7 +28,7 @@ explain:
   identity:
     text: "Accept only genuine, unrevoked tokens of verified travelers"
     fingerprint:                                     # written by stingray-views check --restamp
-      services/auth/api.py::identity: 3f9a1c0d22be
+      services/auth/api.py::create_app::identity: 3f9a1c0d22be
       services/auth/jwt_verifier.py::JwtVerifier::verify: 81c2e0a7f310
       services/auth/session_store.py::SessionStore::get_user: 0d44b9e1a2c7
   users:                                             # a table: no symbol, hashed as drawn
@@ -48,7 +48,7 @@ For each node or group an entry resolves to (`explainTargets`, unchanged):
 
 1. **Target with a symbol** (`t.symbol`):
    - The target itself: key = its file and code-graph **qualified name**, which is file-relative
-     (`<file>::<qualified name>`, e.g. `services/auth/session_store.py::SessionStore::get_user`),
+     (`<file>::<qualified name>`, e.g. `services/auth/api.py::create_app::identity` for a function nested in `create_app`),
      value = `bodyFingerprint` of its lines (unchanged algorithm: lines `line..endLine`, trailing whitespace ignored).
    - Each **direct callee**: outgoing `calls` relations of the target's symbol id in the code graph (heuristic ones
      included, since dynamic-language method calls are often only heuristically resolved), mapped to symbols:
