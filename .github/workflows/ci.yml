@@ -71,7 +71,7 @@ jobs:
       - name: Tear down
         if: always()
         run: scripts/test-env.sh prune
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-linux-evidence
@@ -100,7 +100,7 @@ jobs:
           GIT_AUTHOR_EMAIL: ci@invalid
           GIT_COMMITTER_NAME: CI
           GIT_COMMITTER_EMAIL: ci@invalid
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-macos-evidence
@@ -137,14 +137,14 @@ jobs:
           ditto -c -k --keepParent release/Stingray.app "$name"
           shasum -a 256 "$name" | tee "$name.sha256"
           echo "name=$name" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: stingray-mac-arm64
           path: |
             ${{ steps.zip.outputs.name }}
             ${{ steps.zip.outputs.name }}.sha256
           retention-days: 30
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: package-launch-evidence
