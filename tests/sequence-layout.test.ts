@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SequenceData, SequenceMessage, SequenceParticipant } from '../src/views';
-import { SEQ, sequenceLayout } from '../src/views-ui/sequence-layout';
+import { SEQ, collapseParticipants, collapsible, sequenceLayout } from '../src/views-ui/sequence-layout';
 import { sequenceEvents } from '../src/sequence-events';
 import { formatText, type TextDiagramInput } from '../src/views-text';
 
@@ -156,4 +156,20 @@ test('sequenceLayout copes with no messages and unknown participants', () => {
   row = 0;
   const odd = sequenceLayout({ participants: [p('a', 'a', 0)], messages: [m('a', 'gone', 'call', 'x', 0)], fragments: [], notes: [] });
   assert.equal(odd.messages.length, 1);
+});
+
+test('collapseParticipants folds a participant into its callers: its calls start there, calls into it and back vanish', () => {
+  const data = login();
+  assert.deepEqual(['actor', 'web', 'auth', 'cog'].map(id => collapsible(data, id)), [false, false, true, true], 'only the actor calls web');
+  const arrows = (d: SequenceData) => d.messages.map(x => `${x.from}${x.kind === 'return' ? '-->' : '->'}${x.to}:${x.label}`);
+  const auth = collapseParticipants(data, new Set(['auth', 'web']));
+  assert.deepEqual(auth.participants.map(q => q.id), ['actor', 'web', 'cog']);
+  assert.deepEqual(arrows(auth), ['actor->web:click Sign in', 'web->web:submit', 'web->cog:initiate auth', 'cog-->web:tokens']);
+  assert.deepEqual(auth.fragments.map(f => [f.first, f.last, f.branches.map(b => b.first)]), [[2, 3, [4]]], 'the alt keeps its rows and the notes-only else');
+  assert.deepEqual(auth.notes.map(n => [n.participant, n.after, n.fragment, n.arm]), [['web', 3, 'f0', 1]]);
+  const cognito = collapseParticipants(data, new Set(['cog']));
+  assert.deepEqual(arrows(cognito).slice(3), ['auth->auth:get_current_user', 'auth-->web:response']);
+  assert.deepEqual(cognito.fragments, [], 'the alt lost its only messages');
+  assert.deepEqual(cognito.notes.map(n => [n.participant, n.after, n.fragment, n.arm]), [['auth', 3, null, undefined]]);
+  assert.equal(collapseParticipants(data, new Set(['web'])), data, 'nothing to fold');
 });

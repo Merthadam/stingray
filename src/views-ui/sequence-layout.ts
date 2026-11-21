@@ -158,3 +158,64 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
     messages, activations, fragments, notes,
   };
 }
+
+/** A participant can fold into its caller when another (non-actor) participant calls it. */
+export const collapsible = (data: SequenceData, id: string) => data.messages.some(m => m.to === id && m.from !== id && m.kind !== 'return'
+  && data.participants.find(p => p.id === m.from)?.kind !== 'actor');
+
+/** The diagram with `collapsed` participants folded into their callers' lifelines (spec: "collapse a participant"): the messages
+ * they send are drawn from the caller, calls between the two vanish (like `internal: collapse`), notes move with them.
+ * Fragments left without a message are dropped; their notes go to the nearest kept enclosing fragment. */
+export function collapseParticipants(data: SequenceData, collapsed: ReadonlySet<string>): SequenceData {
+  const folding = new Set([...collapsed].filter(id => collapsible(data, id)));
+  if (!folding.size) return data;
+  const actors = new Set(data.participants.filter(p => p.kind === 'actor').map(p => p.id));
+  // Per call level: the lifeline of the function running there and the one it is drawn on.
+  const actual: string[] = [], shown: string[] = [];
+  const messages: SequenceMessage[] = [], before: number[] = []; // before[row] = messages kept before that row
+  const noteOn = new Map<SequenceNote, string | null>();
+  const place = (row: number) => data.notes.filter(n => n.after === row).forEach(n => {
+    const i = actual.lastIndexOf(n.participant);
+    noteOn.set(n, i >= 0 ? shown[i] : folding.has(n.participant) ? null : n.participant);
+  });
+  place(-1);
+  data.messages.forEach((m, row) => {
+    before[row] = messages.length;
+    const L = m.level;
+    let from = m.from, to = m.to;
+    if (m.kind === 'return') {
+      if (actual[L + 1] === m.from) from = shown[L + 1];
+      if (actual[L] === m.to) to = shown[L];
+      actual.length = shown.length = L + 1;
+    } else if (actors.has(m.from)) {
+      actual.length = shown.length = 0; actual[L] = shown[L] = m.to; // the trigger enters the entry, which calls at the same level
+    } else {
+      if (actual[L] !== m.from) actual[L] = shown[L] = m.from;
+      actual.length = shown.length = L + 1;
+      from = shown[L];
+      actual[L + 1] = m.to; shown[L + 1] = to = folding.has(m.to) ? from : m.to;
+    }
+    // A call or return between a folded participant and its caller vanishes.
+    if (from !== to || (from === m.from && to === m.to)) messages.push({ ...m, id: `m${messages.length}`, from, to, kind: from === to && m.kind !== 'return' ? 'self' : m.kind });
+    place(row);
+  });
+  before[data.messages.length] = messages.length;
+  const after = (r: number) => before[Math.min(r + 1, data.messages.length)] - 1;
+  const moved = data.fragments.map(f => ({ ...f, first: before[Math.min(f.first, data.messages.length)], last: after(f.last),
+    branches: f.branches.map(b => ({ ...b, first: before[Math.min(b.first, data.messages.length)] })) }));
+  const fragments = moved.filter(f => f.first <= f.last);
+  const kept = new Set(fragments.map(f => f.id)), byId = new Map(moved.map(f => [f.id, f]));
+  const notes = data.notes.flatMap(n => {
+    const participant = noteOn.get(n);
+    if (!participant) return [];
+    let fragment = n.fragment ?? null, arm = n.arm;
+    if (fragment && !kept.has(fragment)) {
+      const at = byId.get(fragment)?.first ?? 0;
+      do fragment = byId.get(fragment)?.parent ?? null; while (fragment && !kept.has(fragment));
+      const f = fragment ? byId.get(fragment)! : null;
+      arm = f ? [f.first, ...f.branches.map(b => b.first)].reduce((a, first, i) => first <= at ? i : a, 0) : undefined;
+    }
+    return [{ ...n, participant, after: after(n.after), fragment, arm }];
+  });
+  return { participants: data.participants.filter(p => !folding.has(p.id)), messages, fragments, notes };
+}

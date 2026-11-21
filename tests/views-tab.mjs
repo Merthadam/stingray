@@ -184,6 +184,12 @@ try {
   await sequence.getByRole('button', { name: 'Participant service.py (app/service.py)' }).click();
   check('clicking a participant opens its messages in the inspector',
     (await sequence.getByRole('complementary', { name: 'Participant service.py' }).innerText()).includes('fetch account'));
+  await sequence.getByRole('button', { name: 'Participant repo.py (app/repo.py)' }).click();
+  await sequence.getByRole('button', { name: 'Fold into caller' }).click();
+  check('folding a participant draws its part on the caller lifeline', await sequence.getByRole('button', { name: /^Participant / }).count() === 3
+    && await sequence.getByRole('button', { name: /fetch account/ }).count() === 0);
+  await sequence.getByRole('button', { name: 'Unfold 1' }).click();
+  check('and unfolding brings it back', await sequence.getByRole('button', { name: /^Participant / }).count() === 4);
   await page.getByRole('button', { name: 'Show as text' }).click();
   check('a sequence view switches to the CLI text', (await page.getByLabel('Text diagram').innerText()).includes('service.py -> repo.py: fetch account'));
   await page.getByRole('button', { name: 'Show as diagram' }).click();
