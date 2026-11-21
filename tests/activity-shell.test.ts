@@ -1,4 +1,8 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { build } from 'esbuild';
+import { ActivityService } from '../electron/activity';
+import { claudeHookEvents } from '../electron/harnesses';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -8,15 +12,20 @@ import * as pty from 'node-pty';
 import { ActivityShell, shellQuote } from '../electron/activity-shell';
 
 const exec = promisify(execFile);
+const clientRoot = await mkdtemp('/tmp/stingray-shell-client-'), client = path.join(clientRoot, 'hook-client.cjs');
+await build({ entryPoints: ['agents/hook-client.ts'], bundle: true, platform: 'node', format: 'cjs', outfile: client, logLevel: 'silent' });
+after(() => rm(clientRoot, { recursive: true, force: true }));
 async function fixture(views = '') {
   const root = await mkdtemp('/tmp/stingray-shell-');
   const home = path.join(root, "home space ' quote"), bin = path.join(root, 'real bin'), bridge = path.join(root, 'bridge');
   await Promise.all([mkdir(home), mkdir(bin), mkdir(bridge)]);
   const record = path.join(root, 'args.json');
-  await writeFile(path.join(bin, 'pi'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify({args:process.argv.slice(2), marker:process.env.MARKER, run:process.env.STINGRAY_PI_RUN, zdot:process.env.ZDOTDIR}));`, { mode: 0o700 });
+  for (const cmd of ['pi', 'claude', 'codex']) await writeFile(path.join(bin, cmd), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify({cmd:${JSON.stringify(cmd)}, args:process.argv.slice(2), marker:process.env.MARKER, run:process.env.STINGRAY_PI_RUN, zdot:process.env.ZDOTDIR, agentPid:process.env.STINGRAY_AGENT_PID, pid:String(process.pid)}));`, { mode: 0o700 });
   const extension = path.join(root, "extension '; echo BAD; '.js");
-  const shell = new ActivityShell(); await shell.prepare(bridge, { extension, hookClient: path.join(root, 'hook-client.cjs'), execPath: process.execPath, endpoint: path.join(bridge, 'events.sock') }, views && path.join(root, views));
-  const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TERM: 'xterm-256color', STINGRAY_PI_RUN: 'inherited-parent', STINGRAY_PI_PID: '1' };
+  const service = new ActivityService(() => {}); await service.start();
+  const binding = service.bind(randomUUID(), randomUUID());
+  const shell = new ActivityShell(); await shell.prepare(bridge, { extension, hookClient: client, execPath: process.execPath, endpoint: service.endpoint }, views && path.join(root, views));
+  const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TERM: 'xterm-256color', STINGRAY_PI_RUN: 'inherited-parent', STINGRAY_PI_PID: '1', ...binding };
   const run = (command: string, tty = true): Promise<{ stdout: string }> => {
     const options = { env: { ...env, ...shell.environment('/bin/zsh', env) }, cwd: root };
     if (!tty) return exec('/bin/zsh', ['-lic', command], { ...options, timeout: 10000 });
@@ -29,7 +38,7 @@ async function fixture(views = '') {
     });
   };
   const args = async () => JSON.parse(await readFile(record, 'utf8'));
-  return { root, home, bin, env, extension, shell, run, args, close: () => rm(root, { recursive: true, force: true }) };
+  return { root, home, bin, env, extension, shell, service, run, args, close: async () => { await service.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
 test('zsh typed Pi is additive, quoted, invocation-time PATH resolved; startup ordering preserved', async () => {
@@ -93,4 +102,58 @@ test('the stingray-views bin stays first on PATH after rc files rebuild it, only
       assert.ok(stdout.includes(`PATH=${expected}\r`), stdout);
     } finally { await f.close(); }
   }
+});
+
+test('claude wrapper adds the app-owned --settings hooks file and its own pid; passthroughs are untouched', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.home, '.zshrc'), `export PATH=${shellQuote(f.env.PATH)}\n`);
+    const settings = path.join(path.dirname(f.shell.bin), 'claude-settings.json');
+    await f.run(`claude 'prompt with $literal'`);
+    const actual = await f.args();
+    assert.deepEqual([actual.cmd, actual.args], ['claude', ['--settings', settings, 'prompt with $literal']]);
+    assert.equal(actual.agentPid, actual.pid, 'exec keeps the wrapper pid for liveness');
+    const hooks = JSON.parse(await readFile(settings, 'utf8')).hooks;
+    assert.deepEqual(Object.keys(hooks), [...claudeHookEvents]);
+    for (const event of claudeHookEvents) {
+      const [{ hooks: [hook] }] = hooks[event];
+      assert.equal(hook.type, 'command'); assert.equal(hook.timeout, 5);
+      assert.equal(hook.command, ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, client, 'claude', event].map(shellQuote).join(' '));
+    }
+    for (const args of [['--help'], ['-v'], ['-p', 'x'], ['--settings', 'mine.json'], ['--settings=mine.json'], ['--bare'], ['mcp', 'list'], ['config'], ['update'], ['doctor']]) {
+      await f.run('claude ' + args.map(shellQuote).join(' ')); assert.deepEqual((await f.args()).args, args);
+    }
+    await f.run('claude no-tty', false); assert.deepEqual((await f.args()).args, ['no-tty']);
+    const result = await f.run(`export PATH=${shellQuote(f.shell.bin + ':/usr/bin:/bin')}; claude; print status=$?`);
+    assert.match(result.stdout, /Claude Code is not installed/); assert.match(result.stdout, /status=127/);
+  } finally { await f.close(); }
+});
+
+test('codex wrapper attaches notify per invocation, reports start, and never overrides a user notify', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.home, '.zshrc'), `export PATH=${shellQuote(f.env.PATH)}\n`);
+    await f.run(`codex resume --last`);
+    const actual = await f.args();
+    assert.equal(actual.args[0], '-c'); assert.deepEqual(actual.args.slice(2), ['resume', '--last']);
+    // The -c value is a TOML array of basic strings; these are JSON-compatible.
+    const notify = JSON.parse(actual.args[1].replace(/^notify=/, ''));
+    assert.deepEqual(notify, ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, client, 'codex', 'notify', f.service.endpoint, f.env.STINGRAY_ACTIVITY_TOKEN, actual.pid]);
+    // The wrapper's background start event registers the run (by pid) without claiming any phase.
+    await (async () => { for (let i = 0; i < 200 && !f.service.snapshot().agents.length; i++) await new Promise(r => setTimeout(r, 10)); })();
+    const [codex] = f.service.snapshot().agents;
+    assert.deepEqual([codex?.harness, codex?.phase], ['codex', 'unknown']);
+    // Running the notify argv exactly as Codex would (JSON appended) marks the completion for review.
+    await exec(notify[0], [...notify.slice(1), JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 't', 'last-assistant-message': 'PRIVATE' })]);
+    assert.ok(f.service.snapshot().agents[0].reviewRevision);
+    for (const args of [['--help'], ['-V'], ['exec', 'x'], ['e', 'x'], ['review'], ['login'], ['mcp', 'list'], ['features', 'list'], ['-c', 'notify=["x"]'], ['--remote', 'ws://h:1']]) {
+      await f.run('codex ' + args.map(shellQuote).join(' ')); assert.deepEqual((await f.args()).args, args);
+    }
+    await f.run('codex no-tty', false); assert.deepEqual((await f.args()).args, ['no-tty']);
+    await mkdir(path.join(f.home, '.codex'));
+    await writeFile(path.join(f.home, '.codex', 'config.toml'), 'model = "x"\n  notify = ["my-notifier"]\n');
+    await f.run('codex'); assert.deepEqual((await f.args()).args, [], 'a user notify is never replaced');
+    await rm(path.join(f.home, '.codex'), { recursive: true });
+    await f.run('export STINGRAY_ACTIVITY_TOKEN=bad; codex'); assert.deepEqual((await f.args()).args, [], 'no valid binding: unattached');
+  } finally { await f.close(); }
 });

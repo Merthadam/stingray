@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { createConnection, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { ActivityService } from '../electron/activity';
-import { activityLabel, aggregateActivity, newerActivity, type AgentActivity } from '../src/activity';
+import { activityLabel, aggregateActivity, harnessLabel, newerActivity, type AgentActivity } from '../src/activity';
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => unknown) { for (let i = 0; i < 200; i++) { if (fn()) return; await pause(); } assert.fail('Timed out'); }
@@ -125,4 +126,88 @@ test('bounded sessions, sockets, rates, lease and unsupported version are explic
     const sockets = await Promise.all(Array.from({ length: 57 }, () => g.open()));
     await until(() => sockets.some(s => s.destroyed));
   } finally { await g.close(); }
+});
+
+const hookEvent = (token: string, overrides = {}) => ({ type: 'event', v: 2, token, harness: 'claude', session: 'session-1', pid: process.pid, at: Date.now(), phase: 'working', completed: false, ended: false, ...overrides });
+async function hook(f: Awaited<ReturnType<typeof fixture>>, value: unknown) {
+  const s = await f.open(); f.send(s, value); await until(() => s.destroyed);
+}
+
+test('hello v2 names the harness; v1 stays Pi; only Pi streams over a socket', async () => {
+  const f = await fixture();
+  try {
+    const s = await f.open(); f.send(s, f.hello({ v: 2, harness: 'pi' })); f.send(s, state(1, 'working'));
+    await until(() => f.service.snapshot().agents[0]?.phase === 'working');
+    assert.equal(f.service.snapshot().agents[0].harness, 'pi');
+    for (const value of [f.hello({ v: 2, harness: 'claude' }), f.hello({ v: 2 }), f.hello({ harness: 'pi' })]) {
+      const bad = await f.open(); f.send(bad, value); await until(() => bad.destroyed);
+    }
+    assert.equal(f.service.snapshot().agents.length, 1);
+  } finally { await f.close(); }
+});
+
+test('hook-style one-shot events: per-session identity, ordering, review, clean end', async () => {
+  const f = await fixture();
+  try {
+    const token = f.env.STINGRAY_ACTIVITY_TOKEN, t0 = Date.now();
+    await hook(f, hookEvent(token, { at: t0, phase: 'idle' }));
+    await until(() => f.service.snapshot().agents[0]?.phase === 'idle');
+    const a = f.service.snapshot().agents[0];
+    assert.deepEqual([a.harness, a.connection, a.terminalId, a.workspaceId], ['claude', 'connected', f.terminal, f.workspace]);
+    await hook(f, hookEvent(token, { at: t0 + 2, phase: 'waiting' }));
+    await hook(f, hookEvent(token, { at: t0 + 1, phase: 'working' })); // a racing older hook is ignored
+    await until(() => f.service.snapshot().agents[0].phase === 'waiting'); await pause(30);
+    assert.equal(f.service.snapshot().agents[0].phase, 'waiting');
+    const revision = f.service.snapshot().revision;
+    await hook(f, hookEvent(token, { at: t0 + 3, phase: 'waiting' }));
+    assert.equal(f.service.snapshot().revision, revision, 'repeated phases do not rerender');
+    await hook(f, hookEvent(token, { at: t0 + 4, phase: 'idle', completed: true }));
+    await until(() => f.service.snapshot().agents[0].reviewRevision);
+    // A second session (e.g. after /clear) is a separate entry; codex sessions never alias claude ones.
+    await hook(f, hookEvent(token, { session: 'session-2', at: t0 + 5 }));
+    await hook(f, hookEvent(token, { harness: 'codex', at: t0 + 5, phase: 'unknown' }));
+    await until(() => f.service.snapshot().agents.length === 3);
+    // Clean end: removed without unseen review, kept as disconnected with it.
+    await hook(f, hookEvent(token, { session: 'session-2', at: t0 + 6, ended: true }));
+    await hook(f, hookEvent(token, { at: t0 + 6, ended: true }));
+    await until(() => f.service.snapshot().agents.length === 2);
+    const ended = f.service.snapshot().agents.find(x => x.harness === 'claude')!;
+    assert.equal(ended.connection, 'disconnected'); assert.ok(ended.reviewRevision);
+    assert.ok(!JSON.stringify(f.service.snapshot()).includes(token));
+    assert.ok(!JSON.stringify(f.service.snapshot()).includes('session-1'));
+  } finally { await f.close(); }
+});
+
+test('hook events fail closed on bad tokens, payload fields and identities', async () => {
+  const f = await fixture();
+  try {
+    const token = f.env.STINGRAY_ACTIVITY_TOKEN;
+    for (const value of [hookEvent('0'.repeat(64)), hookEvent(token, { prompt: 'private' }), hookEvent(token, { harness: 'pi' }),
+      hookEvent(token, { session: '../x' }), hookEvent(token, { session: 'x'.repeat(129) }), hookEvent(token, { pid: 1 }), hookEvent(token, { phase: 'done' }), hookEvent(token, { v: 1 })]) {
+      await hook(f, value);
+    }
+    await hook(f, hookEvent(token, { ended: true })); // an end for an unknown session creates nothing
+    assert.equal(f.service.snapshot().agents.length, 0);
+    f.service.unbind(f.terminal, true); await hook(f, hookEvent(token));
+    assert.equal(f.service.snapshot().agents.length, 0);
+  } finally { await f.close(); }
+});
+
+test('hook-reported agents disconnect when their process exits, not on socket close', async () => {
+  const f = await fixture(50);
+  try {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+    await hook(f, hookEvent(f.env.STINGRAY_ACTIVITY_TOKEN, { pid: child.pid }));
+    await pause(150);
+    assert.equal(f.service.snapshot().agents[0].connection, 'connected');
+    child.kill(); await until(() => f.service.snapshot().agents[0].connection === 'disconnected');
+  } finally { await f.close(); }
+});
+
+test('sidebar harness label names a single harness, else Agents', () => {
+  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'claude', connection: 'connected', phase: 'idle', reviewRevision: null };
+  assert.equal(harnessLabel([base]), 'Claude Code');
+  assert.equal(harnessLabel([{ ...base, harness: 'codex' }]), 'Codex');
+  assert.equal(harnessLabel([base, { ...base, harness: 'pi' }]), 'Agents');
+  assert.equal(harnessLabel([]), 'Agents');
 });
