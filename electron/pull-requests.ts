@@ -12,8 +12,8 @@ const run: PRRunner = async (command, args, cwd) => {
   const candidates = command === 'gh' ? ['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh'] : ['git'];
   for (const executable of candidates) {
     try {
-      // The repository PR list includes full REST objects (up to ~2 MB for 100 PRs).
-      return (await exec(executable, args, { cwd, env, timeout: 15000, maxBuffer: 8 * 1024 * 1024 })).stdout;
+      // PR lists are trimmed with --jq (~20 KB for 100 PRs plus headers).
+      return (await exec(executable, args, { cwd, env, timeout: 15000, maxBuffer: 1024 * 1024 })).stdout;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || executable === candidates.at(-1)) throw error;
     }
@@ -59,9 +59,14 @@ export function selectPullRequest(output: string, repository: string, branch: st
 }
 
 // One conditional REST request per repository: the newest 100 PRs of any state, matched to branches locally.
-export const pullsPath = (repository: string) => `repos/${repository}/pulls?state=all&sort=updated&direction=desc&per_page=100`;
+// Repositories with a full page also get a second one for open PRs (see resolve).
+export type PullsState = 'all' | 'open';
+export const pullsPath = (repository: string, state: PullsState = 'all') => `repos/${repository}/pulls?state=${state}&sort=updated&direction=desc&per_page=100`;
+// Keeps only the fields below so 100 PRs with long bodies stay small. gh 2.103 still prints --include headers with --jq;
+// on 304 it exits 1, prints the headers to stdout and reports "unexpected end of JSON input" on stderr.
+export const pullsJq = '[.[]|{number,state,draft,merged_at,updated_at,head:{ref:.head.ref,repo:(.head.repo|if .==null then null else {full_name} end)}}]';
 const pullSchema = z.object({
-  number: z.number().int().positive().safe(), state: z.enum(['open', 'closed']), draft: z.boolean().optional(),
+  number: z.number().int().positive().safe(), state: z.enum(['open', 'closed']), draft: z.boolean().nullish(),
   merged_at: z.string().nullable(), updated_at: z.string().datetime(),
   head: z.object({ ref: z.string().max(1024), repo: z.object({ full_name: z.string().max(400) }).nullable() }),
 });
@@ -86,15 +91,16 @@ export const matchPull = (pulls: RepoPull[], repository: string, branch: string)
   choose(pulls.filter(pull => pull.head === `${repository.toLowerCase()}:${branch}`));
 
 type RepoList = { pulls: RepoPull[]; etag: string; checkedAt: number };
+type ListResult = RepoList | { message: string };
 const lookupFailed = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT' ?
   'GitHub CLI (gh) was not found. Install it and sign in outside Stingray, then retry.' :
   'PR lookup failed. Check gh authentication, repository access and network, then retry. No login or repository changes were attempted.';
 
 export class PullRequestService {
-  private cache = new Map<string, { value: PullRequestStatus; until: number; retryAfter: number }>();
+  private cache = new Map<string, { value: PullRequestStatus; refs: string; until: number }>();
   private pending = new Map<string, Promise<PullRequestStatus>>();
-  private lists = new Map<string, { list?: RepoList; result: RepoList | { message: string }; until: number; retryAfter: number }>();
-  private listsPending = new Map<string, Promise<RepoList | { message: string }>>();
+  private lists = new Map<string, { list?: RepoList; result: ListResult; until: number; retryAfter: number }>();
+  private listsPending = new Map<string, Promise<ListResult>>();
   /** Called when a repository list changed (new 200 response), so every branch of it can be re-matched. */
   onListChange?: () => void;
   constructor(private execute: PRRunner = run, private now = Date.now) {}
@@ -114,22 +120,27 @@ export class PullRequestService {
     if (remote === null) return { kind: 'unsupported', branch, message: 'No readable origin remote. PR status requires a github.com origin.' };
     const repository = githubRepository(remote);
     if (!repository) return { kind: 'unsupported', branch, message: 'PR status supports standard github.com origin URLs only. Other hosts, SSH aliases and credential-bearing URLs are not queried.' };
-    const list = await this.repoList(cwd, repository, refresh);
+    const list = await this.repoList(cwd, repository, 'all', refresh);
     if ('message' in list) return { kind: 'unavailable', branch, message: list.message };
     const pr = matchPull(list.pulls, repository, branch);
     if (pr) return { kind: 'pr', branch, repository, checkedAt: list.checkedAt, ...pr };
-    // A full page cannot establish absence: older PRs for this branch need their own lookup.
-    if (list.pulls.length === 100) return this.branchStatus(cwd, repository, branch, refresh);
-    return { kind: 'none', branch, repository, checkedAt: list.checkedAt };
+    if (list.pulls.length < 100) return { kind: 'none', branch, repository, checkedAt: list.checkedAt };
+    // A full page cannot establish absence. Open PRs come from a second shared list; only older closed/merged
+    // history needs a per-branch lookup, cached for 10 minutes (any change to such a PR moves it into the lists).
+    const open = await this.repoList(cwd, repository, 'open', refresh);
+    if ('message' in open) return { kind: 'unavailable', branch, message: open.message };
+    const openPr = matchPull(open.pulls, repository, branch);
+    if (openPr) return { kind: 'pr', branch, repository, checkedAt: open.checkedAt, ...openPr };
+    return this.branchStatus(cwd, repository, branch);
   }
 
-  private repoList(cwd: string, repository: string, refresh: boolean) {
-    const key = repository.toLowerCase();
+  private repoList(cwd: string, repository: string, state: PullsState, refresh: boolean) {
+    const key = `${state}:${repository.toLowerCase()}`;
     const cached = this.lists.get(key);
     if (cached && this.now() < (refresh ? cached.retryAfter : cached.until)) return Promise.resolve(cached.result);
     const pending = this.listsPending.get(key);
     if (pending) return pending;
-    const request = this.fetchList(cwd, repository, cached?.list).then(result => {
+    const request = this.fetchList(cwd, repository, state, cached?.list).then(result => {
       // Failures keep the last list only for the next conditional request, never as a displayed result.
       const list = 'pulls' in result ? result : this.lists.get(key)?.list;
       this.lists.delete(key);
@@ -142,11 +153,11 @@ export class PullRequestService {
     return request;
   }
 
-  private async fetchList(cwd: string, repository: string, previous?: RepoList): Promise<RepoList | { message: string }> {
+  private async fetchList(cwd: string, repository: string, state: PullsState, previous?: RepoList): Promise<ListResult> {
     let output: string;
     try {
-      output = await this.execute('gh', ['api', '--method', 'GET', '--include', '-H', 'Accept: application/vnd.github+json',
-        ...(previous?.etag ? ['-H', `If-None-Match: ${previous.etag}`] : []), pullsPath(repository)], cwd);
+      output = await this.execute('gh', ['api', '--method', 'GET', '--include', '--jq', pullsJq, '-H', 'Accept: application/vnd.github+json',
+        ...(previous?.etag ? ['-H', `If-None-Match: ${previous.etag}`] : []), pullsPath(repository, state)], cwd);
     } catch (error) {
       // gh exits non-zero for 304 Not Modified but still prints the response headers.
       const stdout = (error as { stdout?: unknown }).stdout;
@@ -163,16 +174,19 @@ export class PullRequestService {
     } catch (error) { return { message: lookupFailed(error) }; }
   }
 
-  private branchStatus(cwd: string, repository: string, branch: string, refresh: boolean): Promise<PullRequestStatus> {
+  /** Branch history beyond the shared lists. Cached results are dropped when the local or origin branch ref moves. */
+  private async branchStatus(cwd: string, repository: string, branch: string): Promise<PullRequestStatus> {
     const key = JSON.stringify([repository.toLowerCase(), branch]);
+    const refs = await this.execute('git', ['-c', 'core.hooksPath=/dev/null', 'for-each-ref', '--format=%(refname) %(objectname)',
+      `refs/heads/${branch}`, `refs/remotes/origin/${branch}`], cwd).catch(() => '');
     const cached = this.cache.get(key);
-    if (cached && this.now() < (refresh ? cached.retryAfter : cached.until)) return Promise.resolve(cached.value);
+    if (cached && cached.refs === refs && this.now() < cached.until) return cached.value;
     const pending = this.pending.get(key);
     if (pending) return pending;
     const request = this.lookup(cwd, repository, branch).then(value => {
       // Bounded memory; failures have a short cooldown and never reuse stale success.
       this.cache.delete(key);
-      this.cache.set(key, { value, until: this.now() + (value.kind === 'unavailable' ? 10000 : 60000), retryAfter: this.now() + 5000 });
+      this.cache.set(key, { value, refs, until: this.now() + (value.kind === 'unavailable' ? 10000 : 600000) });
       if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value!);
       return value;
     }).finally(() => { this.pending.delete(key); });

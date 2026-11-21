@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PullRequestService, githubRepository, selectPullRequest, prFields, parsePullsResponse, matchPull, pullsPath } from '../electron/pull-requests';
+import { PullRequestService, githubRepository, selectPullRequest, prFields, parsePullsResponse, matchPull, pullsPath, pullsJq } from '../electron/pull-requests';
 
 const row = (overrides = {}) => ({ number: 42, state: 'OPEN', isDraft: false, headRefName: 'feature/ui',
   headRepository: { name: 'app' }, headRepositoryOwner: { login: 'owner' }, updatedAt: '2026-11-06T20:00:00Z', ...overrides });
@@ -36,10 +36,10 @@ test('invalid, oversized and truncated PR results cannot be represented as no PR
 const pull = (overrides = {}) => ({ number: 42, state: 'open', draft: false, merged_at: null, updated_at: '2026-11-06T20:00:00Z',
   head: { ref: 'feature/ui', repo: { full_name: 'owner/app' } }, title: 'ignored', body: 'ignored', ...overrides });
 const response = (pulls: unknown[], etag = '"v1"') => `HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nEtag: ${etag}\r\n\r\n${JSON.stringify(pulls)}`;
-// gh api exits non-zero on 304 but still prints the headers.
-const notModified = () => Object.assign(Error('gh: HTTP 304'), { stdout: 'HTTP/2.0 304 Not Modified\r\nEtag: "v1"\r\n\r\n' });
-const apiArgs = (etag?: string) => ['api', '--method', 'GET', '--include', '-H', 'Accept: application/vnd.github+json',
-  ...(etag ? ['-H', `If-None-Match: ${etag}`] : []), pullsPath('owner/app')];
+// gh 2.103 `api --include --jq` on 304: exit 1, headers on stdout, "unexpected end of JSON input" on stderr.
+const notModified = () => Object.assign(Error('unexpected end of JSON input'), { stdout: 'HTTP/2.0 304 Not Modified\r\nCache-Control: private, max-age=60, s-maxage=60\r\nEtag: "v1"\r\nX-Xss-Protection: 0\r\n\r\n' });
+const apiArgs = (etag?: string, state: 'all' | 'open' = 'all') => ['api', '--method', 'GET', '--include', '--jq', pullsJq, '-H', 'Accept: application/vnd.github+json',
+  ...(etag ? ['-H', `If-None-Match: ${etag}`] : []), pullsPath('owner/app', state)];
 
 test('repository PR list parses REST states, keeps only safe ETags and rejects invalid responses', () => {
   const parsed = parsePullsResponse(response([pull(), pull({ number: 2, draft: true }), pull({ number: 3, state: 'closed', merged_at: '2026-11-06T20:00:00Z' }),
@@ -48,6 +48,7 @@ test('repository PR list parses REST states, keeps only safe ETags and rejects i
   assert.deepEqual(parsed.pulls!.map(p => [p.number, p.state, p.head]), [[42, 'open', 'owner/app:feature/ui'], [2, 'draft', 'owner/app:feature/ui'],
     [3, 'merged', 'owner/app:feature/ui'], [4, 'closed', 'owner/app:feature/ui'], [5, 'open', ':x']]);
   assert.equal(parsePullsResponse(response([], 'unquoted')).etag, '');
+  assert.equal(parsePullsResponse(response([pull({ draft: null })])).pulls![0].state, 'open', '--jq {draft} yields null when absent');
   assert.deepEqual(parsePullsResponse(notModified().stdout), { status: 304, etag: '"v1"', pulls: null });
   for (const value of ['', 'not http', response([pull({ state: 'unknown' })]), 'HTTP/2.0 200 OK\r\n\r\n{}', response(Array(101).fill(pull()))]) {
     assert.throws(() => parsePullsResponse(value), value.slice(0, 40));
@@ -84,20 +85,33 @@ test('service makes one conditional request per repository for all branches, the
   now += 10000; await service.resolve('/repo', 'other', 'https://github.com/owner/app'); assert.equal(gh().length, 2);
   now += 6000; await service.resolve('/repo', 'other', 'https://github.com/owner/app'); assert.equal(gh().length, 3);
 });
-test('a full repository page falls back to a per-branch lookup instead of claiming no PR', async () => {
+test('a full repository page uses a shared open list, then a cached per-branch lookup instead of claiming no PR', async () => {
+  let now = 1000, head = 'abc';
   const calls: string[][] = [];
   const service = new PullRequestService(async (command, args) => {
     calls.push(args);
+    if (args.includes('for-each-ref')) return `refs/heads/${args.at(-2)!.slice(11)} ${head}\n`;
+    if (args[0] === 'api' && calls.filter(c => c[0] === 'api').length > 2) throw notModified();
+    if (args.at(-1) === pullsPath('owner/app', 'open')) return response([pull({ number: 500, head: { ref: 'fresh', repo: { full_name: 'owner/app' } } })]);
     if (args[0] === 'api') return response(Array.from({ length: 100 }, (_, i) => pull({ number: i + 1, head: { ref: 'b' + i, repo: { full_name: 'owner/app' } } })));
-    return output(row({ number: 7, state: 'MERGED' }));
-  });
-  const listed = await service.resolve('/repo', 'b5', 'https://github.com/owner/app');
-  assert.ok(listed.kind === 'pr' && listed.number === 6 && listed.state === 'open');
-  const old = await service.resolve('/repo', 'feature/ui', 'https://github.com/owner/app');
-  assert.ok(old.kind === 'pr' && old.number === 7 && old.state === 'merged');
-  assert.deepEqual(calls.map(args => args[0]), ['api', 'pr']);
-  assert.deepEqual(calls[1], ['pr', 'list', '--repo', 'github.com/owner/app', '--head', 'feature/ui', '--state', 'all', '--limit', '100', '--json', prFields]);
+    return args.includes('old') ? output(row({ number: 7, state: 'MERGED', headRefName: 'old' })) : '[]';
+  }, () => now);
+  const resolveAll = () => Promise.all(['b5', 'fresh', 'old', 'w1', 'w2', 'w3'].map(branch => service.resolve('/repo', branch, 'https://github.com/owner/app')));
+  const kinds = (results: Awaited<ReturnType<typeof resolveAll>>) => results.map(r => r.kind === 'pr' ? `${r.number}:${r.state}` : r.kind);
+  assert.deepEqual(kinds(await resolveAll()), ['6:open', '500:open', '7:merged', 'none', 'none', 'none']);
+  const gh = () => calls.filter(args => args[0] === 'api' || args[0] === 'pr');
+  assert.deepEqual(gh().filter(args => args[0] === 'api'), [apiArgs(), apiArgs(undefined, 'open')]);
+  assert.deepEqual(gh().find(args => args.includes('old')), ['pr', 'list', '--repo', 'github.com/owner/app', '--head', 'old', '--state', 'all', '--limit', '100', '--json', prFields]);
+  assert.equal(gh().length, 6, 'two shared lists + one lookup per branch missing from them');
   assert.ok(!prFields.includes('body') && !prFields.includes('title') && !prFields.includes('files'));
+  // Later polls (even forced): only the two conditional list requests until 10 minutes pass or a branch ref moves.
+  for (let i = 0; i < 3; i++) { now += 20000; assert.deepEqual(kinds(await resolveAll()), ['6:open', '500:open', '7:merged', 'none', 'none', 'none']); }
+  now += 6000; await service.resolve('/repo', 'w1', 'https://github.com/owner/app', true);
+  assert.equal(gh().filter(args => args[0] === 'pr').length, 4);
+  head = 'def'; now += 20000; await resolveAll();
+  assert.equal(gh().filter(args => args[0] === 'pr').length, 8, 'moved refs re-query branch history');
+  now += 600000; head = 'def'; await resolveAll();
+  assert.equal(gh().filter(args => args[0] === 'pr').length, 12, 'history expires after 10 minutes');
 });
 test('missing Git, detached HEAD, absent and unsupported origins never make GitHub requests', async () => {
   for (const mode of ['git-fails', 'detached', 'no-remote', 'unsupported']) {
