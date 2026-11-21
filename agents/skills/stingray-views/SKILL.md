@@ -81,7 +81,14 @@ Pick the view `kind` listed for the set; narrow with `scope`, add inline `rules`
 | `alembic` | timeline | one node per `**/versions/*.py` migration (label `rev: message`, alias = revision id), `down_revision -> revision` edges (merge tuples too; `down_revision = None` is the start), `op.*` table operations inside `upgrade()` as fields |
 | `langgraph` | flow | per `StateGraph(...)` variable: `add_node` steps (handler in subtitle/detail), `add_edge`, `add_conditional_edges` (dashed, labelled by path-map key; dict or list path maps), `set_entry_point`/`set_finish_point`, START/END with start/end roles |
 | `terraform` (preview) | graph | resources, `data.*`, `module.*`, `output.*` by address, grouped by file; edges for references in attributes (incl. `depends_on`, interpolations, lists, objects, nested blocks up to 2 levels) |
-| `cdk` (preview, TypeScript) | graph | stacks (classes extending `*Stack`), `new X(this, 'Id', ...)` constructs grouped by stack, `grant*` edges (grantee -> resource), constructs passed as props (dashed), `addDependency`; `props.x` links to a `this.x = new ...` construct by property name (dashed heuristic) |
+| `cdk` (preview, TypeScript) | graph | stacks (classes extending `*Stack`), `new X(this, 'Id', ...)` constructs grouped by stack, `grant*` edges (grantee -> resource), constructs passed as props (dashed), `addDependency`; `props.x` links to a `this.x = new ...` construct by property name (dashed heuristic); a construct's subtitle is its constructor as written (`s3.Bucket`) |
+
+`terraform` and `cdk` nodes are drawn like AWS/Azure architecture diagrams: each resource/data source (Terraform, by
+type: `aws_*`, `azurerm_*`/`azuread_*`, `google_*`) and construct/stack (CDK, by class and module) carries its cloud
+`service` (official icon, name, category, short description, docs link; catalog in `src/infra/catalog.ts`), and file or
+stack groups whose resources are all of one cloud become that cloud's group box. Unknown types of those providers get a
+generic service, unknown CDK classes a "CDK construct"; modules, outputs and other providers stay plain cards. `explain:`
+entries still add their own text next to the service description.
 
 ```yaml
 version: 1
