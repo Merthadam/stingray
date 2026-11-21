@@ -16,7 +16,7 @@ import { Inspector } from './Inspector';
 const nodeTypes = { step: FlowNode, chart: FlowchartNode, frame: FlowGroup };
 const edgeTypes = { transition: FlowEdge };
 const EDGE_COLOR = '#a28b78';
-type Selection = { kind: 'node' | 'edge'; id: string } | null;
+type Selection = { kind: 'node' | 'edge' | 'group'; id: string } | null;
 
 export function FlowDiagram(props: ErDiagramProps) {
   return <ReactFlowProvider><Diagram {...props} /></ReactFlowProvider>;
@@ -59,7 +59,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
-      data: { label: f.group.label, onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
+      data: { label: f.group.label, explanation: f.group.explanation, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1,
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
@@ -103,6 +103,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   };
   const node = selected?.kind === 'node' ? byId.get(selected.id) : undefined;
   const edge = selected?.kind === 'edge' ? result.edges.find(e => e.id === selected.id) : undefined;
+  const group = selected?.kind === 'group' ? result.groups.find(g => g.id === selected.id) : undefined;
   return <div className="er-diagram flow-diagram" data-testid="flow-diagram" onKeyDown={e => { if (e.key === 'Escape') setSelected(null); }}>
     <div className="er-toolbar" role="toolbar" aria-label="Diagram">
       <span className="er-count">{result.nodes.length} nodes · {result.edges.length} transitions</span>
@@ -136,6 +137,13 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
           <button aria-label="Open transition in editor" onClick={() => onOpenSource(edge.source!.file, edge.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
         <h4>Steps</h4>
         {[edge.from, edge.to].map((id, i) => <button key={i} className="er-relation" onClick={() => focusNode(id)}>{i === 0 ? 'From' : 'To'}: {byId.get(id)?.label}</button>)}
+      </aside>}
+      {group && <aside className="er-inspector" aria-label={`Function ${group.label}`}>
+        <header><div><strong>{group.label}</strong><span>expanded call</span></div>
+          <button className="icon" aria-label="Close inspector" onClick={() => setSelected(null)}><X size={14} /></button></header>
+        {group.source && <div className="er-inspector-source"><code title={`${group.source.file}:${group.source.line}`}>{group.source.file}:{group.source.line}</code>
+          <button aria-label="Open function in editor" onClick={() => onOpenSource(group.source!.file, group.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
+        {group.explanation && <p className="flow-inspector-explanation">{group.explanation}</p>}
       </aside>}
     </div>
   </div>;

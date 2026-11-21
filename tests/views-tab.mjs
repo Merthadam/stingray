@@ -35,7 +35,7 @@ await put('app/models.py', models);
 await put('agent/graph/builder.py', await readFile(fileURLToPath(new URL('./fixtures/views/langgraph/agent/graph/builder.py', import.meta.url)), 'utf8'));
 await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind: flow\nuse: [langgraph]\n');
 await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: graph\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
-await put('app/auth.py', 'def check_password(user, password):\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
+await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
   + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
@@ -87,6 +87,8 @@ try {
   check('flowchart draws pills, a decision diamond and a call box with its hidden steps',
     await chart.locator('.flow-diamond').count() === 1 && await chart.locator('.flow-pill').count() === 3
     && (await chart.locator('.flow-chart-call').innerText()).includes('+3 steps'));
+  check('a call box shows its callee docstring summary as a visible explanation',
+    await chart.locator('.flow-chart-call .flow-explanation').innerText() === 'Reject inactive users, then verify the password.');
   check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
   const depth = page.getByRole('slider', { name: 'Flowchart depth' });
@@ -96,6 +98,9 @@ try {
   await frame.waitFor();
   check('raising the depth expands the callee into a frame with its own steps', await chart.locator('.flow-diamond').count() === 2
     && await chart.locator('.flow-pill.error').count() === 1 && await chart.locator('.flow-chart-call').count() === 0);
+  await chart.getByRole('button', { name: 'Explanation of check_password: Reject inactive users, then verify the password.' }).click();
+  check('the frame explanation opens the full text in the inspector',
+    (await chart.getByRole('complementary', { name: 'Function check_password' }).innerText()).includes('Reject inactive users, then verify the password.'));
   const saveAs = chart.getByRole('button', { name: 'Save as view' });
   check('save as view is off while the depth is overridden', await saveAs.isDisabled());
   await depth.fill('0');
