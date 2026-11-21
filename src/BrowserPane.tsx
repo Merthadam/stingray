@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, ShieldCheck, X, LoaderCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, ShieldCheck, X, LoaderCircle, Maximize2, Minimize2 } from 'lucide-react';
 import type { Workspace } from './shared';
 import { urlSchema } from './shared';
 import { api } from './api';
 
 type Guest = HTMLElement & { src: string; reload(): void; goBack(): void; goForward(): void; canGoBack(): boolean; canGoForward(): boolean; getURL(): string };
-export function BrowserPane({ workspace, onNavigate, onClose, revealRequest = 0 }: { workspace: Workspace; onNavigate: (url: string) => Promise<void>; onClose: () => void; revealRequest?: number }) {
+export function BrowserPane({ workspace, onNavigate, onClose, revealRequest = 0, hidden = false, maximized = false, onToggleMaximized }: { workspace: Workspace; onNavigate: (url: string) => Promise<void>; onClose: () => void; revealRequest?: number; hidden?: boolean; maximized?: boolean; onToggleMaximized: () => void }) {
   const [address, setAddress] = useState(workspace.previewUrl);
   const [url, setUrl] = useState(workspace.previewUrl);
   const [error, setError] = useState('');
@@ -51,13 +51,14 @@ export function BrowserPane({ workspace, onNavigate, onClose, revealRequest = 0 
     if (!urlSchema.safeParse(value).success) { setError('Use an HTTP or HTTPS address without credentials.'); return; }
     try { await onNavigate(value); setAddress(value); setUrl(value); } catch (e) { setError((e as Error).message); }
   }
-  return <section ref={pane} className="browser-pane" aria-label="Browser preview">
+  return <section ref={pane} className="browser-pane" hidden={hidden} aria-label="Browser preview">
     <form className="browser-toolbar" onSubmit={navigate}>
       <button type="button" className="icon" aria-label="Go back" disabled={!history.back} onClick={() => guest.current?.goBack()}><ArrowLeft size={14} /></button>
       <button type="button" className="icon" aria-label="Go forward" disabled={!history.forward} onClick={() => guest.current?.goForward()}><ArrowRight size={14} /></button>
       <button type="button" className="icon" aria-label="Reload preview" disabled={!url} onClick={() => { setError(''); if (guest.current) guest.current.reload(); else setReload(x => x + 1); }}><RotateCw size={14} /></button>
       <label className="address" title={api.mode === 'desktop' ? 'Workspace-isolated session · permissions and popups blocked' : 'Demo iframe · no desktop privileges'}><Globe size={12} /><input aria-label="Preview URL" placeholder="http://localhost:3000" value={address} onChange={e => setAddress(e.target.value)} /></label>
       <button type="submit" className="icon" aria-label="Load preview">{loading ? <LoaderCircle size={14} className="spin" /> : <ArrowRight size={14} />}</button>
+      <button type="button" className={'icon ' + (maximized ? 'toggled' : '')} title={(maximized ? 'Restore split view' : 'Maximize preview') + ' · ⌘ ⇧ B'} aria-label={maximized ? 'Restore split view' : 'Maximize preview'} onClick={onToggleMaximized}>{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
       <button type="button" className="icon" title="Close preview · ⌘ B" aria-label="Close preview" onClick={onClose}><X size={14} /></button>
     </form>
     {error && <div className="inline-error" role="alert">{error} Use Reload preview to retry.</div>}
@@ -65,4 +66,24 @@ export function BrowserPane({ workspace, onNavigate, onClose, revealRequest = 0 
     {!url ? <div className="preview-empty"><div className="empty-orbit"><Globe size={28} /></div><h2>Your app, right here.</h2><p>Start your dev server in a terminal,<br />then enter its address above.</p><div className="preview-hint"><ShieldCheck size={13} /> Isolated from your terminal and files</div></div>
       : api.mode === 'desktop' ? <div className="guest-host" ref={host} /> : <iframe key={url + reload} title="Browser demo preview" className="demo-frame" src={url} onLoad={() => setLoading(false)} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" />}
   </section>;
+}
+const splitKey = 'stingray.browserSplit';
+const clampSplit = (value: number) => Math.min(.8, Math.max(.2, value));
+/** Browser width as a fraction of the workspace content, persisted across launches. */
+export function useBrowserSplit() {
+  const [value, setValue] = useState(() => { try { const v = Number(localStorage.getItem(splitKey)); return v ? clampSplit(v) : .47; } catch { return .47; } });
+  useEffect(() => { try { localStorage.setItem(splitKey, String(value)); } catch { /* Split width is optional. */ } }, [value]);
+  return [value, (next: number) => setValue(clampSplit(next))] as const;
+}
+/** Vertical divider between terminals and the browser; the parent toggles `resizing` so webviews stop swallowing the drag. */
+export function BrowserSplitter({ value, onChange, onResizing }: { value: number; onChange: (value: number) => void; onResizing: (resizing: boolean) => void }) {
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const box = e.currentTarget.parentElement!.getBoundingClientRect();
+    onChange((box.right - e.clientX) / box.width);
+  };
+  const end = (e: React.PointerEvent<HTMLDivElement>) => { e.currentTarget.releasePointerCapture(e.pointerId); onResizing(false); };
+  return <div className="browser-splitter" role="separator" tabIndex={0} aria-label="Resize browser preview" aria-orientation="vertical" aria-valuemin={20} aria-valuemax={80} aria-valuenow={Math.round((1 - value) * 100)}
+    onPointerDown={e => { if (e.button) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); onResizing(true); }} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+    onKeyDown={e => { const step = e.key === 'ArrowLeft' ? .02 : e.key === 'ArrowRight' ? -.02 : 0; if (step) { e.preventDefault(); onChange(value + step); } }} />;
 }

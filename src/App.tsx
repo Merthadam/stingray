@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, G
 import { api } from './api';
 import type { GitStatus, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
 import { TerminalPane } from './TerminalPane';
-import { BrowserPane } from './BrowserPane';
+import { BrowserPane, BrowserSplitter, useBrowserSplit } from './BrowserPane';
 import { Modal } from './Modal';
 import { ProjectHome } from './ProjectHome';
 import { AddProjectForm } from './AddProjectForm';
@@ -34,6 +34,11 @@ export default function App() {
   const [activeTerminals, setActiveTerminals] = useState<Record<string, string>>({});
   const [query, setQuery] = useState('');
   const [showBrowser, setShowBrowser] = useState(true);
+  const [browserMaximized, setBrowserMaximized] = useState(false);
+  const [browserSplit, setBrowserSplit] = useBrowserSplit();
+  const [resizingBrowser, setResizingBrowser] = useState(false);
+  const toggleBrowser = () => { setShowBrowser(v => !v); setBrowserMaximized(false); };
+  const toggleBrowserMaximized = () => { setShowBrowser(true); setBrowserMaximized(v => !showBrowser || !v); };
   const [drawer, setDrawer] = useState(() => { try { return localStorage.getItem(drawerKey) !== 'closed'; } catch { return true; } });
   useEffect(() => { try { localStorage.setItem(drawerKey, drawer ? 'open' : 'closed'); } catch { /* Drawer state is optional. */ } }, [drawer]);
   const pendingSearchFocus = useRef(false);
@@ -63,6 +68,9 @@ export default function App() {
   const status = gitResult.id === selected ? gitResult.status : null;
   const statusError = gitResult.id === selected ? gitResult.error : '';
   const workspace = state.workspaces.find(w => w.id === selected);
+  // Browser panes stay mounted per visited workspace (in visit order, so DOM nodes never move) to avoid webview reloads.
+  const [browserWorkspaceIds, setBrowserWorkspaceIds] = useState<string[]>([]);
+  if (selected && !browserWorkspaceIds.includes(selected)) setBrowserWorkspaceIds(ids => [...ids, selected]);
   const repo = state.repos.find(r => r.id === selection?.repoId);
   const projectWorkspaces = state.workspaces.filter(w => w.repoId === repo?.id);
   const filteredWorkspaces = projectWorkspaces.filter(w => (w.name + ' ' + w.branch).toLowerCase().includes(query.toLowerCase()));
@@ -124,7 +132,7 @@ export default function App() {
     await run(async () => {
       const t = await api.createTerminal(workspace.id);
       setTerminals(ts => [...ts, t]); setActiveTerminals(a => ({ ...a, [workspace.id]: t.id }));
-      setTab('workspace'); if (doSplit) setSplit(true);
+      setTab('workspace'); setBrowserMaximized(false); if (doSplit) setSplit(true);
     });
   }
   useEffect(() => {
@@ -133,7 +141,7 @@ export default function App() {
       if (e.key.toLowerCase() === 'k') { e.preventDefault(); focusSearch(); }
       if (e.key === '\\') { e.preventDefault(); setDrawer(v => !v); }
       if (e.key.toLowerCase() === 't') { e.preventDefault(); void newTerminal(); }
-      if (e.key.toLowerCase() === 'b' && workspace) { e.preventDefault(); setShowBrowser(v => !v); }
+      if (e.key.toLowerCase() === 'b' && workspace) { e.preventDefault(); if (e.shiftKey) toggleBrowserMaximized(); else toggleBrowser(); }
     };
     window.addEventListener('keydown', keyboard); return () => window.removeEventListener('keydown', keyboard);
   });
@@ -199,15 +207,16 @@ export default function App() {
       <main className="main">
         {error && !modal && <div className="error-banner" role="alert"><span>{error}</span><button className="icon" aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
         {initializing || loadFailed || !workspace ? <ProjectHome state={state} terminals={terminals} query={projectQuery} setQuery={setProjectQuery} searchRef={search} loading={initializing} failed={loadFailed} onOpen={openProject} onAdd={() => openModal('open')} onRetry={() => void load()} /> : <>
-          <div className={'workspace-content ' + (showBrowser ? 'with-browser' : '')} style={{ display: tab === 'workspace' ? 'flex' : 'none' }}>
+          <div className={'workspace-content ' + (showBrowser ? 'with-browser ' : '') + (showBrowser && browserMaximized ? 'browser-maximized ' : '') + (resizingBrowser ? 'resizing-browser' : '')} style={{ display: tab === 'workspace' ? 'flex' : 'none', '--browser-split': browserSplit } as React.CSSProperties}>
             <section className="terminal-area" aria-label="Terminals">
-              <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}<button className="icon terminal-add" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button></div><div className="terminal-tools"><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={() => setShowBrowser(v => !v)}><Globe size={14} /></button>{workspace.managed && <><span className="tool-separator" /><button className="icon danger-icon" aria-label="Remove worktree" title="Remove worktree" disabled={busy} onClick={() => openRemoval(workspace)}><Trash2 size={14} /></button></>}</div></div>
+              <div className="terminal-tabs"><div className="terminal-tab-scroll">{workspaceTerminals.map(t => <div key={t.id} className={'terminal-tab ' + (t.id === active ? 'active' : '')}><button onClick={() => setActiveTerminals(a => ({ ...a, [selected]: t.id }))}><TerminalSquare size={13} /><span>{t.title}</span>{t.exited && <span className="exited">exited</span>}</button><button className="icon close-tab" aria-label={'Close ' + t.title} onClick={() => { setCloseId(t.id); openModal('close-terminal'); }}><X size={12} /></button></div>)}<button className="icon terminal-add" aria-label="New terminal" title="New terminal · ⌘ T" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /></button></div><div className="terminal-tools"><button className={'icon ' + (split ? 'toggled' : '')} aria-label="Split terminals" title="Split terminals" disabled={busy || !workspaceTerminals.length} onClick={() => { if (workspaceTerminals.length < 2) void newTerminal(true); else setSplit(v => !v); }}><Columns2 size={14} /></button><button className={'icon ' + (showBrowser ? 'toggled' : '')} aria-label="Toggle browser preview" title="Toggle browser preview · ⌘ B" onClick={toggleBrowser}><Globe size={14} /></button>{workspace.managed && <><span className="tool-separator" /><button className="icon danger-icon" aria-label="Remove worktree" title="Remove worktree" disabled={busy} onClick={() => openRemoval(workspace)}><Trash2 size={14} /></button></>}</div></div>
               {!workspaceTerminals.length && <div className="terminal-empty"><TerminalSquare size={30} strokeWidth={1.2} /><h2>Make room for your next idea.</h2><p>Open a shell in <strong>{workspace.name}</strong>.<br />Run Pi, Claude Code, Codex, or any installed CLI.</p><button className="secondary" disabled={busy} onClick={() => void newTerminal()}><Plus size={14} /> Open terminal</button><span className="shortcut-hint">or press <kbd>⌘ T</kbd></span></div>}
               <div className={'terminal-grid ' + (split && workspaceTerminals.length > 1 ? 'split' : '')}>
-                {terminals.filter(t => projectWorkspaces.some(w => w.id === t.workspaceId)).map(t => <TerminalPane key={t.id} info={t} visible={t.workspaceId === selected && visibleTerminalIds.includes(t.id) && tab === 'workspace'} onError={setErrorMessage} onObserve={activity.acknowledge} />)}
+                {terminals.filter(t => projectWorkspaces.some(w => w.id === t.workspaceId)).map(t => <TerminalPane key={t.id} info={t} visible={t.workspaceId === selected && visibleTerminalIds.includes(t.id) && tab === 'workspace' && !(showBrowser && browserMaximized)} onError={setErrorMessage} onObserve={activity.acknowledge} />)}
               </div>
             </section>
-            {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
+            {showBrowser && !browserMaximized && <BrowserSplitter value={browserSplit} onChange={setBrowserSplit} onResizing={setResizingBrowser} />}
+            {browserWorkspaceIds.map(id => projectWorkspaces.find(w => w.id === id)).map(w => w && <BrowserPane key={w.id} workspace={w} hidden={!showBrowser || w.id !== selected} maximized={browserMaximized} onToggleMaximized={toggleBrowserMaximized} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(w.id, url); apply(next); }} onClose={toggleBrowser} />)}
           </div>
           {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} onStatus={next => { ++statusSequence.current; setStatusBusy(false); setGitResult({ id: workspace.id, status: next, error: '' }); }} />}
           {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} onOpenInMap={(path, line) => { setMapTarget({ path, line, nonce: ++mapNonce.current }); setTab('changes'); }} />}
@@ -223,7 +232,7 @@ export default function App() {
       {modal === 'create' && <form onSubmit={e => { e.preventDefault(); if (workspace) void run(async () => { const next = await api.createWorkspace(workspace.repoId, branch.trim()); apply(next); const created = next.workspaces.find(w => w.repoId === workspace.repoId && w.branch === branch.trim()); if (created) setNavigation({ repoId: workspace.repoId, workspaceId: created.id }); setModal(null); }); }}><p className="modal-description">Create a new branch from <strong>{repo?.name}</strong>'s current HEAD in a separate working directory. Your existing files stay untouched.</p><label className="field">New branch name<input autoFocus aria-label="New branch name" placeholder="feature/my-next-idea" maxLength={100} value={branch} onChange={e => setBranch(e.target.value)} required /></label><div className="info-box"><GitBranch size={16} /><span>Creates a real branch and worktree. No commit, push, dependency install, or agent launch.</span></div><div className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setModal(null)}>Cancel</button><button className="primary" disabled={busy || !branch.trim()}>{busy ? 'Creating…' : 'Create worktree'}</button></div></form>}
       {modal === 'remove' && removalTarget && <RemoveWorktreeForm key={removalTarget.id} workspace={removalTarget} busy={busy} onBusy={setBusy} onRemoved={({ state: next, warning }) => { const id = removalTarget.id; apply(next); setTerminals(ts => ts.filter(t => t.workspaceId !== id)); setModal(null); if (warning) setError(warning); }} onCancel={() => setModal(null)} />}
       {modal === 'close-terminal' && <><p className="modal-description">This stops the shell and sends a hangup to its foreground jobs. Switching workspaces keeps terminals running; closing a terminal does not.</p><div className="modal-actions"><button className="secondary" onClick={() => setModal(null)} disabled={busy}>Keep running</button><button className="danger" disabled={busy} onClick={() => void run(async () => { await api.closeTerminal(closeId); setTerminals(ts => ts.filter(t => t.id !== closeId)); setActiveTerminals(a => Object.fromEntries(Object.entries(a).filter(([, v]) => v !== closeId))); setModal(null); })}>Close terminal</button></div></>}
-      {modal === 'about' && <><p className="modal-description">A local-first home for your coding agents. Inspired by Superset's warm dark design, with an independent Stingray identity.</p><div className="shortcut-list"><span>Find a project or workspace <kbd>⌘ / Ctrl K</kbd></span><span>New terminal <kbd>⌘ / Ctrl T</kbd></span><span>Toggle browser <kbd>⌘ / Ctrl B</kbd></span></div><div className="info-box"><Settings2 size={17} /><span>Terminals stay alive on Projects home, when switching projects/workspaces, or reloading the UI, but not when quitting. Reload keeps your view; a new app window starts at Projects. Workspaces and preview addresses are saved. Browser permissions, downloads, and popups are blocked.</span></div><p className="fine-print">No telemetry, Stingray accounts, cloud sync, or bundled agents. PR status makes read-only GitHub requests using your existing gh login. No login or PR mutations are performed. Run your installed agent CLI in a terminal. macOS-first development build.</p><div className="modal-actions"><button className="primary" onClick={() => setModal(null)}>Back to work</button></div></>}
+      {modal === 'about' && <><p className="modal-description">A local-first home for your coding agents. Inspired by Superset's warm dark design, with an independent Stingray identity.</p><div className="shortcut-list"><span>Find a project or workspace <kbd>⌘ / Ctrl K</kbd></span><span>New terminal <kbd>⌘ / Ctrl T</kbd></span><span>Toggle browser <kbd>⌘ / Ctrl B</kbd></span><span>Maximize browser <kbd>⌘ / Ctrl ⇧ B</kbd></span></div><div className="info-box"><Settings2 size={17} /><span>Terminals stay alive on Projects home, when switching projects/workspaces, or reloading the UI, but not when quitting. Reload keeps your view; a new app window starts at Projects. Workspaces and preview addresses are saved. Browser permissions, downloads, and popups are blocked.</span></div><p className="fine-print">No telemetry, Stingray accounts, cloud sync, or bundled agents. PR status makes read-only GitHub requests using your existing gh login. No login or PR mutations are performed. Run your installed agent CLI in a terminal. macOS-first development build.</p><div className="modal-actions"><button className="primary" onClick={() => setModal(null)}>Back to work</button></div></>}
     </Modal>}
   </div>;
 }

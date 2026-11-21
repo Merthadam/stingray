@@ -50,3 +50,14 @@
 @media(max-width:1100px){.app-body>.sidebar{width:216px}}
 @media(max-width:900px){.title-crumb>span{display:none}}
 @media(max-width:760px){.app-body>.sidebar{width:190px}.title-tabs{position:static;transform:none;margin-left:auto}.title-tabs>button{padding:0 7px}.title-tabs>button>svg{display:none}.statusbar>span:last-child>:nth-child(-n+2){display:none}}
+
+/* Browser preview: resizable split, maximize, and hidden-but-mounted panes (keeps webviews from reloading). */
+.browser-pane[hidden]{display:none}
+.with-browser>.browser-pane{flex:0 0 calc(var(--browser-split) * 100%)}
+.browser-splitter{flex:0 0 6px;margin:0 -3px;position:relative;z-index:3;cursor:col-resize;touch-action:none;outline:0}
+.browser-splitter:hover,.browser-splitter:focus-visible,.resizing-browser>.browser-splitter{background:var(--accent)}
+.resizing-browser{cursor:col-resize;user-select:none}
+.resizing-browser webview,.resizing-browser iframe{pointer-events:none}
+.browser-maximized>.terminal-area{display:none}
+.with-browser.browser-maximized>.browser-pane{flex:1;border-left:0}
+@media(max-width:1100px){.browser-splitter{display:none}.with-browser>.browser-pane{flex:1}}
