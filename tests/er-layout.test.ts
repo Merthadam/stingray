@@ -53,7 +53,7 @@ test('an explanation band grows the card and shifts its field ports; unexplained
   }
   assert.equal(cardSize({ ...base.nodes[0], explanation: null }, false).height, HEADER_HEIGHT + ROW_HEIGHT);
   const portY = (r: ViewResult, id: string, handle: string) =>
-    elkGraph(r, [], []).children!.find(c => c.id === id)!.ports!.find(p => p.id === portId(id, handle))!.y;
+    elkGraph(r, [], []).children!.find(c => c.id === id)!.ports!.find(p => p.id === portId(id, handle))!.y!;
   const withExplained = result([base.nodes[0], base.nodes[1], explained, base.nodes[3]], base.edges);
   assert.equal(portY(withExplained, 'wide', 'card:s'), HEADER_HEIGHT / 2);
   assert.equal(portY(withExplained, 'wide', 'f:id:s'), HEADER_HEIGHT + EXPLANATION_HEIGHT + ROW_HEIGHT / 2);
