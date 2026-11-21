@@ -1,7 +1,7 @@
 import type { GitStatus, RepoFile, RepoSnapshot } from './shared';
 
 export function sameGitStatus(a: GitStatus, b: GitStatus) {
-  return a.branch === b.branch && JSON.stringify(a.lines) === JSON.stringify(b.lines) &&
+  return a.branch === b.branch && a.base === b.base && JSON.stringify([a.lines, a.uncommitted]) === JSON.stringify([b.lines, b.uncommitted]) &&
     a.changes.length === b.changes.length && a.changes.every((change, i) => {
       const next = b.changes[i];
       return change.path === next.path && change.status === next.status && change.originalPath === next.originalPath;

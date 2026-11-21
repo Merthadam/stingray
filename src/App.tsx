@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, MonitorPlay, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
-import type { GitStatus, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
+import type { LiveViewTarget, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
 import { TerminalPane } from './TerminalPane';
 import { BrowserPane, BrowserSplitter, useBrowserSplit } from './BrowserPane';
 import { Modal } from './Modal';
@@ -9,7 +9,9 @@ import { ProjectHome } from './ProjectHome';
 import { AddProjectForm } from './AddProjectForm';
 import { RepoMap } from './RepoMap';
 import { ViewsTab } from './ViewsTab';
+import { LiveView } from './LiveView';
 import { WorkspaceStatus } from './WorkspaceStatus';
+import { useGitState } from './useGitState';
 import { RemoveWorktreeForm } from './RemoveWorktreeForm';
 import { WorkspacePortsChip } from './WorkspacePortsChip';
 import { useWorkspacePorts } from './useWorkspacePorts';
@@ -46,7 +48,8 @@ export default function App() {
   useEffect(() => { if (drawer && pendingSearchFocus.current) { pendingSearchFocus.current = false; search.current?.focus(); } }, [drawer]);
   const [previewReveal, setPreviewReveal] = useState(0);
   const [split, setSplit] = useState(false);
-  const [tab, setTab] = useState<'workspace' | 'changes' | 'views'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'changes' | 'views' | 'live'>('workspace');
+  const [liveView, setLiveView] = useState<LiveViewTarget | null>(null);
   const [mapTarget, setMapTarget] = useState<{ path: string; line: number | null; nonce: number } | null>(null);
   const mapNonce = useRef(0);
   const [modal, setModal] = useState<'open' | 'create' | 'remove' | 'close-terminal' | 'about' | null>(null);
@@ -57,16 +60,13 @@ export default function App() {
   const [initializing, setInitializing] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState('');
-  const [gitResult, setGitResult] = useState<{ id: string; status: GitStatus | null; error: string }>({ id: '', status: null, error: '' });
-  const [statusBusy, setStatusBusy] = useState(false);
   const search = useRef<HTMLInputElement>(null);
-  const statusSequence = useRef(0);
-  const pendingStatuses = useRef(new Map<string, Promise<GitStatus>>());
   const selection = resolveSelection(state, navigation);
   const selected = selection?.workspaceId || '';
   useEffect(() => { setMapTarget(null); }, [selected]);
-  const status = gitResult.id === selected ? gitResult.status : null;
-  const statusError = gitResult.id === selected ? gitResult.error : '';
+  const selectedGit = useGitState(selected);
+  const status = selectedGit.state?.status ?? null;
+  useEffect(() => { if (tab === 'live' && liveView?.workspaceId !== selected) setTab('workspace'); }, [tab, liveView, selected]);
   const workspace = state.workspaces.find(w => w.id === selected);
   // Browser panes stay mounted per visited workspace (in visit order, so DOM nodes never move) to avoid webview reloads.
   const [browserWorkspaceIds, setBrowserWorkspaceIds] = useState<string[]>([]);
@@ -100,29 +100,14 @@ export default function App() {
     finally { setInitializing(false); }
   }
   useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
-  const refreshStatus = useCallback(async () => {
-    const sequence = ++statusSequence.current;
-    if (!selected) { setGitResult({ id: '', status: null, error: '' }); setStatusBusy(false); return; }
-    setStatusBusy(true);
-    try {
-      let request = pendingStatuses.current.get(selected);
-      if (!request) {
-        request = api.gitStatus(selected).finally(() => { pendingStatuses.current.delete(selected); });
-        pendingStatuses.current.set(selected, request);
-      }
-      const next = await request;
-      if (sequence === statusSequence.current) setGitResult({ id: selected, status: next, error: '' });
-    }
-    catch (e) { if (sequence === statusSequence.current) setGitResult({ id: selected, status: null, error: (e as Error).message }); }
-    finally { if (sequence === statusSequence.current) setStatusBusy(false); }
-  }, [selected]);
+  // Working-tree edits don't touch .git: re-read the selected workspace when it is opened or the user comes back.
   useEffect(() => {
-    void refreshStatus();
-    const onFocus = () => { void refreshStatus(); };
-    const timer = window.setInterval(() => { if (!document.hidden) void refreshStatus(); }, 10000);
-    window.addEventListener('focus', onFocus);
-    return () => { ++statusSequence.current; clearInterval(timer); window.removeEventListener('focus', onFocus); };
-  }, [refreshStatus]);
+    if (!selected) return;
+    const update = () => { if (!document.hidden) void api.refreshGitState(selected).catch(() => {}); };
+    update();
+    window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
+    return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
+  }, [selected]);
   async function run(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -154,12 +139,19 @@ export default function App() {
       setShowBrowser(true); setTab('workspace'); setPreviewReveal(n => n + 1);
     } finally { setBusy(false); }
   }
+  /** Opens (or replaces) the live view tab of a test instance in its workspace. */
+  function openLiveView(target: LiveViewTarget) {
+    const owner = state.workspaces.find(w => w.id === target.workspaceId);
+    if (!owner) return;
+    setNavigation({ repoId: owner.repoId, workspaceId: owner.id }); setLiveView(target); setTab('live'); setError('');
+  }
   function openModal(value: typeof modal) { setError(''); setBranch(''); setModal(value); }
   function openRemoval(target: Workspace) { if (!busy) { setRemovalTarget(target); openModal('remove'); } }
   const viewTabs = workspace && !initializing && !loadFailed && <div className="title-tabs" role="tablist" aria-label="Workspace views">
     <button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={13} /> Workspace</button>
     <button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={13} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button>
     <button role="tab" aria-selected={tab === 'views'} className={tab === 'views' ? 'active' : ''} onClick={() => setTab('views')}><Network size={13} /> Views</button>
+    {liveView?.workspaceId === workspace.id && <button role="tab" aria-selected={tab === 'live'} className={tab === 'live' ? 'active' : ''} onClick={() => setTab('live')}><MonitorPlay size={13} /> Live view</button>}
   </div>;
   const piState = api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable';
   return <div className="app-shell">
@@ -194,12 +186,12 @@ export default function App() {
                 if (busy || (event.target as Element).closest('button, a, input, [role="dialog"]')) return;
                 setNavigation({ repoId: repo.id, workspaceId: w.id }); setError('');
               }}>
-              <WorkspaceStatus workspace={w} selected={selected === w.id} status={status} statusBusy={statusBusy} statusError={statusError}
+              <WorkspaceStatus workspace={w} selected={selected === w.id}
                 disabled={busy} running={terminals.some(t => t.workspaceId === w.id && !t.exited)}
                 agents={activity.agents.filter(a => a.workspaceId === w.id)} activityUnavailable={activity.unavailable}
                 onSelect={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}
-                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRefresh={() => void refreshStatus()} onRemove={() => openRemoval(w)}>
-                <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
+                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRemove={() => openRemoval(w)}>
+                <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} onLiveView={(_owner, target) => openLiveView(target)} />
               </WorkspaceStatus>
             </div>)}{!filteredWorkspaces.length && <div className="sidebar-empty">No matching workspaces.</div>}</nav>
         </> : <><button className="project-home-selected" onClick={() => setProjectQuery('')} aria-current="page"><LayoutGrid size={16} />Projects<span>{state.repos.length}</span></button><div className="project-sidebar-note">A place for each repository.<br />A workspace for each idea.</div></>}
@@ -218,7 +210,8 @@ export default function App() {
             {showBrowser && !browserMaximized && <BrowserSplitter value={browserSplit} onChange={setBrowserSplit} onResizing={setResizingBrowser} />}
             {browserWorkspaceIds.map(id => projectWorkspaces.find(w => w.id === id)).map(w => w && <BrowserPane key={w.id} workspace={w} hidden={!showBrowser || w.id !== selected} maximized={browserMaximized} onToggleMaximized={toggleBrowserMaximized} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(w.id, url); apply(next); }} onClose={toggleBrowser} />)}
           </div>
-          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} onStatus={next => { ++statusSequence.current; setStatusBusy(false); setGitResult({ id: workspace.id, status: next, error: '' }); }} />}
+          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} />}
+          {tab === 'live' && liveView?.workspaceId === workspace.id && <LiveView key={liveView.port + ':' + liveView.containerId} target={liveView} onClose={() => { setLiveView(null); setTab('workspace'); }} />}
           {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} onOpenInMap={(path, line) => { setMapTarget({ path, line, nonce: ++mapNonce.current }); setTab('changes'); }} />}
         </>}
       </main>

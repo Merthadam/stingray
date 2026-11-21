@@ -10,7 +10,9 @@ import { Terminals } from './terminals';
 import { openTerminalLink } from './terminal-links';
 import { ContainerService } from './containers';
 import { PortService } from './ports';
+import { inspectCdp } from './chrome-inspect';
 import { PullRequestService } from './pull-requests';
+import { GitStateService } from './git-state';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
 import { extractDbSchema } from './db-schema';
@@ -24,6 +26,8 @@ import { positionsSchema } from './views/rules/schema';
 import { ViewStateStore, viewLocalStateSchema } from './view-state';
 import { EDITOR_IDS, EditorService } from './editors';
 import { setSharedBase, sharedBaseEnabled, sharedBaseTarget, sharedBaseWorkspaces } from './codegraph-settings';
+import { LiveViews } from './live-view';
+import { liveViewInputSchema } from '../src/live-view';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -51,9 +55,14 @@ const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
 const pullRequests = new PullRequestService();
+const gitState = new GitStateService(git, pullRequests, state => { if (win && !win.isDestroyed()) win.webContents.send('git-state-changed', state); },
+  () => Boolean(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()));
+git.onStatus = (id, status) => gitState.observe(id, status);
+pullRequests.onListChange = () => gitState.listChanged();
 const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
 const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
   emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
+const liveViews = new LiveViews(event => { if (win && !win.isDestroyed()) win.webContents.send('live-view-event', event); });
 
 function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
   ipcMain.handle(name, (event, ...args) => {
@@ -126,10 +135,10 @@ app.whenReady().then(async () => {
   handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
   handle('remove-workspace', z.tuple([idSchema, removalConsentSchema]), async (id, consent) => {
     const result = await git.removeWorkspace(id, consent);
+    gitState.forget(id);
     await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
     return result;
   });
-  handle('git-status', z.tuple([idSchema]), id => git.status(id));
   handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
   // Static parse only; concurrent requests for the same workspace share one scan.
@@ -170,8 +179,10 @@ app.whenReady().then(async () => {
     if (!service) throw new Error('Unknown cloud service.');
     return shell.openExternal(service.docUrl);
   });
-  handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
   handle('containers', z.tuple([]), () => containers.list());
+  handle('container-stop', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.stop(id));
+  handle('container-logs', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.logs(id));
+  handle('inspect-cdp', z.tuple([z.number().int().min(1).max(65535)]), (port: number) => inspectCdp(port));
   handle('ports', z.tuple([]), () => ports.list());
   handle('preview', z.tuple([idSchema, z.union([z.literal(''), urlSchema])]), (id, url) => git.preview(id, url));
   handle('activity', z.tuple([]), () => activity.snapshot());
@@ -210,6 +221,18 @@ app.whenReady().then(async () => {
   });
   handle('resize-terminal', z.tuple([idSchema, z.number().int().min(2).max(500), z.number().int().min(1).max(300)]), (id, cols, rows) => terminals.resize(id, cols, rows));
   handle('close-terminal', z.tuple([idSchema]), id => terminals.close(id));
+  handle('git-state', z.tuple([idSchema]), id => gitState.get(id));
+  handle('refresh-git-state', z.tuple([idSchema]), id => gitState.refresh(id, true));
+  const frameSize = z.number().int().min(16).max(8192);
+  handle('live-view-start', z.tuple([z.strictObject({ port: z.number().int().min(1).max(65535), maxWidth: frameSize.optional(), maxHeight: frameSize.optional() })]),
+    options => liveViews.start(options));
+  handle('live-view-input', z.tuple([idSchema, liveViewInputSchema]), (id, input) => liveViews.input(id, input));
+  handle('live-view-resize', z.tuple([idSchema, frameSize, frameSize]), (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight));
+  handle('live-view-stop', z.tuple([idSchema]), id => liveViews.stop(id));
+  handle('live-view-ack', z.tuple([idSchema]), id => liveViews.ack(id));
+  // A reloaded renderer has lost its session ids; a closed window has no viewer.
+  win.webContents.on('did-start-loading', () => liveViews.stopAll());
+  win.on('closed', () => liveViews.stopAll());
   win.on('close', event => {
     if (cloning) {
       event.preventDefault();
@@ -232,6 +255,6 @@ app.on('window-all-closed', () => app.quit());
 let cleanedUp = false;
 app.on('will-quit', event => {
   if (cleanedUp) return;
-  event.preventDefault(); terminals.closeAll();
+  event.preventDefault(); terminals.closeAll(); gitState.dispose();
   void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { closeDatabase(app.getPath('userData')); cleanedUp = true; app.quit(); });
 });

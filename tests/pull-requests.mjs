@@ -20,14 +20,19 @@ git('remote', 'add', 'origin', 'https://github.com/fixture/app');
 await writeFile(calls, '');
 const setFixture = value => writeFile(fixture, JSON.stringify(value));
 await setFixture({ state: 'OPEN', delay: 1200 });
+// Repository-level REST list (gh api --include) with ETag/304, like GitHub; one PR per known branch.
 await writeFile(path.join(bin, 'gh'), `#!${process.execPath}
 const fs=require('node:fs');const args=process.argv.slice(2);
-if(args[0]!=='pr'||args[1]!=='list'||args[args.indexOf('--repo')+1]!=='github.com/fixture/app'||!args.includes('--json'))process.exit(2);
+if(args[0]!=='api'||!args.includes('--include')||args.at(-1)!=='repos/fixture/app/pulls?state=all&sort=updated&direction=desc&per_page=100')process.exit(2);
 fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+'\\n');
 const value=JSON.parse(fs.readFileSync(${JSON.stringify(fixture)},'utf8'));
-const branch=args[args.indexOf('--head')+1];
+const branches=['feature/ui','new-current-branch',...(value.branches||[])];
+const body=JSON.stringify(value.none?[]:branches.map(ref=>[ref,value.states?.[ref]||value.state]).map(([ref,state])=>({number:ref==='feature/ui'?42:43,state:state==='OPEN'?'open':'closed',draft:!!value.draft,merged_at:state==='MERGED'?'2026-11-06T20:00:00Z':null,updated_at:'2026-11-06T20:00:00Z',head:{ref,repo:{full_name:'fixture/app'}}})));
+const etag='"'+require('node:crypto').createHash('sha1').update(body).digest('hex')+'"';
+const match=args.find(arg=>arg.startsWith('If-None-Match: '));
 setTimeout(()=>{if(value.error){console.error('PRIVATE ERROR MUST NOT LEAK');process.exit(1);}
-console.log(JSON.stringify(value.none?[]:[{number:branch==='feature/ui'?42:43,state:value.state||'OPEN',isDraft:!!value.draft,headRefName:branch,headRepository:{name:'app'},headRepositoryOwner:{login:'fixture'},updatedAt:'2026-11-06T20:00:00Z'}]));},value.delay||0);
+if(match==='If-None-Match: '+etag){process.stdout.write('HTTP/2.0 304 Not Modified\\r\\nEtag: '+etag+'\\r\\n\\r\\n');process.exitCode=1;return;}
+process.stdout.write('HTTP/2.0 200 OK\\r\\nEtag: '+etag+'\\r\\n\\r\\n'+body);},value.delay||0);
 `);
 await writeFile(path.join(bin, 'docker'), '#!/bin/sh\nexit 1\n');
 await chmod(path.join(bin, 'gh'), 0o755); await chmod(path.join(bin, 'docker'), 0o755);
@@ -75,6 +80,7 @@ try {
   await refreshButton().click();
   const lines = page.getByRole('button', { name: 'feature/ui: 1 lines added, 1 lines deleted', exact: true }); await lines.waitFor();
   check('real net line counts exclude untracked and pure renames', await active().locator('.lines-added').innerText() === '+1' && await active().locator('.lines-deleted').innerText() === '−1' && (await lines.getAttribute('title')).includes('Excludes untracked'));
+  check('without a local origin/main the tooltip explains the HEAD fallback', (await lines.getAttribute('title')).includes('No local origin/main'));
   await lines.click(); await page.getByRole('button', { name: 'New file new.txt', exact: true }).waitFor();
   check('line counts open Repo Map, which still includes untracked files and counts staged+unstaged/rename once', await page.locator('.map-tile.file').count() === 3);
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
@@ -90,11 +96,13 @@ try {
   await refreshPR({ state: 'OPEN' }, 'PR #42 Open'); check('manual retry recovers without changing credentials or restarting');
   const state = await page.evaluate(() => window.stingray.state());
   const longBranch = 'feature/' + 'long-branch-'.repeat(6) + 'ui';
+  await setFixture({ state: 'OPEN', states: { [longBranch]: 'CLOSED', 'new-current-branch': 'CLOSED' }, branches: [longBranch], delay: 1300 }); await pause(5100);
+  // Creating the branch moves refs: the watcher re-queries GitHub at once (one request for the whole repository).
   await page.evaluate(({ id, branch }) => window.stingray.createWorkspace(id, branch), { id: state.repos[0].id, branch: longBranch });
-  await setFixture({ state: 'CLOSED', delay: 1300 }); await page.reload();
+  await page.reload();
   await page.getByRole('button', { name: longBranch, exact: true }).click();
-  await active().locator('.pr-loading').waitFor();
-  check('workspace switch clears previous branch PR while waiting');
+  // Each card reads its own workspace state: loading or its own PR, never the previously selected branch's PR.
+  check('workspace switch never shows the previous branch PR', !(await active().locator('.pr-symbol').innerText()).includes('#42'));
   // Switch away while the other workspace's request is still in flight.
   await page.getByRole('button', { name: 'feature/ui', exact: true }).click();
   await active().getByRole('img', { name: 'PR #42 Open', exact: true }).waitFor(); await pause(1600);
@@ -151,6 +159,7 @@ try {
   await refreshButton().click();
   await page.getByRole('button', { name: 'feature/ui: Line counts unavailable', exact: true }).waitFor();
   check('Git failures do not show stale branch, zero files or a successful PR', (await active().locator('.git-branch-label').innerText()) === 'Branch unavailable' && (await active().locator('.pr-symbol').getAttribute('aria-label')) === 'PR unavailable' && (await active().locator('.git-lines').innerText()) === '—');
+  check('GitHub is polled per repository with conditional ETag requests', (await readFile(calls, 'utf8')).includes('If-None-Match: \\"'));
   check('no renderer exceptions', errors.length === 0);
   await writeFile(path.join(evidence, 'results.json'), JSON.stringify({ checks, errors, executablePath: executablePath || null, scope: `${executablePath ? 'Packaged macOS app' : 'Source Electron build'} and real local Git; strict gh fixture, isolated app data. No live GitHub claims.` }, null, 2));
 } catch (error) {

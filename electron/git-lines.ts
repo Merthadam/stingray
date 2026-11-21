@@ -35,17 +35,27 @@ export function parseNumstat(output: string): Extract<GitLineStats, { kind: 'ava
   return result;
 }
 
-export async function readGitLines(cwd: string, changes: Change[], runner: LineRunner = run): Promise<GitLineStats> {
+// base: HEAD for uncommitted edits, or a merge-base commit for the PR-style branch diff.
+export async function readGitLines(cwd: string, changes: Change[], runner: LineRunner = run, base = 'HEAD'): Promise<GitLineStats> {
   if (changes.some(change => ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(change.status))) {
     return { kind: 'unavailable', message: 'Resolve merge conflicts before reading line counts.' };
   }
   try {
-    // Net tracked working-tree diff against HEAD, not a sum of index and worktree diffs.
+    // Net tracked working-tree diff against the base, not a sum of index and worktree diffs.
     // Unborn HEAD, timeouts, oversized output and failed reads remain unavailable.
     const output = await runner(cwd, ['diff', '--numstat', '-z', '--no-ext-diff', '--no-textconv',
-      '--find-renames', '--ignore-submodules=all', 'HEAD', '--']);
+      '--find-renames', '--ignore-submodules=all', base, '--']);
     return parseNumstat(output);
   } catch {
     return { kind: 'unavailable', message: 'Line counts unavailable. A readable HEAD commit is required; retry after checking repository access.' };
   }
+}
+
+// Like a GitHub PR diff: compare from where HEAD forked from the local origin/main (never fetched here).
+// null when origin/main is missing, HEAD is unborn or the histories are unrelated.
+export async function originMainBase(cwd: string, runner: LineRunner = run): Promise<string | null> {
+  try {
+    const base = (await runner(cwd, ['merge-base', 'HEAD', 'refs/remotes/origin/main'])).trim();
+    return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(base) ? base : null;
+  } catch { return null; }
 }
