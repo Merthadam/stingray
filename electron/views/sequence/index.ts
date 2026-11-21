@@ -148,8 +148,8 @@ interface OpenFragment { kind: SequenceFragment['kind']; source: SequenceFragmen
 /** A kept fragment's id and the index of each kept arm by its index in the walk (-1: arm dropped). */
 interface KeptFragment { id: string; arms: number[] }
 
-/** Trace -> rows: lifelines in first-appearance order, `internal` folding, caps, view `exclude`, fragments that kept a
- * message (arms without messages or notes dropped), notes after the row they follow. */
+/** Trace -> rows: lifelines (actor, repo units, externals; each in first-appearance order), `internal` folding, caps,
+ * view `exclude`, fragments that kept a message (arms without messages or notes dropped), notes after the row they follow. */
 function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep, exclude: Set<string>) {
   const participants: SequenceParticipant[] = [], byId = new Map<string, SequenceParticipant>();
   const messages: SequenceMessage[] = [], notes: SequenceNote[] = [], drawn = new Set<number>();
@@ -172,6 +172,18 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
   const scope = () => open.map(f => ({ order: f.order, arm: f.arms.length - 1 })).reverse();
   const room = () => messages.length < SEQUENCE_LIMITS.messages || ((truncated = true), false);
   const add = (m: Omit<SequenceMessage, 'id'>) => messages.push({ id: `m${messages.length}`, ...m });
+  const close = () => {
+    const f = open.pop()!, end = { first: messages.length, notes: notes.length };
+    const arms = f.arms.filter((a, i) => { const next = f.arms[i + 1] ?? end; return next.first > a.first || next.notes > a.notes; });
+    const last = messages.length - 1;
+    if (!arms.length || arms[0].first > last) return;
+    keptArms.set(f.order, f.arms.map(a => arms.indexOf(a)));
+    let label = arms[0].label;
+    if (label === 'else' && f.arms[0] !== arms[0]) label = `not ${f.arms[0].label}`;
+    const kind = f.kind === 'alt' && arms.length === 1 ? 'opt' : f.kind;
+    fragments.push({ id: '', kind, label, first: arms[0].first, last, branches: arms.slice(1).map(a => ({ label: a.label, first: a.first })),
+      parent: null, source: f.source, order: f.order, parentOrder: f.parent });
+  };
 
   for (const e of events) {
     switch (e.t) {
@@ -209,21 +221,14 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
       case 'branch':
         open.at(-1)!.arms.push({ label: e.label, first: messages.length, notes: notes.length });
         break;
-      case 'close': {
-        const f = open.pop()!, end = { first: messages.length, notes: notes.length };
-        const arms = f.arms.filter((a, i) => { const next = f.arms[i + 1] ?? end; return next.first > a.first || next.notes > a.notes; });
-        const last = messages.length - 1;
-        if (!arms.length || arms[0].first > last) break;
-        keptArms.set(f.order, f.arms.map(a => arms.indexOf(a)));
-        let label = arms[0].label;
-        if (label === 'else' && f.arms[0] !== arms[0]) label = `not ${f.arms[0].label}`;
-        const kind = f.kind === 'alt' && arms.length === 1 ? 'opt' : f.kind;
-        fragments.push({ id: '', kind, label, first: arms[0].first, last, branches: arms.slice(1).map(a => ({ label: a.label, first: a.first })),
-          parent: null, source: f.source, order: f.order, parentOrder: f.parent });
-        break;
-      }
+      case 'close': close(); break;
     }
   }
+  // A walk stopped at a cap leaves fragments open.
+  while (open.length) close();
+  // Actor, then the repo's lifelines, then external systems, each in first-appearance order.
+  const rank = (p: SequenceParticipant) => p.kind === 'actor' ? 0 : p.kind === 'external' ? 2 : 1;
+  participants.sort((a, b) => rank(a) - rank(b) || a.column - b.column).forEach((p, i) => { p.column = i; });
   // Fragments in opening order (outer before inner); a parent that was dropped hands its children to its own parent.
   fragments.sort((a, b) => a.order - b.order);
   const ids = new Map(fragments.map((f, i) => [f.order, `f${i}`]));

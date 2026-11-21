@@ -143,7 +143,7 @@ def run_tools(state):
 test('sequence langgraph: invoke enters the compiled graph: nodes in edge order, conditional edges as alt by path-map key, loops marked once', async () => {
   const out = await run(AGENT, fakeGraph(AGENT, ['__call__>plan']), { start: { symbol: 'run' }, participants: 'file' });
   assert.deepEqual(out.text, [
-    'participants: graph.py, OpenAI (external), tools.py, External HTTP (external)',
+    'participants: graph.py, tools.py, OpenAI (external), External HTTP (external)',
     'graph.py -> graph.py: planner  [link langgraph]',
     'graph.py -> graph.py: agent  [link langgraph]',
     '  graph.py -> OpenAI: open ai',

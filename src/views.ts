@@ -124,7 +124,7 @@ export interface SequenceParticipant {
   label: string;
   kind: SequenceParticipantKind;
   subtitle: string | null;     // e.g. "service", "module", the file path of a class, "external"
-  column: number;              // 0-based, left to right (first appearance)
+  column: number;              // 0-based, left to right (actor, repo units, externals; each by first appearance)
   source: SourceRef | null;    // first function reached in it
   symbol: SymbolRef | null;
   explanation?: string | null; // from explain: / docstring of its first function
