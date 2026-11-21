@@ -90,13 +90,25 @@ export const positionsSchema = z.record(z.string().min(1).max(300), point)
   .refine(p => Object.keys(p).length <= 1000, { error: 'At most 1000 positions' });
 export const layoutSchema = z.strictObject({ positions: positionsSchema.optional() });
 
-export const FINGERPRINT = /^[0-9a-f]{12}$/, MAX_EXPLAIN = 200;
+export const FINGERPRINT = /^[0-9a-f]{12}$/, MAX_EXPLAIN = 200, MAX_PIECES = 200;
+// An unquoted all-digit fingerprint reads as a YAML number.
+const pieceHash = z.string({ error: 'fingerprint must be a quoted string of 12 hex characters, e.g. fingerprint: "012345678901"' })
+  .regex(FINGERPRINT, { error: 'fingerprint must be 12 hex characters (written by stingray-views check --restamp)' });
+const pieceMap = z.record(z.string().min(1).max(500), pieceHash)
+  .refine(m => Object.keys(m).length <= MAX_PIECES, { error: `fingerprint has at most ${MAX_PIECES} pieces` });
+/** A map of piece key → hash (written by --restamp), or one hash (the old format: the own body only). A union would report
+ * only "Invalid input", so the shape is picked by the value's type to keep the specific messages. */
+const fingerprintSchema = z.unknown().transform((v, ctx) => {
+  const parsed = (typeof v === 'object' && v !== null && !Array.isArray(v) ? pieceMap : pieceHash).safeParse(v);
+  if (parsed.success) return parsed.data;
+  for (const { message, path } of parsed.error.issues) ctx.addIssue({ code: 'custom', message, path });
+  return z.NEVER;
+});
 /** `explain:` entries keyed by node id, alias, group id or symbol name: prose that overrides the docstring explanation.
  * Entries are objects so planning keys (e.g. a future `note:`) can be added next to `text` later. */
 export const explainSchema = z.record(z.string().min(1).max(300), z.strictObject({
   text: z.string().trim().min(1).max(500),
-  // An unquoted all-digit fingerprint reads as a YAML number.
-  fingerprint: z.string({ error: 'fingerprint must be a quoted string of 12 hex characters, e.g. fingerprint: "012345678901"' }).regex(FINGERPRINT, { error: 'fingerprint must be 12 hex characters (written by stingray-views check --restamp)' }).optional(),
+  fingerprint: fingerprintSchema.optional(),
 })).refine(e => Object.keys(e).length <= MAX_EXPLAIN, { error: `At most ${MAX_EXPLAIN} explain entries` });
 
 export const viewSchema = z.strictObject({
@@ -212,7 +224,7 @@ export interface ViewDefinition {
 }
 
 /** One `explain:` entry; `line` is the 1-based line of its key in the view file. */
-export interface ExplainEntry { key: string; text: string; fingerprint: string | null; line: number | null }
+export interface ExplainEntry { key: string; text: string; fingerprint: string | Record<string, string> | null; line: number | null }
 
 /** Parse and validate a view file. Throws YamlError. */
 export function parseViewYaml(text: string, file: string): ViewDefinition {

@@ -39,4 +39,5 @@ export function explanationOf(symbol: GraphSymbol | null | undefined): { explana
 
 /** The SymbolRef of a node or group; keeps the body's end line, which `explain:` fingerprints hash up to. */
 export const symbolRef = (s: GraphSymbol): SymbolRef =>
-  ({ id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line, ...(s.endLine ? { endLine: s.endLine } : {}) });
+  ({ id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line, ...(s.endLine ? { endLine: s.endLine } : {}),
+    ...(s.qualifiedName ? { qualifiedName: s.qualifiedName } : {}) });

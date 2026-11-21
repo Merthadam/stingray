@@ -28,6 +28,10 @@ export interface ComputeDeps {
   /** Every symbol of a file (for class → constructor); [] when unknown. */
   fileSymbols?: (file: string) => Promise<GraphSymbol[]>;
   readSource?: ReadSource;    // worktree files, for fingerprints of `explain:` entries (unchecked without it)
+  /** Direct `calls` targets per symbol id (heuristic relations included), in-repo symbols only; [] when unknown. */
+  callees?: (ids: string[]) => Promise<Map<string, GraphSymbol[]>>;
+  /** Every symbol of a file (for class → constructor); [] when unknown. */
+  fileSymbols?: (file: string) => Promise<GraphSymbol[]>;
   graph: GraphStatus;
   workspaceId?: string;
 }
@@ -62,7 +66,7 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   if (!entry.explain?.length) return linked;
   // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
   const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
-  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource });
+  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
   return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS) };
 }
 
