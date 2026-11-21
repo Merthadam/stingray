@@ -16,10 +16,11 @@ import type { SharedBaseTarget } from './codegraph-overlay';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 
 type Call = { type: 'close'; workspaceId: string } | { type: 'closeAll' } | { type: 'findSymbols'; workspaceId: string; queries: SymbolQuery[] }
+  | { type: 'callees'; workspaceId: string; ids: string[] } | { type: 'fileSymbols'; workspaceId: string; file: string }
   | { type: 'evaluateView'; workspaceId: string; root: string; view: ResolvedView }
   | { type: 'conflicts'; shared: SharedBaseTarget; workspaceIds: string[] };
 export type WorkerRequest = { type: 'open'; workspaceId: string; root: string; shared?: SharedBaseTarget | null } | (Call & { id: number });
-type Reply = { type: 'reply'; id: number; result: (GraphSymbol | null)[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
+type Reply = { type: 'reply'; id: number; result: (GraphSymbol | null)[] | [string, GraphSymbol[]][] | GraphSymbol[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
 export type WorkerEvent =
   | { type: 'status'; workspaceId: string; status: GraphStatus }
   | { type: 'change'; workspaceId: string; files: string[] }
@@ -86,10 +87,19 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
     status() { return this.current; }
     onChange(listener: (change: GraphChange) => void) { this.changeListeners.add(listener); return () => { this.changeListeners.delete(listener); }; }
     onStatus(listener: (status: GraphStatus) => void) { this.statusListeners.add(listener); return () => { this.statusListeners.delete(listener); }; }
+    private ready() { return this.active && (this.current.state === 'ready' || this.current.state === 'read-only'); }
     async findSymbols(queries: SymbolQuery[]) {
-      const ready = this.active && (this.current.state === 'ready' || this.current.state === 'read-only');
-      const result = ready && queries.length ? await request({ type: 'findSymbols', workspaceId: this.workspaceId, queries }) : null;
+      const result = this.ready() && queries.length ? await request({ type: 'findSymbols', workspaceId: this.workspaceId, queries }) : null;
       return Array.isArray(result) && result.length === queries.length ? result as (GraphSymbol | null)[] : queries.map(() => null);
+    }
+    // A Map does not survive IPC: the child sends [id, callees] entries.
+    async callees(ids: string[]) {
+      const result = this.ready() && ids.length ? await request({ type: 'callees', workspaceId: this.workspaceId, ids }) : null;
+      return new Map(ids.map(id => [id, []] as [string, GraphSymbol[]]).concat(Array.isArray(result) ? result as [string, GraphSymbol[]][] : []));
+    }
+    async fileSymbols(file: string) {
+      const result = this.ready() ? await request({ type: 'fileSymbols', workspaceId: this.workspaceId, file }) : null;
+      return Array.isArray(result) ? result as GraphSymbol[] : [];
     }
     async evaluateView(view: ResolvedView) {
       const reply = await call({ type: 'evaluateView', workspaceId: this.workspaceId, root: this.root, view }, evaluateTimeoutMs);

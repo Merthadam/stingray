@@ -18,7 +18,7 @@ async function repo() {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-codegraph-process-'));
   await git(root, ['init', '-b', 'main']);
   await mkdir(path.join(root, 'app'));
-  await writeFile(path.join(root, 'app/models.py'), 'class User:\n    name: str\n');
+  await writeFile(path.join(root, 'app/models.py'), 'class User:\n    name: str\n\n\ndef helper():\n    return 1\n\n\ndef run():\n    return helper()\n');
   return root;
 }
 const until = <T>(what: string, check: () => T | undefined | false, ms = 30000) => new Promise<T>((resolve, reject) => {
@@ -42,11 +42,18 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
   try {
     const graph = host.open('w1', root);
     assert.deepEqual(await graph.findSymbols([{ file: 'app/models.py', name: 'User' }]), [null]); // not ready yet
+    assert.deepEqual(await graph.callees(['x']), new Map([['x', []]]));
+    assert.deepEqual(await graph.fileSymbols('app/models.py'), []);
     const seen: GraphChange[] = []; graph.onChange(change => seen.push(change));
     await state(graph, 'ready');
     assert.equal(children.length, 1);
     assert.match(execFileSync('ps', ['-o', 'args=', '-p', String(children[0].pid)], { encoding: 'utf8' }), /--liftoff-only/);
     assert.deepEqual({ ...await find(graph, 'User'), id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1, endLine: 2, qualifiedName: 'User' });
+    // callees and fileSymbols round-trip through the child (the Map travels as entries)
+    const [run, helper] = await graph.findSymbols([{ file: 'app/models.py', name: 'run' }, { file: 'app/models.py', name: 'helper' }]);
+    const callees = await graph.callees([run!.id, helper!.id, 'missing']);
+    assert.deepEqual([...callees].map(([id, list]) => [id, list.map(s => s.name)]), [[run!.id, ['helper']], [helper!.id, []], ['missing', []]]);
+    assert.deepEqual((await graph.fileSymbols('app/models.py')).filter(s => s.kind === 'function').map(s => s.name).sort(), ['helper', 'run']);
 
     await appendFile(path.join(root, 'app/models.py'), '\nclass Invoice:\n    pass\n');
     await until('models.py change', () => seen.some(c => c.files.includes('app/models.py')));
@@ -157,14 +164,14 @@ test('evaluateView round-trips through the worker: result, engine error, timeout
 
 test('ViewService computes a rule + graph-step view in the real CodeGraph child', async () => {
   const root = await repo(), children: ChildProcess[] = [];
-  await writeFile(path.join(root, 'app/flow.py'), 'def helper():\n    pass\n\ndef run():\n    helper()\n    register("plan")\n\ndef main():\n    run()\n');
+  await writeFile(path.join(root, 'app/models.py'), 'def helper():\n    pass\n\ndef run():\n    helper()\n    register("plan")\n\ndef main():\n    run()\n');
   await mkdir(path.join(root, '.stingray/views'), { recursive: true });
   await writeFile(path.join(root, '.stingray/views/flow.yaml'), [
     'version: 1', 'name: Flow', 'kind: flow', 'scope: { include: ["app/**"] }', 'rules:',
     '  - id: step', '    language: python',
     '    query: \'(call function: (identifier) @f (#eq? @f "register") arguments: (argument_list (string (string_content) @name)))\'',
     '    emit: { node: { id: "@name", detail: "in @function", symbol: "@function" } }',
-    'graph: { start: [{ symbol: main, file: app/flow.py }], follow: [calls], helpers: show }', ''].join('\n'));
+    'graph: { start: [{ symbol: main, file: app/models.py }], follow: [calls], helpers: show }', ''].join('\n'));
   const host = createCodeGraphProcessHost({ debounceMs: 100, spawn: () => {
     const child = fork(worker, [], { execArgv: ['--import', 'tsx', '--liftoff-only', '--disable-warning=ExperimentalWarning'],
       env: { ...process.env, CODEGRAPH_TELEMETRY: '0', CODEGRAPH_NO_UPDATE_CHECK: '1' } });
@@ -184,7 +191,7 @@ test('ViewService computes a rule + graph-step view in the real CodeGraph child'
     assert.deepEqual(result.diagnostics!.rules.map(r => [r.rule, r.matches, r.errors.length]), [['view#step', 1, 0]]);
     assert.equal(result.diagnostics!.graph!.error, null);
 
-    await appendFile(path.join(root, 'app/flow.py'), '\ndef other():\n    register("act")\n');
+    await appendFile(path.join(root, 'app/models.py'), '\ndef other():\n    register("act")\n');
     await until('flow re-queued', () => events.some(e => e.viewIds.includes('flow')));
     assert.ok((await service.computeView('w1', root, 'flow')).nodes.some(n => n.id === 'act'));
   } finally { await service.dispose(); await rm(root, { recursive: true, force: true }); }

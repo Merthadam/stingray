@@ -12,6 +12,7 @@ import { evaluate } from './views/rules/engine';
 import { codegraphGrammarDir } from './views/rules/grammars';
 import { createFileProvider } from './views/rules/files';
 import { createGraphApi, createOverlayGraphApi } from './views/rules/codegraph-api';
+import { calleesOf } from './views/rules/callees';
 import { buildOverlay, ensureBase, gitOut, installOverlay, overlayConflicts, type SharedBaseTarget } from './codegraph-overlay';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
@@ -77,10 +78,17 @@ class Graph implements WorktreeGraph {
     });
   }
 
+  async callees(ids: string[]) { const api = this.api(); return api ? calleesOf(api, ids) : new Map(ids.map(id => [id, []])); }
+  async fileSymbols(file: string) { return this.api()?.fileSymbols(posix(file)) ?? []; }
+
   evaluateView(view: ResolvedView) {
+    return evaluateView(this.options, this.root, view, this.api(), this.current);
+  }
+
+  /** A GraphApi over the current graph, or null when it is not ready. */
+  private api(): GraphApi | null {
     const ready = this.current.state === 'ready' || this.current.state === 'read-only';
-    const graph = !ready ? null : this.overlay ? createOverlayGraphApi(this.overlay, this.root, this.lib ?? undefined) : this.cg ? createGraphApi(this.cg) : null;
-    return evaluateView(this.options, this.root, view, graph, this.current);
+    return !ready ? null : this.overlay ? createOverlayGraphApi(this.overlay, this.root, this.lib ?? undefined) : this.cg ? createGraphApi(this.cg) : null;
   }
 
   start() {
@@ -346,6 +354,16 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
         case 'findSymbols': {
           const graph = graphs.get(message.workspaceId)?.graph;
           return void (graph ? graph.findSymbols(message.queries) : Promise.resolve(message.queries.map(() => null)))
+            .then(result => send({ type: 'reply', id: message.id, result }));
+        }
+        case 'callees': {
+          const graph = graphs.get(message.workspaceId)?.graph;
+          return void (graph ? graph.callees(message.ids) : Promise.resolve(new Map(message.ids.map(id => [id, []]))))
+            .then(result => send({ type: 'reply', id: message.id, result: [...result] }));
+        }
+        case 'fileSymbols': {
+          const graph = graphs.get(message.workspaceId)?.graph;
+          return void (graph ? graph.fileSymbols(message.file) : Promise.resolve([]))
             .then(result => send({ type: 'reply', id: message.id, result }));
         }
         case 'evaluateView': {
