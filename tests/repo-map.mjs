@@ -129,7 +129,10 @@ try {
   await page.getByRole('tab', { name: 'Whole file', exact: true }).click();
   check('Whole file mode shows current contents', (await page.getByLabel('File content', { exact: true }).innerText()).includes('Working'));
   await screenshot('map-whole-file');
-  await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5); await page.waitForTimeout(150);
+  // The real OS cursor can cross the test window and open hover details: make the map unhoverable during the idle window.
+  await page.evaluate(() => { document.querySelector('.repo-map-body').style.pointerEvents = 'none'; });
+  await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5);
+  await page.getByRole('tooltip').waitFor({ state: 'detached' }); await page.waitForTimeout(150);
   await app.evaluate(({ ipcMain }) => {
     const original = ipcMain._invokeHandlers.get('repo-snapshot');
     globalThis.idleMapPolls = 0;
@@ -152,6 +155,7 @@ try {
   });
   await page.waitForTimeout(11000);
   timings.idle = { polls: await app.evaluate(() => globalThis.idleMapPolls), mutations: await page.evaluate(() => { window.idleMapObserver.disconnect(); return window.idleMapMutations; }), records: await page.evaluate(() => window.idleMapRecords) };
+  await page.evaluate(() => { document.querySelector('.repo-map-body').style.pointerEvents = ''; });
   check('two real idle polls leave map, counts and reader visually unchanged', timings.idle.polls >= 2 && timings.idle.mutations === 0);
   const hoverStart = performance.now();
   await button('Modified file src/App.tsx').hover(); await page.getByRole('tooltip').waitFor({ timeout: 500 });
