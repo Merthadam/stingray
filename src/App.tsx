@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
-import type { GitStatus, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
+import type { State, TerminalInfo, Workspace, WorkspacePort } from './shared';
 import { TerminalPane } from './TerminalPane';
 import { BrowserPane } from './BrowserPane';
 import { Modal } from './Modal';
@@ -10,6 +10,7 @@ import { AddProjectForm } from './AddProjectForm';
 import { RepoMap } from './RepoMap';
 import { ViewsTab } from './ViewsTab';
 import { WorkspaceStatus } from './WorkspaceStatus';
+import { useGitState } from './useGitState';
 import { RemoveWorktreeForm } from './RemoveWorktreeForm';
 import { WorkspacePortsChip } from './WorkspacePortsChip';
 import { useWorkspacePorts } from './useWorkspacePorts';
@@ -52,16 +53,12 @@ export default function App() {
   const [initializing, setInitializing] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState('');
-  const [gitResult, setGitResult] = useState<{ id: string; status: GitStatus | null; error: string }>({ id: '', status: null, error: '' });
-  const [statusBusy, setStatusBusy] = useState(false);
   const search = useRef<HTMLInputElement>(null);
-  const statusSequence = useRef(0);
-  const pendingStatuses = useRef(new Map<string, Promise<GitStatus>>());
   const selection = resolveSelection(state, navigation);
   const selected = selection?.workspaceId || '';
   useEffect(() => { setMapTarget(null); }, [selected]);
-  const status = gitResult.id === selected ? gitResult.status : null;
-  const statusError = gitResult.id === selected ? gitResult.error : '';
+  const selectedGit = useGitState(selected);
+  const status = selectedGit.state?.status ?? null;
   const workspace = state.workspaces.find(w => w.id === selected);
   const repo = state.repos.find(r => r.id === selection?.repoId);
   const projectWorkspaces = state.workspaces.filter(w => w.repoId === repo?.id);
@@ -92,29 +89,13 @@ export default function App() {
     finally { setInitializing(false); }
   }
   useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
-  const refreshStatus = useCallback(async () => {
-    const sequence = ++statusSequence.current;
-    if (!selected) { setGitResult({ id: '', status: null, error: '' }); setStatusBusy(false); return; }
-    setStatusBusy(true);
-    try {
-      let request = pendingStatuses.current.get(selected);
-      if (!request) {
-        request = api.gitStatus(selected).finally(() => { pendingStatuses.current.delete(selected); });
-        pendingStatuses.current.set(selected, request);
-      }
-      const next = await request;
-      if (sequence === statusSequence.current) setGitResult({ id: selected, status: next, error: '' });
-    }
-    catch (e) { if (sequence === statusSequence.current) setGitResult({ id: selected, status: null, error: (e as Error).message }); }
-    finally { if (sequence === statusSequence.current) setStatusBusy(false); }
-  }, [selected]);
+  // Working-tree edits don't touch .git: re-read the selected workspace when the user comes back.
   useEffect(() => {
-    void refreshStatus();
-    const onFocus = () => { void refreshStatus(); };
-    const timer = window.setInterval(() => { if (!document.hidden) void refreshStatus(); }, 10000);
-    window.addEventListener('focus', onFocus);
-    return () => { ++statusSequence.current; clearInterval(timer); window.removeEventListener('focus', onFocus); };
-  }, [refreshStatus]);
+    if (!selected) return;
+    const update = () => { if (!document.hidden) void api.refreshGitState(selected).catch(() => {}); };
+    window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
+    return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
+  }, [selected]);
   async function run(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -186,11 +167,11 @@ export default function App() {
                 if (busy || (event.target as Element).closest('button, a, input, [role="dialog"]')) return;
                 setNavigation({ repoId: repo.id, workspaceId: w.id }); setError('');
               }}>
-              <WorkspaceStatus workspace={w} selected={selected === w.id} status={status} statusBusy={statusBusy} statusError={statusError}
+              <WorkspaceStatus workspace={w} selected={selected === w.id}
                 disabled={busy} running={terminals.some(t => t.workspaceId === w.id && !t.exited)}
                 agents={activity.agents.filter(a => a.workspaceId === w.id)} activityUnavailable={activity.unavailable}
                 onSelect={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}
-                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRefresh={() => void refreshStatus()} onRemove={() => openRemoval(w)}>
+                onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRemove={() => openRemoval(w)}>
                 <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
               </WorkspaceStatus>
             </div>)}{!filteredWorkspaces.length && <div className="sidebar-empty">No matching workspaces.</div>}</nav>
@@ -209,7 +190,7 @@ export default function App() {
             </section>
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
-          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} onStatus={next => { ++statusSequence.current; setStatusBusy(false); setGitResult({ id: workspace.id, status: next, error: '' }); }} />}
+          {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} />}
           {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} onOpenInMap={(path, line) => { setMapTarget({ path, line, nonce: ++mapNonce.current }); setTab('changes'); }} />}
         </>}
       </main>
