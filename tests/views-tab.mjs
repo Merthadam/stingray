@@ -44,6 +44,12 @@ await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a val
 await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n'
   + 'explain:\n  login: { text: Sign a user in by email, fingerprint: "000000000000" }\n');
+// A FastAPI-like route -> service -> repository: a sequence view with an if/else (alt) and a raise (error note).
+await put('app/routes.py', 'from app.service import authenticate\n\n\ndef sign_in_route(request):\n    return authenticate(request.email, request.password)\n');
+await put('app/service.py', 'from app.repo import fetch_account, touch_login\n\n\ndef authenticate(email, password):\n    account = fetch_account(email)\n'
+  + '    if account is None:\n        raise PermissionError("unknown account")\n    else:\n        touch_login(account)\n    return account\n');
+await put('app/repo.py', 'def fetch_account(email):\n    return {"email": email}\n\n\ndef touch_login(account):\n    return account\n');
+await put('.stingray/views/sign-in.yaml', 'version: 1\nname: Sign in sequence\nkind: sequence\nsequence:\n  start: { symbol: sign_in_route }\n  trigger: POST /sign-in\n  participants: file\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
@@ -163,6 +169,29 @@ try {
 
   await list.getByRole('button', { name: /\(invalid\)$/ }).click();
   check('broken view shows its error', /kind/.test(await page.locator('.views-invalid-error').innerText()));
+
+  // A sequence view: lifelines per file, call/return arrows, an alt fragment with the raise as a note in its first arm.
+  await list.getByRole('button', { name: 'Sign in sequence' }).click();
+  const sequence = page.getByTestId('sequence-diagram');
+  await sequence.getByRole('button', { name: /^Message routes\.py -> service\.py: authenticate/ }).waitFor({ timeout: 60000 });
+  check('sequence view draws the actor and one lifeline per file', await sequence.getByRole('button', { name: /^Participant / }).evaluateAll(els => els.map(e => e.getAttribute('aria-label'))).then(l =>
+    l.join('|') === 'Participant User|Participant routes.py (app/routes.py)|Participant service.py (app/service.py)|Participant repo.py (app/repo.py)'));
+  check('sequence view draws calls with labels and dashed returns', await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: fetch account/ }).count() === 1
+    && await sequence.locator('.seq-message.return').count() >= 2);
+  check('sequence view frames the if/else as an alt with the raise as an error note',
+    await sequence.locator('.seq-fragment-kind').allTextContents().then(t => t.join() === 'alt')
+    && await sequence.getByRole('button', { name: 'Note on service.py: error: PermissionError' }).count() === 1);
+  await sequence.getByRole('button', { name: 'Participant service.py (app/service.py)' }).click();
+  check('clicking a participant opens its messages in the inspector',
+    (await sequence.getByRole('complementary', { name: 'Participant service.py' }).innerText()).includes('fetch account'));
+  await page.getByRole('button', { name: 'Show as text' }).click();
+  check('a sequence view switches to the CLI text', (await page.getByLabel('Text diagram').innerText()).includes('service.py -> repo.py: fetch account'));
+  await page.getByRole('button', { name: 'Show as diagram' }).click();
+  await page.evaluate(() => window.stingray.setEditor('repo-map')); // never launch a real editor from the test
+  await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: fetch account/ }).click();
+  await page.getByRole('tab', { name: /Repo Map/ }).and(page.locator('[aria-selected=true]')).waitFor();
+  check('clicking a message opens its call site', true);
+  await page.getByRole('tab', { name: 'Views' }).click();
 
   await list.getByRole('button', { name: 'Database' }).click();
   await diagram.getByText('posts', { exact: true }).first().waitFor();
