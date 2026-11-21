@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { isMap, parseDocument } from 'yaml';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import type { DbSchemaResult } from '../src/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../src/views';
 import type { Evaluate, FileProvider, GraphApi } from './views/rules/types';
@@ -38,12 +38,14 @@ export interface CliDeps {
 }
 
 export const USAGE = `Usage:
-  stingray-views check <file.yaml> [--json] [--depth N] [--restamp]
+  stingray-views check <file.yaml> [--json] [--depth N] [--restamp | --strict]
                                               validate a view and print diagnostics + a text diagram
                                               (--depth 0-4: flowchart call levels, overrides flowchart.depth;
                                                1-4: layers level, overrides layers.depth;
                                                --restamp: after reviewing explain: texts, write the current
-                                               fingerprints into the file)
+                                               fingerprints into the file;
+                                               --strict: exit 1 when an explain: entry is outdated,
+                                               unstamped or has an old fingerprint, for CI)
   stingray-views list                         views of this worktree
   stingray-views sets                         builtin rule sets for \`use:\`
   stingray-views help                         the full guide (view format, rules, workflow)
@@ -71,8 +73,10 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const usage = () => { deps.err(USAGE); return 2; };
   switch (command) {
     case 'check': {
-      const json = rest.includes('--json'), restamp = rest.includes('--restamp'), args = rest.filter(a => a !== '--json' && a !== '--restamp');
+      const json = rest.includes('--json'), restamp = rest.includes('--restamp'), strict = rest.includes('--strict');
+      const args = rest.filter(a => a !== '--json' && a !== '--restamp' && a !== '--strict');
       if (json && restamp) { deps.err('--restamp cannot be combined with --json'); return 2; }
+      if (strict && restamp) { deps.err('--restamp cannot be combined with --strict'); return 2; }
       let depth: number | null = null;
       const at = args.indexOf('--depth');
       if (at >= 0) {
@@ -80,7 +84,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
         depth = Number(args.splice(at, 2)[1]);
       }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
-      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp);
+      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp, strict);
     }
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
@@ -108,7 +112,7 @@ async function list(deps: CliDeps): Promise<number> {
   return views.some(v => v.summary.error) ? 1 : 0;
 }
 
-async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false): Promise<number> {
+async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
   const root = await worktreeRoot(path.dirname(file));
@@ -149,7 +153,13 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   const d = result.diagnostics!;
   // A missing/unreadable code graph is the environment, not the view; graph-step errors with a graph are the view's.
   const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error || !!d.layers?.error));
-  if (json) { deps.out(JSON.stringify({ summary: loaded.summary, result }, null, 2)); return failed ? 1 : 0; }
+  // --strict: after the normal output; to stderr so --json stdout stays valid JSON. The higher exit code wins.
+  const review = (code: number) => {
+    const n = strict ? (d.explain ?? []).filter(e => e.status === 'stale' || e.status === 'unstamped' || e.status === 'legacy').length : 0;
+    if (n) deps.err(`strict: ${n} explanation${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} review`);
+    return Math.max(code, n ? 1 : 0);
+  };
+  if (json) { deps.out(JSON.stringify({ summary: loaded.summary, result }, null, 2)); return review(failed ? 1 : 0); }
 
   deps.out(`${result.name} (${result.kind}) — ${relFile}`);
   deps.out(`code graph: ${graph.status.state}${graph.status.message ? ` — ${graph.status.message}` : ''}`);
@@ -188,7 +198,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   deps.out(failed ? 'FAILED: fix the errors above and run check again.' : 'OK: no errors. Check that the diagram above matches the code.');
   if (restamp && failed) { deps.err('restamp: fix the errors first; nothing was written.'); return 1; }
   if (restamp && !(await restampFile(file, relFile, d.explain ?? [], graph.api !== null, lagging, deps))) return 1;
-  return failed ? 1 : 0;
+  return review(failed ? 1 : 0);
 }
 
 /** Files of `explain:` entries changed on disk since the code graph indexed them: their line ranges may be off. */
@@ -198,28 +208,34 @@ async function laggingFiles(root: string, entries: ExplainDiagnostic[], indexedM
   return new Set(files.filter((f, i) => mtimes[i] !== indexedMtime(f)));
 }
 
-/** `--restamp`: write the current fingerprints of resolved `explain:` entries into the view file, keeping comments and
- * formatting. Needs the code graph: without it symbol-backed entries cannot be fingerprinted. */
+/** `--restamp`: write the current fingerprint maps (piece key → hash) of resolved `explain:` entries into the view file,
+ * replacing old string stamps and keeping comments and formatting. Needs the code graph: without it symbol-backed entries
+ * cannot be fingerprinted. */
 async function restampFile(file: string, relFile: string, entries: ExplainDiagnostic[], graphOpen: boolean, lagging: Set<string>, deps: CliDeps): Promise<boolean> {
   deps.out('');
   if (!entries.length) { deps.out('restamp: the view has no explain: entries.'); return true; }
   if (!graphOpen) { deps.err('restamp: needs the code graph (open the worktree in Stingray to index it); nothing was written.'); return false; }
   const doc = parseDocument(await readFile(file, 'utf8'));
   const stamped: string[] = [];
+  let count = 0;
   for (const e of entries) {
     const pair = explainPair(doc, e.key);
     const changed = e.files.filter(f => lagging.has(f));
     const skip = !e.matches ? 'matches nothing in the view' : !isMap(pair?.value) ? 'entry is not a plain mapping; stamp it by hand'
       : changed.length ? `${changed.join(', ')} changed since the code graph indexed it; restamp after Stingray re-indexes`
-      : e.fingerprint === null ? 'could not fingerprint its code' : null;
-    if (skip || !isMap(pair?.value)) { deps.out(`restamp: skipped "${e.key}" (${skip})`); continue; }
-    if (pair.value.get('fingerprint') === e.fingerprint) continue;
-    pair.value.set('fingerprint', e.fingerprint);
-    stamped.push(`restamp: stamped "${e.key}" ${e.fingerprint}${e.line !== null ? ` (${relFile}:${e.line})` : ''}`);
+      : e.pieces === null ? 'could not fingerprint its code' : null;
+    if (skip || !isMap(pair?.value) || !e.pieces) { deps.out(`restamp: skipped "${e.key}" (${skip})`); continue; }
+    const stored = pair.value.get('fingerprint');
+    if (isMap(stored) && isDeepStrictEqual(stored.toJSON(), e.pieces)) continue;
+    pair.value.set('fingerprint', doc.createNode(e.pieces));
+    const n = Object.keys(e.pieces).length;
+    count++;
+    stamped.push(`restamp: stamped "${e.key}" (${n} piece${n === 1 ? '' : 's'})${e.line !== null ? ` (${relFile}:${e.line})` : ''}`,
+      ...e.skipped.map(k => `restamp: "${e.key}": could not fingerprint callee ${k} (left out)`));
   }
-  if (stamped.length) await writeFile(file, doc.toString({ lineWidth: 0 }));
+  if (count) await writeFile(file, doc.toString({ lineWidth: 0 }));
   for (const line of stamped) deps.out(line);
-  deps.out(stamped.length ? `restamp: wrote ${stamped.length} fingerprint${stamped.length === 1 ? '' : 's'} to ${relFile}` : 'restamp: all fingerprints are current.');
+  deps.out(count ? `restamp: wrote ${count} fingerprint${count === 1 ? '' : 's'} to ${relFile}` : 'restamp: all fingerprints are current.');
   return true;
 }
 
