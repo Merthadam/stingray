@@ -137,6 +137,14 @@ try {
     await calls.getByRole('button', { name: 'Open handle in editor' }).isVisible()
     && await calls.getByRole('button', { name: 'Open handle.clean in editor' }).isVisible());
   await page.screenshot({ path: process.env.VIEWS_SCREENSHOT ?? path.join(root, 'graph-view.png') });
+  await page.getByRole('button', { name: 'Show as text' }).click();
+  const graphText = page.getByLabel('Text diagram');
+  await graphText.waitFor();
+  check('a graph view switches to its searchable text form, without the fallback note',
+    (await graphText.innerText()).includes('handle') && await page.locator('.views-text-note').count() === 0);
+  await page.getByRole('button', { name: 'Show as diagram' }).click();
+  await calls.getByRole('group', { name: 'Step load' }).waitFor({ timeout: 60000 });
+  check('and back to the diagram', await page.getByRole('button', { name: 'Show as text' }).isVisible());
 
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();
