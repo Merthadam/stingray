@@ -48,7 +48,7 @@ export interface DiagramNode {
   explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
                                // rule nodes with `symbol:`, tables linked to their model class) or the view's `explain:` entry; absent/null = none, nothing is shown
   explanationStatus?: ExplanationStatus;
-  explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore.get_user changed"
+  explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
 }
 

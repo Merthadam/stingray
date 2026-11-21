@@ -105,7 +105,7 @@ export function compareFingerprint(stored: ExplainEntry['fingerprint'], current:
 
 const MAX_NAMES = 3;
 
-/** The reason of a stale entry, e.g. `may be outdated: SessionStore.get_user changed; new call audit.log; no longer calls
+/** The reason of a stale entry, e.g. `may be outdated: SessionStore::get_user changed; new call audit.log; no longer calls
  * cache.get`. Names drop their file path unless two would read the same; at most 3 per category. `labelOf` gives the label
  * of a `drawn:<id>` piece's node or group (default: the id). Pure. */
 export function describeChanges(changes: ExplainChanges, labelOf: (id: string) => string = id => id): string {
