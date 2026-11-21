@@ -23,6 +23,8 @@ export const inspectFormat = '{"id":{{json .Id}},"name":{{json .Name}},"image":{
 export function parseContainers(output: string): ContainerInfo[] {
   return output.split('\n').filter(line => line.trim()).map(line => {
     const row = containerSchema.parse(JSON.parse(line));
+    // Any image can set the labels: also require scripts/test-env.sh's container name or image.
+    const testEnv = row.testEnv === '1' && (/^\/?stingray-test-/.test(row.name) || row.image.startsWith('stingray-test-env:'));
     const ports: ContainerInfo['ports'] = [];
     for (const [target, bindings] of Object.entries(row.ports || {})) {
       if (!/^\d+\/tcp$/.test(target)) continue;
@@ -35,10 +37,10 @@ export function parseContainers(output: string): ContainerInfo[] {
           : ['', '0.0.0.0', '127.0.0.1'].includes(b.HostIp) ? '127.0.0.1' : null;
         if (!host) continue;
         const url = `http://${host}:${port}`;
-        if (!ports.some(p => p.url === url)) ports.push({ port, target, url, ...(row.cdp && target === `${row.cdp}/tcp` ? { cdp: true } : {}) });
+        if (!ports.some(p => p.url === url)) ports.push({ port, target, url, ...(testEnv && row.cdp && target === `${row.cdp}/tcp` ? { cdp: true } : {}) });
       }
     }
-    return { id: row.id, name: row.name.replace(/^\//, ''), image: row.image, state: row.state, health: row.health, testEnv: Boolean(row.testEnv),
+    return { id: row.id, name: row.name.replace(/^\//, ''), image: row.image, state: row.state, health: row.health, testEnv,
       paths: [...(row.workspace?.startsWith('/') ? [row.workspace] : []), ...(row.workingDir ? [row.workingDir] : []), ...(row.mounts || []).filter(m => m.Type === 'bind').map(m => m.Source)], ports };
   }).filter(c => c.state === 'running').sort((a, b) => a.name.localeCompare(b.name));
 }

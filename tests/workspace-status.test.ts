@@ -69,13 +69,19 @@ test('empty Docker list succeeds without inspect; failed reads recover and inval
   await assert.rejects(invalid.list(), /unsupported container list/);
 });
 test('test-env labels map a container to its workspace and mark the DevTools port', () => {
-  const [c] = parseContainers(fixture({ workingDir: null, mounts: [], workspace: '/projects/app', cdp: '9223', testEnv: '1',
+  const [c] = parseContainers(fixture({ name: '/stingray-test-wt-1a07f99-ab12', workingDir: null, mounts: [], workspace: '/projects/app', cdp: '9223', testEnv: '1',
     ports: { '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: '9230' }], '3000/tcp': [{ HostIp: '127.0.0.1', HostPort: '3000' }] } }));
   assert.equal(c.testEnv, true);
   assert.deepEqual(c.paths, ['/projects/app']);
   assert.deepEqual(c.ports.map(p => [p.port, p.cdp]), [[9230, true], [3000, undefined]]);
   assert.deepEqual(workspacePorts({ id: 'w', path: '/projects/app' } as Workspace, [], [c]).map(p => [p.port, p.cdp, p.testEnv, p.containerId]),
     [[3000, undefined, true, id], [9230, true, true, id]]);
+  // The labels alone (settable by any image) are not enough: name or image must come from scripts/test-env.sh.
+  const labelOnly = { cdp: '9223', testEnv: '1', ports: { '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: '9230' }] } };
+  const [spoofed] = parseContainers(fixture(labelOnly));
+  assert.equal(spoofed.testEnv, false);
+  assert.equal(spoofed.ports[0].cdp, undefined);
+  assert.equal(parseContainers(fixture({ ...labelOnly, image: 'stingray-test-env:wt-1a07f99' }))[0].testEnv, true);
   const [plain] = parseContainers(fixture({ workspace: 'relative/path', testEnv: '' }));
   assert.equal(plain.testEnv, false);
   assert.ok(!plain.paths.includes('relative/path'));
@@ -110,7 +116,7 @@ test('stop and logs act only on running test-env containers, pinned to their end
   const service = new ContainerService(async (args, options) => {
     calls.push(args);
     if (args.includes('ls')) return `${id}\n${other}\n`;
-    if (args.includes('inspect')) return [fixture({ testEnv: '1' }), fixture({ id: other })].join('\n');
+    if (args.includes('inspect')) return [fixture({ testEnv: '1', name: '/stingray-test-wt-1-abcd' }), fixture({ id: other, testEnv: '1' })].join('\n');
     if (args.includes('logs')) { assert.equal(options?.stderr, true); return '2026-01-01T00:00:00.5Z out late\n2026-01-01T00:00:00.25Z out early\n2026-01-01T00:00:00.3Z err middle\n'; }
     return '';
   }, { DOCKER_HOST: 'unix:///local.sock' });
