@@ -3,7 +3,7 @@ import type { ContainerInfo, GitStatus, Workspace, WorkspacePort } from './share
 export function workspacePorts(workspace: Workspace, terminalPorts: WorkspacePort[], containers: ContainerInfo[]) {
   const ports = new Map<number, WorkspacePort>();
   for (const c of containers.filter(c => belongsToWorkspace(c, workspace.path))) {
-    for (const p of c.ports) ports.set(p.port, { ...p, workspaceId: workspace.id, source: 'docker', label: c.name });
+    for (const p of c.ports) ports.set(p.port, { ...p, workspaceId: workspace.id, source: 'docker', label: c.name, containerId: c.id, ...(c.testEnv ? { testEnv: true } : {}) });
   }
   for (const p of terminalPorts.filter(p => p.workspaceId === workspace.id)) ports.set(p.port, p);
   return [...ports.values()].sort((a, b) => a.port - b.port);

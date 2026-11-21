@@ -76,9 +76,13 @@ export type PullRequestStatus =
 export type ContainerInfo = {
   id: string; name: string; image: string; state: string; health: string;
   paths: string[];
-  ports: { port: number; target: string; url: string }[];
+  ports: { port: number; target: string; url: string; cdp?: true }[];
+  /** Started by scripts/test-env.sh (label stingray.test-env): the only containers Stingray may stop or read logs from. */
+  testEnv?: boolean;
 };
-export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
+export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker'; containerId?: string; testEnv?: boolean; cdp?: true };
+/** A Chrome DevTools Protocol endpoint to show in a live view tab. */
+export type LiveViewTarget = { workspaceId: string; url: string; port: number; containerId?: string };
 export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
@@ -115,6 +119,12 @@ export interface DesktopAPI {
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
   pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
   containers(): Promise<ContainerInfo[]>;
+  /** docker stop; test-env containers only. */
+  stopContainer(id: string): Promise<void>;
+  /** Last ~300 log lines; test-env containers only. */
+  containerLogs(id: string): Promise<string>;
+  /** Copies 127.0.0.1:<port> and opens chrome://inspect in Google Chrome when possible. */
+  inspectCdp(port: number): Promise<{ address: string; opened: boolean }>;
   ports(): Promise<WorkspacePort[]>;
   preview(id: string, url: string): Promise<State>;
   activity(): Promise<ActivitySnapshot>;

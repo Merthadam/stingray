@@ -10,6 +10,7 @@ import { Terminals } from './terminals';
 import { openTerminalLink } from './terminal-links';
 import { ContainerService } from './containers';
 import { PortService } from './ports';
+import { inspectCdp } from './chrome-inspect';
 import { PullRequestService } from './pull-requests';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
@@ -165,6 +166,9 @@ app.whenReady().then(async () => {
     editors.openSource((await git.workspace(id)).path, file, line));
   handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
   handle('containers', z.tuple([]), () => containers.list());
+  handle('container-stop', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.stop(id));
+  handle('container-logs', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.logs(id));
+  handle('inspect-cdp', z.tuple([z.number().int().min(1).max(65535)]), (port: number) => inspectCdp(port));
   handle('ports', z.tuple([]), () => ports.list());
   handle('preview', z.tuple([idSchema, z.union([z.literal(''), urlSchema])]), (id, url) => git.preview(id, url));
   handle('activity', z.tuple([]), () => activity.snapshot());
