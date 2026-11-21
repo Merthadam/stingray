@@ -13,15 +13,17 @@ const helloV1 = z.object({ type: z.literal('hello'), v: z.literal(1), token, run
 const hello = z.union([helloV1, helloV1.extend({ v: z.literal(2), harness: z.literal('pi') }).strict()]);
 const state = z.object({ type: z.literal('state'), seq: z.number().int().min(1).max(1e9), phase, completed: z.number().int().min(0).max(1e9) }).strict();
 /** One-shot frame from a short-lived hook process (Claude Code hooks, Codex notify): authenticate + report, then close.
- * `session` is the harness's opaque session identity, `pid` the agent process used for liveness, `at` orders racing hooks. */
+ * `session` is the harness's opaque session identity, `pid` the agent process used for liveness, `at` orders racing hooks.
+ * Codex `start` registers a per-run `run` nonce with the terminal token; Codex notify then authenticates with that nonce
+ * alone, so the terminal token never appears in argv. `resume` (async Claude tool hooks) only leaves Waiting. */
 const hookEvent = z.object({
-  type: z.literal('event'), v: z.literal(2), token, harness: z.enum(['claude', 'codex']),
+  type: z.literal('event'), v: z.literal(2), token: token.optional(), run: token.optional(), harness: z.enum(['claude', 'codex']),
   session: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), pid: z.number().int().min(2).max(2 ** 22), at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  phase, completed: z.boolean(), ended: z.boolean(),
-}).strict();
+  phase, completed: z.boolean(), ended: z.boolean(), resume: z.literal(true).optional(),
+}).strict().refine(e => e.token || (e.harness === 'codex' && e.run));
 type HookEvent = z.infer<typeof hookEvent>;
 type TerminalBinding = { terminalId: string; workspaceId: string; token: string };
-type Entry = AgentActivity & { run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: Socket; pid?: number; at: number };
+type Entry = AgentActivity & { run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: Socket; pid?: number; at: number; seen?: number; nonce?: string };
 
 /** A private local socket. Credentials bind to terminals, never to client-selected workspaces.
  * This protects against unrelated connections, not hostile code running as the same OS user
@@ -35,7 +37,9 @@ export class ActivityService {
   private liveness?: ReturnType<typeof setInterval>;
   directory = '';
   endpoint = '';
-  constructor(private publish: (snapshot: ActivitySnapshot) => void, private leaseMs = 20000) {}
+  // Hook agents can stop reporting without exiting (Claude interrupted with Esc fires no hook): Working this long
+  // without any event becomes unknown. Long silent tool runs also hit it; unknown is honest there too.
+  constructor(private publish: (snapshot: ActivitySnapshot) => void, private leaseMs = 20000, private hookWorkingMs = 15 * leaseMs) {}
   async start() {
     // macOS AF_UNIX paths are short; os.tmpdir() can exceed their limit.
     this.directory = await mkdtemp('/tmp/stingray-activity-');
@@ -82,6 +86,7 @@ export class ActivityService {
     let changed = false;
     for (const entry of this.entries.values()) {
       if (!entry.pid || entry.connection !== 'connected') continue;
+      if (entry.phase === 'working' && Date.now() - entry.seen! > this.hookWorkingMs) { entry.phase = 'unknown'; changed = true; }
       try { process.kill(entry.pid, 0); } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ESRCH') { entry.connection = 'disconnected'; changed = true; }
       }
@@ -97,18 +102,22 @@ export class ActivityService {
     return Boolean(disposable);
   }
   private hookEvent(socket: Socket, e: HookEvent) {
-    const terminal = [...this.terminals.values()].find(t => t.token === e.token);
+    // A nonce alone only reaches the live run that registered it: it cannot create entries or revive a dead one.
+    const terminal = e.token ? [...this.terminals.values()].find(t => t.token === e.token)
+      : this.terminals.get([...this.entries.values()].find(x => x.nonce === e.run && x.run === e.session && x.harness === e.harness && x.connection === 'connected')?.terminalId ?? '');
     if (!terminal) { socket.destroy(); return; }
     let entry = [...this.entries.values()].find(x => x.terminalId === terminal.terminalId && x.harness === e.harness && x.run === e.session);
     socket.end();
     if (entry && e.at < entry.at) return; // a racing older hook must not overwrite a newer state
+    if (e.resume && entry?.phase !== 'waiting') return;
     if (!entry) {
       if (e.ended || !this.admit(terminal.terminalId)) return;
       entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: e.harness, run: e.session, runtime: '', retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown' };
       this.entries.set(entry.id, entry);
     }
     const before = `${entry.connection}/${entry.phase}`;
-    entry.at = e.at; entry.pid = e.pid;
+    entry.at = e.at; entry.pid = e.pid; entry.seen = Date.now();
+    if (e.token && e.run) entry.nonce = e.run;
     // An observed clean end (e.g. Claude /clear starts a new session) is not a lost connection.
     if (e.ended && entry.reviewRevision === null) { this.entries.delete(entry.id); this.changed(); return; }
     entry.connection = e.ended ? 'disconnected' : 'connected'; entry.phase = e.phase;

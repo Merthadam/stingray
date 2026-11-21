@@ -18,7 +18,8 @@ export type HarnessAdapter = { id: HarnessId; command: string; name: string; wra
 type WrapperSpec = {
   command: string; name: string;
   passCommands: string[]; // first-argument subcommands that run unattached (maintenance, non-interactive)
-  passFlags: string[];    // any argument that runs unattached (help/version/non-interactive/explicit opt-out); `x*` globs allowed
+  passFlags: string[];    // any argument before `--` that runs unattached (help/version/non-interactive/explicit opt-out); `x*` globs allowed
+  passConfig?: string[];  // `-c`/`--config` values that run unattached; `x*` globs allowed
   launch: string;         // shell that execs "$sr_real" with attachment
 };
 function wrapper(bin: string, spec: WrapperSpec) {
@@ -39,8 +40,13 @@ if [ "$sr_real" -ef "$0" ]; then printf '%s\\n' '${spec.name} wrapper loop refus
 # Preserve maintenance/help/explicitly disabled and non-interactive invocations.
 if [ ! -t 0 ] || [ ! -t 1 ]; then exec "$sr_real" "$@"; fi
 case "\${1-}" in ${spec.passCommands.join('|')}) exec "$sr_real" "$@";; esac
+sr_prev=
 for sr_arg in "$@"; do
+  [ "$sr_arg" = -- ] && break
   case "$sr_arg" in ${spec.passFlags.join('|')}) exec "$sr_real" "$@";; esac
+${spec.passConfig ? `  case "$sr_prev" in -c|--config) case "$sr_arg" in ${spec.passConfig.join('|')}) exec "$sr_real" "$@";; esac;; esac
+  case "$sr_arg" in ${spec.passConfig.map(p => `--config=${p}`).join('|')}) exec "$sr_real" "$@";; esac
+` : ''}  sr_prev=$sr_arg
 done
 ${spec.launch}`;
 }
@@ -60,12 +66,17 @@ exec "$sr_real" --extension ${shellQuote(ctx.extension)} "$@"
   }),
 };
 
-/** Hook events Stingray registers; the hook client maps each to a phase (agents/hook-client.ts). */
-export const claudeHookEvents = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'SessionEnd'] as const;
+/** Hook events Stingray registers; the hook client maps each to a phase (agents/hook-client.ts).
+ * No PreToolUse: UserPromptSubmit already means Working; PostToolUse only resumes Working after a permission prompt. */
+export const claudeHookEvents = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'SessionEnd'] as const;
+/** Per-tool hooks run in the background (`async`): a cold hook client start (~1.4 s) must not delay every tool call. */
+const claudeAsyncHooks: readonly string[] = ['PostToolUse'];
 /** Passed with `--settings <file>`: Claude Code merges it with user/project settings and runs hooks from every
  * source, so user hooks stay intact. Hooks print nothing and exit 0, so they never block or alter a decision. */
 export const claudeSettings = (ctx: HarnessContext) => JSON.stringify({
-  hooks: Object.fromEntries(claudeHookEvents.map(event => [event, [{ hooks: [{ type: 'command', command: [...hookRunner(ctx, 'claude'), event].map(shellQuote).join(' '), timeout: 5 }] }]])),
+  hooks: Object.fromEntries(claudeHookEvents.map(event => [event, [{ hooks: [{
+    type: 'command', command: [...hookRunner(ctx, 'claude'), event].map(shellQuote).join(' '), timeout: 5, ...claudeAsyncHooks.includes(event) && { async: true },
+  }] }]])),
 }, null, 2) + '\n';
 
 export const claude: HarnessAdapter = {
@@ -89,12 +100,13 @@ export const codex: HarnessAdapter = {
   id: 'codex', command: 'codex', name: 'Codex',
   wrapper: ctx => {
     const runner = hookRunner(ctx, 'codex');
-    // TOML array of JSON strings; the token and pid are validated/numeric shell values appended at invocation.
+    // TOML array of JSON strings; the run nonce (hex) and pid (numeric) are shell values appended at invocation.
     const notify = `notify=[${[...runner, 'notify', ctx.endpoint].map(v => JSON.stringify(v)).join(',')},"`;
     return wrapper(ctx.bin, {
       command: 'codex', name: 'Codex',
       passCommands: ['exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'exec-server', 'features', 'help', 'agents'],
-      passFlags: ['--help', '-h', '--version', '-V', '--remote', '--remote=*', '*notify=*'],
+      passFlags: ['--help', '-h', '--version', '-V', '--remote', '--remote=*'],
+      passConfig: ['notify=*', "'notify '*"],
       launch: `sr_home=\${CODEX_HOME:-$HOME/.codex}
 for sr_config in "$sr_home"/config.toml "$sr_home"/*.config.toml; do
   if [ -f "$sr_config" ] && grep -q '^[[:space:]]*notify[[:space:]]*=' "$sr_config"; then exec "$sr_real" "$@"; fi
@@ -102,9 +114,13 @@ done
 sr_token=\${STINGRAY_ACTIVITY_TOKEN-}
 case "$sr_token" in *[!a-f0-9]*|'') exec "$sr_real" "$@";; esac
 [ \${#sr_token} = 64 ] || exec "$sr_real" "$@"
-# exec keeps this pid ($$) for Codex: it identifies the run and its liveness. Reported in the background.
-${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_token" $$ </dev/null >/dev/null 2>&1 &
-exec "$sr_real" -c ${shellQuote(notify)}"$sr_token"'","'$$'"]' "$@"
+# argv is world-readable (ps): it gets a per-run nonce, never the terminal token, which start reads from the environment.
+sr_run=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+case "$sr_run" in *[!a-f0-9]*|'') exec "$sr_real" "$@";; esac
+[ \${#sr_run} = 64 ] || exec "$sr_real" "$@"
+# exec keeps this pid ($$) for Codex: it identifies the run and its liveness. Registered in the background.
+${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_run" $$ </dev/null >/dev/null 2>&1 &
+exec "$sr_real" -c ${shellQuote(notify)}"$sr_run"'","'$$'"]' "$@"
 `,
     });
   },

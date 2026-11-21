@@ -7,7 +7,8 @@ import type { AgentPhase } from '../src/activity';
 // It reads only session/event identity fields, never prompts, tool data or model output, prints
 // nothing, always exits 0 within a tight deadline, and so never blocks or changes an agent decision.
 
-export type HookReport = { session: string; phase: AgentPhase; completed: boolean; ended: boolean };
+/** `resume`: only leaves Waiting (an async tool hook may land after Stop, so it must not re-open a finished turn). */
+export type HookReport = { session: string; phase: AgentPhase; completed: boolean; ended: boolean; resume?: true };
 const session = /^[A-Za-z0-9_-]{1,128}$/;
 const report = (id: unknown, phase: AgentPhase, completed = false, ended = false): HookReport | undefined =>
   typeof id === 'string' && session.test(id) ? { session: id, phase, completed, ended } : undefined;
@@ -19,8 +20,10 @@ export function claudeReport(event: string, input: unknown): HookReport | undefi
   if (name !== undefined && name !== event) return;
   switch (event) {
     case 'SessionStart': return report(id, 'idle');
-    case 'UserPromptSubmit': case 'PreToolUse': case 'PostToolUse': return report(id, 'working');
-    case 'Notification': return kind === 'permission_prompt' || kind === 'idle_prompt' || kind === 'elicitation_dialog' ? report(id, 'waiting') : undefined;
+    case 'UserPromptSubmit': return report(id, 'working');
+    case 'PostToolUse': { const value = report(id, 'working'); return value && { ...value, resume: true }; }
+    // Not idle_prompt: Claude sends it ~60 s after every turn, which is idle, not a question.
+    case 'Notification': return kind === 'permission_prompt' || kind === 'elicitation_dialog' ? report(id, 'waiting') : undefined;
     case 'Stop': return report(id, 'idle', true);
     case 'StopFailure': return report(id, 'failed');
     case 'SessionEnd': return report(id, 'idle', false, true);
@@ -45,12 +48,15 @@ async function readStdin(limit = 1 << 20) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function send(endpoint: string | undefined, token: string | undefined, harness: 'claude' | 'codex', pid: number, value: HookReport | undefined) {
-  if (!value || !endpoint?.startsWith('/') || !token || !/^[a-f0-9]{64}$/.test(token) || !Number.isInteger(pid) || pid < 2) return Promise.resolve();
+const hex64 = /^[a-f0-9]{64}$/;
+/** Authenticates with the terminal `token` (from the environment) or, for Codex notify, only with the per-run `run` nonce. */
+function send(endpoint: string | undefined, auth: { token?: string; run?: string }, harness: 'claude' | 'codex', pid: number, value: HookReport | undefined) {
+  const credentials = Object.entries(auth).filter(([, v]) => v !== undefined);
+  if (!value || !endpoint?.startsWith('/') || !credentials.length || credentials.some(([, v]) => !hex64.test(v!)) || !Number.isInteger(pid) || pid < 2) return Promise.resolve();
   return new Promise<void>(resolve => {
     const socket = createConnection(endpoint);
     socket.on('error', () => resolve()); socket.on('close', () => resolve());
-    socket.on('connect', () => { socket.end(JSON.stringify({ type: 'event', v: 2, token, harness, pid, at: Date.now(), ...value }) + '\n'); });
+    socket.on('connect', () => { socket.end(JSON.stringify({ type: 'event', v: 2, ...Object.fromEntries(credentials), harness, pid, at: Date.now(), ...value }) + '\n'); });
   });
 }
 
@@ -58,11 +64,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const [harness, event] = argv;
   if (harness === 'claude') {
     let input: unknown; try { input = JSON.parse(await readStdin()); } catch { return; }
-    await send(env.STINGRAY_ACTIVITY_SOCKET, env.STINGRAY_ACTIVITY_TOKEN, 'claude', Number(env.STINGRAY_AGENT_PID), claudeReport(event, input));
+    await send(env.STINGRAY_ACTIVITY_SOCKET, { token: env.STINGRAY_ACTIVITY_TOKEN }, 'claude', Number(env.STINGRAY_AGENT_PID), claudeReport(event, input));
   } else if (harness === 'codex') {
-    // Codex may run notify from a shared daemon without the terminal environment, so the wrapper passes the binding in argv.
-    const [, , endpoint, token, pid, payload] = argv;
-    await send(endpoint, token, 'codex', Number(pid), codexReport(event, pid, payload));
+    // Codex may run notify from a shared daemon without the terminal environment, so the binding travels in argv.
+    // argv is visible to every local user (ps): it carries only the per-run nonce, which `start` (from the
+    // wrapper, with the terminal token in its environment) registered and which dies with the Codex process.
+    const [, , endpoint, run, pid, payload] = argv;
+    await send(endpoint, event === 'start' ? { token: env.STINGRAY_ACTIVITY_TOKEN, run } : { run }, 'codex', Number(pid), codexReport(event, pid, payload));
   }
 }
 
