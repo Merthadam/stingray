@@ -45,8 +45,8 @@ function assigned(file: string, root: Node, name: string, ctx: LinkContext, befo
   const all = perFile('assignments', file, ctx, () => {
     const out = new Map<string, { line: number; value: Node }[]>();
     const visit = (n: Node) => {
-      const left = n.type === 'assignment' ? n.childForFieldName('left')?.text : undefined, value = n.childForFieldName('right');
-      if (left !== undefined && value) out.set(left, [...out.get(left) ?? [], { line: line(n), value }]);
+      const left = n.type === 'assignment' ? n.childForFieldName('left')?.text : undefined, value = left !== undefined && n.childForFieldName('right');
+      if (value) out.set(left!, [...out.get(left!) ?? [], { line: line(n), value }]);
       named(n).forEach(visit);
     };
     visit(root);
