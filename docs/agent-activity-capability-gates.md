@@ -2,13 +2,47 @@
 
 ## Current result
 
-Updated 2026-11-07: **Pi-only activity is implemented and source/candidate-verified within the coverage below.** Claude Code and Codex are deferred; no all-three-agent support is claimed. This report is evidence/context, not authorization.
+Updated for `feat/multi-harness-activity`: **Pi is implemented and verified as below. Claude Code and Codex adapters are implemented and fixture-tested only.** No live Claude turn was run: the CLI is not installed. No live Codex turn was run either, because model calls are excluded. This report is evidence/context, not authorization.
+
+## Per-harness capability matrix
+
+| State / capability | Pi 1.5.0 (extension) | Claude Code (`--settings` hooks) | Codex 0.169 (`-c notify`) |
+| --- | --- | --- | --- |
+| Attach | PATH wrapper adds `--extension` | PATH wrapper adds `--settings <app file>` | PATH wrapper adds `-c notify=[…]` and sends a background `start` |
+| Identity | run/runtime UUIDs | hook `session_id` | codex process pid |
+| Working | `agent_start` … `agent_settled` | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | **not observable**: phase stays `unknown` |
+| Waiting for you | blocking extension UI span | `Notification` with `permission_prompt`, `idle_prompt` or `elicitation_dialog` | **not observable** |
+| Needs review (completion) | `agent_settled` completed | `Stop` | `agent-turn-complete` |
+| Failed | settled with error | `StopFailure` | not observable |
+| Interrupted | aborted settle | **not observable** (Esc fires no Stop hook) | not observable |
+| Clean end | socket close after `session_shutdown` | `SessionEnd`, which removes the entry or keeps it Disconnected while a review is unseen | none; process exit means Disconnected |
+| Crash / exit | socket close or lease | agent pid gone → Disconnected | agent pid gone → Disconnected |
+| Liveness | 5 s heartbeat, 20 s lease | pid poll ≤5 s | pid poll ≤5 s |
+
+Pass-through (unattached) invocations: non-TTY stdin/stdout for all three. Pi: as before. Claude: `--help/-h/--version/-v/--print/-p/--bare`, an explicit `--settings` (the user's own; how two flag files combine is unverified), and `config/mcp/plugin(s)/install/update/upgrade/doctor/setup-token/migrate-installer/auth/agents`. Codex: `--help/-h/--version/-V/--remote`, any `…notify=…` argument, maintenance and non-interactive subcommands (`exec/e/review/login/logout/mcp/mcp-server/plugin/app-server/remote-control/app/completion/update/doctor/sandbox/debug/apply/a/queue/archive/delete/migrate-*/unarchive/cloud/exec-server/features/help/agents`), any `notify =` line in `$CODEX_HOME/config.toml` or `*.config.toml` (a user notify is never overridden), and a missing or invalid terminal token. Interactive `codex`, `codex resume` and `codex fork` attach.
+
+### Claude Code limits
+
+- Not installed here. The `--settings` flag, the hook names (including `StopFailure`), the `Notification.notification_type` values and the hook `timeout` field are taken from Claude Code documentation. They are not runtime-verified. An older Claude without `StopFailure` may reject or ignore that hook entry.
+- Hooks from the flag settings run alongside user/project hooks, but `disableAllHooks` or managed `allowManagedHooksOnly` policy silences them. The result is that no activity appears; nothing is fabricated.
+- `Stop` is reported as completion even though another Stop hook may make Claude continue. The next `UserPromptSubmit`/`PreToolUse` then returns the phase to Working, but the review stays set until acknowledged.
+- Interruption with Esc fires no hook, so the last phase (usually Working) remains until the next event or process exit. Permission/idle notifications can arrive with Claude's own delay. `idle_prompt` maps to Waiting by design, which takes priority over an unseen review.
+- Hooks are synchronous, so every tool call adds the hook client's start-up time (~50 ms warm).
+
+### Codex limits and investigation (0.169.0-alpha.11.1)
+
+- `codex features list` shows `hooks` stable/enabled. Hooks supplied by `-c` land in an untrusted session-flags layer and need persisted user trust before they run (see the historical probe below). Stingray never uses `--dangerously-bypass-hook-trust` and does not register untrusted hooks. **Working, Waiting, Failed and Interrupted are therefore reported as `unknown`** (label: Tracking unavailable) and are not guessed.
+- The legacy `notify` program (`hooks/src/legacy_notify.rs` in the binary) receives a JSON argument with `type`, `thread-id`, `turn-id`, `cwd`, `client`, `input-messages` and `last-assistant-message`. The client reads only `type`.
+- `-c notify` replaces any user `notify`, so any configured notify makes the wrapper run Codex unattached.
+- Codex may host sessions in a shared daemon (`daemon_auto_start`). Whether per-invocation `-c notify` is honoured when a daemon already runs the thread is **unverified**; the binding travels in argv in case the daemon runs it. No turn was executed, so delivery of `agent-turn-complete` is fixture-tested only.
+
+
 
 The initial continuation completed review and four-file documentation updates only. The user then requested source commit/push to `origin/main` and replacement/reopen of the hosting installed app, accepting termination of that app's terminals through normal quit with user confirmation. Candidate gates passed; actual publication/promotion/reopen outcomes are separate in `artifacts/testing/2026-11-07-pi-activity-delivery/{verification.md,status.json,source-publication.json}`. No force quit, other-build intervention, automatic rollback, global configuration/credential changes, agent installation, trust bypass or provider calls.
 
 The historical Codex **attachment discovery gate passes**, but its truthful lifecycle contract remains unestablished. Stop-attempt and permission-request events are not substitutes for settled completion or confirmed blocking UI.
 
-## Historical Codex probe (adapter deferred)
+## Historical Codex probe (hooks not used by the adapter)
 
 Inspected installed binary: `~/.local/bin/codex`, version `0.165.0-alpha.1.2`. This probe was not rerun in the final documentation pass.
 
