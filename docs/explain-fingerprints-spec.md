@@ -28,9 +28,9 @@ explain:
   identity:
     text: "Accept only genuine, unrevoked tokens of verified travelers"
     fingerprint:                                     # written by stingray-views check --restamp
-      services/auth/api.py::create_app.identity: 3f9a1c0d22be
-      services/auth/jwt_verifier.py::JwtVerifier.verify: 81c2e0a7f310
-      services/auth/session_store.py::SessionStore.get_user: 0d44b9e1a2c7
+      services/auth/api.py::identity: 3f9a1c0d22be
+      services/auth/jwt_verifier.py::JwtVerifier::verify: 81c2e0a7f310
+      services/auth/session_store.py::SessionStore::get_user: 0d44b9e1a2c7
   users:                                             # a table: no symbol, hashed as drawn
     text: "One row per traveler; email is the Cognito username"
     fingerprint:
@@ -47,12 +47,13 @@ explain:
 For each node or group an entry resolves to (`explainTargets`, unchanged):
 
 1. **Target with a symbol** (`t.symbol`):
-   - The target itself: key = its code-graph **qualified name** (e.g. `services/auth/api.py::create_app.identity`),
+   - The target itself: key = its file and code-graph **qualified name**, which is file-relative
+     (`<file>::<qualified name>`, e.g. `services/auth/session_store.py::SessionStore::get_user`),
      value = `bodyFingerprint` of its lines (unchanged algorithm: lines `line..endLine`, trailing whitespace ignored).
    - Each **direct callee**: outgoing `calls` relations of the target's symbol id in the code graph (heuristic ones
      included, since dynamic-language method calls are often only heuristically resolved), mapped to symbols:
      - kept when the callee is a callable symbol (function, method, and similar kinds) with a known `endLine` whose file
-       is readable. Its key is its qualified name and its value is its `bodyFingerprint`;
+       is readable. Its key is `<file>::<qualified name>` and its value is its `bodyFingerprint`;
      - a **class** callee (a constructor call) is replaced by its constructor (`__init__` / `constructor` method inside
        the class's line range) when the graph has one, otherwise skipped;
      - the target itself (recursion) and symbols already in the map are skipped. Callees in excluded files are **not**
@@ -81,7 +82,7 @@ Compare the stored fingerprint with the current map (only when the code graph is
 | map, differs | changed / added / removed keys | `stale` | `explanation for "K" may be outdated: X changed; new call Y; no longer calls Z — review it and run stingray-views check --restamp` |
 
 - Lists show at most 3 names per category, then `(+N more)`. Names are shown without the file path when unique within
-  the message (`SessionStore.get_user`), otherwise in full.
+  the message (`SessionStore::get_user`), otherwise in full.
 - A `drawn:` key that changed reads as `"users" changed (as drawn)`.
 - Code graph not ready: entries are applied unchecked (status `view`), as today. Old-format entries still show
   `legacy`, because that check needs no graph.

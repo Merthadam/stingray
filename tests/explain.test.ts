@@ -138,17 +138,17 @@ test('computeView applies explain: after symbols are linked and verifies only wi
 
 test('applyExplain fingerprints every target of a key: editing either of two same-named functions turns it stale', async () => {
   const two = `${SOURCE}\ndef verify(token):\n    return True\n`;
-  const first = { ...sym('verify'), qualifiedName: 'app.py::A.verify' }, second = { ...sym('verify', 5, 6), id: 'py:verify2', qualifiedName: 'app.py::B.verify' };
+  const first = { ...sym('verify'), qualifiedName: 'A::verify' }, second = { ...sym('verify', 5, 6), id: 'py:verify2', qualifiedName: 'B::verify' };
   const run = (source: string, fingerprint: Record<string, string> | null) => applyExplain(result([node('a', { symbol: first }), node('b', { symbol: second })]),
     [{ key: 'verify', text: 'Accept', fingerprint, line: 6 }], { verify: true, readSource: async () => source });
   const pieces = (await run(two, null)).diagnostics!.explain![0].pieces!;
-  assert.deepEqual(pieces, { 'app.py::A.verify': bodyFingerprint(two, first), 'app.py::B.verify': bodyFingerprint(two, second) });
+  assert.deepEqual(pieces, { 'app.py::A::verify': bodyFingerprint(two, first), 'app.py::B::verify': bodyFingerprint(two, second) });
   assert.deepEqual((await run(two, pieces)).nodes.map(n => n.explanationStatus), ['view', 'view']);
   const edited = await run(two.replace('return True', 'return False'), pieces);
-  assert.deepEqual(edited.nodes.map(n => [n.explanationStatus, n.explanationReason]), [['stale', 'may be outdated: B.verify changed'], ['stale', 'may be outdated: B.verify changed']]);
+  assert.deepEqual(edited.nodes.map(n => [n.explanationStatus, n.explanationReason]), [['stale', 'may be outdated: B::verify changed'], ['stale', 'may be outdated: B::verify changed']]);
   const same = await applyExplain(result([node('c', { symbol: first })], [{ id: 'call:py:verify', label: 'verify', source: null, symbol: first }]),
     [{ key: 'verify', text: 'Accept', fingerprint: null, line: 6 }], { verify: true, readSource: async () => SOURCE });
-  assert.deepEqual(same.diagnostics!.explain![0].pieces, { 'app.py::A.verify': bodyFingerprint(SOURCE, first) }, 'one body linked twice is one piece');
+  assert.deepEqual(same.diagnostics!.explain![0].pieces, { 'app.py::A::verify': bodyFingerprint(SOURCE, first) }, 'one body linked twice is one piece');
   const short = await applyExplain(result([node('a', { symbol: first }), node('b', { symbol: second })]),
     [{ key: 'verify', text: 'Accept', fingerprint: null, line: 6 }], { verify: true, readSource: async () => SOURCE });
   assert.deepEqual([short.diagnostics!.explain![0].fingerprint, short.diagnostics!.explain![0].pieces], [null, null], 'null when any target cannot be fingerprinted');
@@ -184,7 +184,7 @@ const FILES: Record<string, string> = {
   'models.py': 'class User:\n    def __init__(self):\n        self.id = 1\n\nclass Bare:\n    x = 1\n',
 };
 const gs = (file: string, name: string, line: number, endLine?: number, kind = 'function'): GraphSymbol =>
-  ({ id: `${file}:${name}`, name, kind, file, line, ...(endLine ? { endLine } : {}), qualifiedName: `${file}::${name}` });
+  ({ id: `${file}:${name}`, name, kind, file, line, ...(endLine ? { endLine } : {}), qualifiedName: name });
 const IDENTITY = gs('app.py', 'identity', 1, 3), VERIFY = gs('lib.py', 'verify', 1, 2), AUDIT = gs('lib.py', 'audit', 3, 4);
 const GET_USER = gs('excluded.py', 'get_user', 1, 2), USER = gs('models.py', 'User', 1, 3, 'class'), INIT = gs('models.py', '__init__', 2, 3, 'method');
 const BARE = gs('models.py', 'Bare', 5, 6, 'class');
@@ -233,8 +233,8 @@ test('compareFingerprint: none → unstamped, string → legacy, map → view or
 });
 
 test('describeChanges: short names unless two read the same, at most 3 per category, drawn pieces by label', () => {
-  assert.equal(describeChanges({ changed: ['a.py::SessionStore.get_user'], added: ['b.py::audit.log'], removed: ['c.py::cache.get'] }),
-    'may be outdated: SessionStore.get_user changed; new call audit.log; no longer calls cache.get');
+  assert.equal(describeChanges({ changed: ['a.py::SessionStore::get_user'], added: ['b.py::audit::log'], removed: ['c.py::cache::get'] }),
+    'may be outdated: SessionStore::get_user changed; new call audit::log; no longer calls cache::get');
   assert.equal(describeChanges({ changed: ['a.py::f', 'b.py::f', 'c.py::g'], added: [], removed: [] }), 'may be outdated: a.py::f, b.py::f, g changed');
   assert.equal(describeChanges({ changed: [], added: ['a.py::f', 'a.py::g', 'a.py::h', 'a.py::i', 'a.py::j'], removed: [] }),
     'may be outdated: new calls f, g, h (+2 more)');
