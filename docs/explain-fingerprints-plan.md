@@ -3,6 +3,9 @@
 Spec: `docs/explain-fingerprints-spec.md`. Base: `origin/main`. One branch per work package, merged into an integration
 branch `feat/explain-callee-fingerprints`, one PR.
 
+Detailed, subagent-ready briefs per package: `docs/explain-fingerprints/wp1-graph-plumbing.md`,
+`wp2-fingerprint-engine.md`, `wp3-cli.md`, `wp4-ui.md`. The sections below are the summary.
+
 ## Shared contracts (fix these first; every package codes against them)
 
 ```ts
