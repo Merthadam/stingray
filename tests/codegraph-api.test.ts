@@ -6,6 +6,7 @@ import path from 'node:path';
 import { git } from '../electron/git';
 import { createCodeGraphHost } from '../electron/codegraph';
 import { runGraphStep } from '../electron/views/rules/graph-steps';
+import { docstringSummary } from '../electron/views/explanation';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
 import type { WorktreeGraph } from '../electron/views/graph';
 import type { GraphState } from '../src/views';
@@ -18,6 +19,8 @@ async function repo() {
   await mkdir(path.join(root, 'app'));
   await writeFile(path.join(root, 'app/flow.py'),
     'def slug(x):\n    return x\n\n\ndef a():\n    return slug(1)\n\n\ndef b():\n    return slug(2)\n\n\ndef main():\n    a()\n    b()\n');
+  await writeFile(path.join(root, 'app/doc.py'), 'def documented():\n    """Accept a token.\n\n    More.\n    """\n    return 1\n');
+  await writeFile(path.join(root, 'app/doc.ts'), '/**\n * Reconcile the email.\n * @param x the x\n */\nexport function reconcile(x: number) { return x }\n');
   return root;
 }
 const until = (what: string, check: () => boolean, ms = 30000) => new Promise<void>((resolve, reject) => {
@@ -58,6 +61,10 @@ test('evaluateView hands the engine a CodeGraph-backed GraphApi and the worktree
     assert.deepEqual(names(api.incoming([slug.id], ['calls']).map(r => r.from)), ['a', 'b']);
     assert.deepEqual(api.outgoing([], ['calls']), []);
     assert.deepEqual(api.symbols(['missing']).size, 0);
+    // docstrings (Python and JSDoc) are carried through for node explanations; symbols without one have no field
+    assert.equal(docstringSummary(api.findSymbols('documented')[0].docstring), 'Accept a token.');
+    assert.equal(docstringSummary(api.findSymbols('reconcile')[0].docstring), 'Reconcile the email.');
+    assert.ok(!('docstring' in main));
 
     // End to end: main -> a, b; slug has fan-in 2 and no callees, so it collapses into a and b.
     const out = runGraphStep({ start: [{ symbol: 'main' }], follow: ['calls'], direction: 'out', depth: 3, helpers: 'collapse' }, api, () => true);

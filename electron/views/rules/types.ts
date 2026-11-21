@@ -96,7 +96,10 @@ export interface FileProvider {
   read(file: string): Promise<string | null>;
 }
 
-export interface GraphSymbol { id: string; name: string; kind: string; file: string; line: number }
+export interface GraphSymbol {
+  id: string; name: string; kind: string; file: string; line: number;
+  docstring?: string | null;  // raw CodeGraph docstring; absent when the symbol has none
+}
 export interface GraphRelation {
   from: string; to: string;   // GraphSymbol ids
   kind: string;               // CodeGraph edge kind, e.g. "calls", "imports", "extends"
