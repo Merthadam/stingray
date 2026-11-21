@@ -13,6 +13,8 @@ import { symbolRef } from '../explanation';
 import { externalCall } from './externals';
 import type { Hop, HopStep, LinkContext, LinkProvider } from './links';
 
+// `events` bounds the walk, not `messages`: most walked calls are same-lifeline calls folded away afterwards, and which
+// are is only known once the lifeline granularity is (after the walk).
 export const SEQUENCE_LIMITS = { messages: 400, participants: 30, functions: 150, events: 5000 };
 const MAX_RETURN_LABEL = 24;
 
@@ -57,12 +59,13 @@ export class SequenceWalker {
   private cache = new Map<string, GraphSymbol>();
   private imports = new Map<string, Promise<Map<string, string>>>();
   private memo = new Map<string, unknown>();
+  private outgoing = new Map<string, GraphRelation[]>(); // `calls` relations by symbol id
 
   constructor(private step: SequenceStep, private graph: GraphApi, private load: LoadFunction, private links: LinkProvider[],
     private followable: (file: string) => boolean, private importsOf: (file: string) => Promise<Map<string, string>>,
-    private env: { tree: (file: string) => Promise<Tree | null>; files: FileProvider }) {}
+    private env: { tree: (file: string) => Promise<Tree | null>; files: FileProvider; halted: () => boolean }) {}
 
-  private get stopped() { return this.events.length >= SEQUENCE_LIMITS.events; }
+  private get stopped() { return this.events.length >= SEQUENCE_LIMITS.events || this.env.halted(); }
 
   private push(e: TraceEvent) {
     if (this.stopped) { this.truncated = true; return; }
@@ -106,7 +109,9 @@ export class SequenceWalker {
   }
 
   private frame(symbol: GraphSymbol, level: number, stack: string[], entered: number | null): Frame {
-    return { symbol, level, stack, entered, outgoing: this.graph.outgoing([symbol.id], ['calls']), returns: [] };
+    let outgoing = this.outgoing.get(symbol.id);
+    if (!outgoing) this.outgoing.set(symbol.id, outgoing = this.graph.outgoing([symbol.id], ['calls']));
+    return { symbol, level, stack, entered, outgoing, returns: [] };
   }
 
   private symbols = (ids: string[]) => {
@@ -116,7 +121,7 @@ export class SequenceWalker {
   };
   private context(f: Frame, statement = ''): LinkContext {
     return { graph: this.graph, outgoing: f.outgoing, statement, symbols: this.symbols, resolve: call => resolveCall(call, f.outgoing, this.graph, this.cache)?.symbol ?? null,
-      tree: this.env.tree, imports: file => this.importsOfFile(file), files: this.env.files, followable: this.followable, memo: this.memo };
+      tree: this.env.tree, imports: file => this.importsOfFile(file), files: this.env.files, followable: this.followable, memo: this.memo, halted: this.env.halted };
   }
 
   /** Constructs in source order; a return/raise/break/continue ends its block (the rest is unreachable). */

@@ -5,6 +5,7 @@ import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 import { YamlError, parseViewYaml } from '../electron/views/rules/schema';
 import type { GraphLayers, GraphSymbol } from '../electron/views/rules/types';
 import { formatText } from '../src/views-text';
+import { SEQUENCE_LIMITS } from '../electron/views/sequence/walk';
 import { fakeGraph, run, step } from './sequence-helpers';
 
 const grammarDir = codegraphGrammarDir();
@@ -57,7 +58,7 @@ test('sequence python: call order, collapsed internal calls, externals by import
   assert.equal(out.diagnostics.sequence!.start, 'sign_in (services/auth/api.py:6)');
   assert.equal(out.diagnostics.sequence!.participants, 'file');
   assert.deepEqual(out.text, [
-    'participants: api.py, Database (external), JWT (external), store.py',
+    'participants: api.py, store.py, Database (external), JWT (external)',
     '  api.py -> Database: execute',
     'alt user is none',
     '  note api.py: error: HTTPException',
@@ -84,7 +85,8 @@ test('sequence python: call order, collapsed internal calls, externals by import
   assert.deepEqual(notes.map(n => [n.after, n.fragment, n.arm]), [[0, 'f0', 0], [0, 'f0', 1]]);
   // Nodes mirror the participants; no edges.
   assert.deepEqual(out.nodes.map(n => [n.id, n.kind, n.order]), participants.map(p => [p.id, p.kind, p.column]));
-  assert.deepEqual(participants.map(p => p.id), ['p:file:services/auth/api.py', 'ext:Database', 'ext:JWT', 'p:file:services/auth/store.py']);
+  assert.deepEqual(participants.map(p => p.id), ['p:file:services/auth/api.py', 'p:file:services/auth/store.py', 'ext:Database', 'ext:JWT']);
+  assert.deepEqual(participants.map(p => p.column), [0, 1, 2, 3]);
   assert.equal(out.edges.length, 0);
 });
 
@@ -237,6 +239,18 @@ test('sequence: message and participant caps set truncated with a warning', asyn
   const out = await run(wide, fakeGraph(wide, []), { start: { symbol: 'run' }, externals });
   assert.equal(out.seq.participants.length, 30);
   assert.equal(out.truncated, true);
+});
+
+test('sequence: a walk stopped at the event cap inside fragments still closes them', async () => {
+  const files = { 'loop.py': `import jwt\n\n\ndef run(xs):\n    for x in xs:\n        if x:\n${Array.from({ length: 30 }, (_, i) => `            jwt.encode(${i})`).join('\n')}\n` };
+  const events = SEQUENCE_LIMITS.events;
+  SEQUENCE_LIMITS.events = 12;
+  try {
+    const out = await run(files, fakeGraph(files, []), { start: { symbol: 'run' } });
+    assert.equal(out.truncated, true);
+    const last = out.seq.messages.length - 1;
+    assert.deepEqual(out.seq.fragments.map(f => [f.kind, f.first, f.last, f.parent]), [['loop', 0, last, null], ['opt', 0, last, 'f0']]);
+  } finally { SEQUENCE_LIMITS.events = events; }
 });
 
 const YAML = (body: string) => `version: 1\nname: Login\nkind: sequence\n${body}`;

@@ -16,8 +16,9 @@ import { callMethod, importBase, symbolNamed, type Hop, type HopStep, type LinkC
 
 const INVOKE = new Set(['invoke', 'ainvoke', 'stream', 'astream']);
 const MAX_STEPS = 60; // node visits per invocation (alt arms each walk their own path)
-/** Receiver names that read like a compiled graph, for the "only graph in scope" fallback. */
-const GRAPHISH = /graph|workflow|agent|app|compiled|flow|chain|pipeline/i;
+/** Receiver names that read like a compiled graph, for the "only graph in scope" fallback (uncertain). Not `chain`: a
+ * LangChain runnable's `chain.invoke` is no graph. */
+const GRAPHISH = /graph|workflow|agent|app|compiled|flow|pipeline/i;
 
 interface GraphNode { fn: string | null; handler: string | null }
 interface GraphEdge { from: string; to: string; kind: string; label: string | null; line: number; at: number }
@@ -137,6 +138,7 @@ async function graphFor(receiver: string, fn: GraphSymbol, ctx: LinkContext): Pr
     const { files } = await ctx.files.list(f => f.endsWith('.py') && ctx.followable(f));
     const all: StateGraph[] = [];
     for (const file of files) {
+      if (ctx.halted()) break;
       if (!(await ctx.files.read(file))?.includes('StateGraph')) continue;
       all.push(...(await graphsOf(file, ctx))?.graphs.filter(g => g.nodes.size) ?? []);
     }

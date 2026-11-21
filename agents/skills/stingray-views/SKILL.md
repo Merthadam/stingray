@@ -225,8 +225,8 @@ sequence:
   exclude: []
 ```
 
-- **Participants**, left to right in order of first appearance: the actor, one lifeline per unit of the reached
-  functions, and external systems. `auto` = `service` when the reached files span ≥ 2
+- **Participants**, left to right: the actor, then one lifeline per unit of the reached functions, then external
+  systems; units and externals each in order of first appearance. `auto` = `service` when the reached files span ≥ 2
   services of the code graph's layers, else `module` when they span ≥ 2 modules, else `file`. `file` lifelines are
   labelled with the file name, `class` with the enclosing class (functions outside a class: their file). Ids:
   `actor`, `p:<service|module|file|class>:<key>`, `ext:<label>`. Files outside every service land in `(unassigned)`.
@@ -266,8 +266,8 @@ sequence:
 | --- | --- | --- |
 | `http` | client calls the code graph matched to a repo route (`fetch`/`axios`/… with a literal path): drawn as `METHOD /path` (certain), then the route's handler; a second call to the same URL in one function by its literal path | URLs the code graph did not match (built at runtime, other repos); unmatched clients go to External HTTP |
 | `auth` | before a handler's body, in the handler's file: FastAPI `Depends`/`Security` in parameters (also `Annotated[…]` aliases, even imported ones), the route decorator's and the router's `dependencies=[…]`, decorators resolving to repo functions (`@login_required`); Express middleware before the handler and earlier `router.use(mw)` of the same router; top-level wrappers (`export default withAuth(handler)`). Dependencies of dependencies follow | class dependencies (`Depends(SomeClass)`), library decorators, `include_router(…, dependencies=)`, middleware registered in other files (Next.js `middleware.ts`, app-wide ASGI middleware) |
-| `langgraph` | Python `x.invoke/ainvoke/stream/astream(…)` on a compiled StateGraph (`x = flow.compile()` in the file or imported, `build_graph().invoke`, else the only StateGraph in the followable files, uncertain): START → nodes in edge order, conditional edges as `alt` (path-map key or router return), END stops, a node already on the path once as `name (loop)` (not followed); node classes run `__call__`. Max 60 node visits | LangGraph JS, `Send`/`Command(goto=)` routing, graphs built in loops or from data, subgraphs as nodes |
-| `events` | literal names: `emit/publish/send/send_task/enqueue("name", …)` → handlers of `on/once/subscribe("name", h)`, `@x.on("name")`, `@app.task(name="name")`; `task.delay/apply_async(…)` → the `@app.task`/`@shared_task` function; RQ `queue.enqueue(fn, …)` → fn. Always uncertain; registrations are text-matched in the followable files | names from variables/constants, handlers outside the followable files, calls that resolve into the repo (an own `publish` method stays a call) |
+| `langgraph` | Python `x.invoke/ainvoke/stream/astream(…)` on a compiled StateGraph (`x = flow.compile()` in the file or imported, `build_graph().invoke`, else the only StateGraph in the followable files when the receiver reads like a graph — not `chain` —, uncertain): START → nodes in edge order, conditional edges as `alt` (path-map key or router return), END stops, a node already on the path once as `name (loop)` (not followed); node classes run `__call__`. Max 60 node visits | LangGraph JS, `Send`/`Command(goto=)` routing, graphs built in loops or from data, subgraphs as nodes |
+| `events` | literal names: `emit/publish/send/send_task/enqueue("name", …)` (`send` only on bus/queue-like receivers, not `res.send`) → handlers of `on/once/subscribe("name", h)`, `@x.on("name")`, `@app.task(name="name")`; `task.delay/apply_async(…)` → the `@app.task`/`@shared_task` function (named or not); RQ `queue.enqueue(fn, …)` → fn. Always uncertain; registrations are text-matched in the followable files | names from variables/constants, handlers outside the followable files, calls that resolve into the repo (an own `publish` method stays a call) |
 
 **Link rules** teach the view its own dispatchers (RPC, job queues, DI). `rules:` of a sequence view may only emit
 `edge: { from, to, kind: link, label?, certain? }`; `from`/`to` are symbol names or `name@file`. A call to `from` that

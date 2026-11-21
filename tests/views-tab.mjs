@@ -198,6 +198,18 @@ try {
   check('a sequence view switches to the CLI text', (await page.getByLabel('Text diagram').innerText()).includes('service.py -> repo.py: fetch account'));
   await page.getByRole('button', { name: 'Show as diagram' }).click();
   await page.evaluate(() => window.stingray.setEditor('repo-map')); // never launch a real editor from the test
+  // Dragging pans from anywhere, also from a full-width message row, without opening the message.
+  for (let i = 0; i < 4; i++) await sequence.getByRole('button', { name: 'Zoom in' }).click();
+  const canvas = sequence.locator('.seq-canvas'), scrolled = () => canvas.evaluate(el => el.scrollLeft + el.scrollTop);
+  const row = await sequence.getByRole('button', { name: /^Message routes\.py -> service\.py: authenticate/ }).boundingBox();
+  const panFrom = await scrolled();
+  await page.mouse.move(row.x + 60, row.y + row.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(row.x + 20, row.y + row.height / 2 - 40, { steps: 6 });
+  await page.mouse.up();
+  check('dragging a message row pans the diagram and does not open it', await scrolled() > panFrom
+    && await page.getByRole('tab', { name: 'Views' }).getAttribute('aria-selected') === 'true');
+  await sequence.getByRole('button', { name: 'Reset zoom' }).click();
   await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: fetch account/ }).click();
   await page.getByRole('tab', { name: /Repo Map/ }).and(page.locator('[aria-selected=true]')).waitFor();
   check('clicking a message opens its call site', true);

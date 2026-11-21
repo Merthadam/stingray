@@ -1,6 +1,6 @@
 // Sequence diagram (kind: sequence) as plain SVG: sticky participant header, lifelines, activation bars, message arrows,
 // fragment frames and notes. Geometry comes from sequence-layout.ts; this file only draws and handles input.
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type MouseEvent, type PointerEvent, type SetStateAction } from 'react';
 import { ExternalLink, FoldHorizontal, Maximize2, UnfoldHorizontal, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './er-diagram.css';
 import './sequence-diagram.css';
@@ -10,6 +10,7 @@ import { SEQ, UNCERTAIN, clip, collapseParticipants, collapsible, sequenceLayout
 import { StaleMark } from './FlowNode';
 
 const MIN_ZOOM = 0.3, MAX_ZOOM = 2;
+const DRAG_PX = 4; // pointer travel that turns a press into a pan (less: a click)
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
 const arrow = (m: SequenceMessage) => m.kind === 'return' ? '-->' : '->';
 const describe = (m: SequenceMessage, name: (id: string) => string) =>
@@ -28,7 +29,8 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
   const [hover, setHover] = useState<number | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
+  const dragged = useRef(false); // the last press panned: swallow its click
   const marker = useId().replace(/:/g, '');
 
   // Ctrl/Cmd + wheel (and trackpad pinch) zooms; needs a non-passive listener to keep the page from zooming.
@@ -39,20 +41,27 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+  // Panning starts anywhere (rows fill the width); a press that barely moves stays a click on what it hit.
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || (e.target as Element).closest('[role=button]')) return;
+    if (e.button !== 0) return;
     const el = scroller.current!;
-    pan.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
-    el.setPointerCapture(e.pointerId);
+    pan.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, moved: false };
+    dragged.current = false;
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const p = pan.current, el = scroller.current;
     if (!p || !el) return;
+    if (!p.moved) {
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_PX) return;
+      p.moved = dragged.current = true;
+      el.setPointerCapture(e.pointerId);
+    }
     el.scrollLeft = p.left - (e.clientX - p.x); el.scrollTop = p.top - (e.clientY - p.y);
   };
+  const onClickCapture = (e: MouseEvent) => { if (dragged.current) { dragged.current = false; e.stopPropagation(); e.preventDefault(); } };
   const fit = () => { const el = scroller.current; if (el) setZoom(clampZoom(Math.min(1, (el.clientWidth - 24) / layout.width))); };
 
-  const open = (m: SequenceMessage) => { if (m.source) onOpenSource(m.source.file, m.source.line); };
+  const open = useCallback((m: SequenceMessage) => { if (m.source) onOpenSource(m.source.file, m.source.line); }, [onOpenSource]);
   const W = layout.width, H = layout.height, Z = zoom;
   const participant = selected ? data.participants.find(p => p.id === selected) : undefined;
   const node = participant ? result.nodes.find(n => n.id === participant.id) : undefined;
@@ -67,7 +76,7 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
       <div className="er-toolbar-extra">{toolbarExtra}</div>
     </div>
     <div className="er-body">
-      <div className="seq-canvas" ref={scroller} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+      <div className="seq-canvas" ref={scroller} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onClickCapture={onClickCapture}
         onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
         <div className="seq-sheet" style={{ width: W * Z }}>
           <div className="seq-header" style={{ height: SEQ.headerHeight * Z }}>
@@ -86,12 +95,7 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
               <marker id={`${marker}-hot`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
                 <path d="M0 0 L10 5 L0 10 z" className="seq-head hot" /></marker>
             </defs>
-            {layout.messages.map(lm => <rect key={lm.message.id} className={'seq-row' + (hover === lm.row ? ' hover' : '')} x={0} y={lm.top} width={W} height={lm.bottom - lm.top}
-              role="button" tabIndex={0} aria-label={`Message ${describe(lm.message, name)}${lm.message.source ? '' : ' (no source)'}`}
-              onMouseEnter={() => setHover(lm.row)} onMouseLeave={() => setHover(h => h === lm.row ? null : h)} onFocus={() => setHover(lm.row)}
-              onClick={() => open(lm.message)} onKeyDown={activate(() => open(lm.message))}>
-              <title>{[describe(lm.message, name), lm.message.detail, lm.message.link && `link: ${lm.message.link}`,
-                lm.message.source && `${lm.message.source.file}:${lm.message.source.line} — click to open`].filter(Boolean).join('\n')}</title></rect>)}
+            {layout.messages.map(lm => <MessageRow key={lm.message.id} laid={lm} width={W} hot={hover === lm.row} names={names} onHover={setHover} onOpen={open} />)}
             {layout.fragments.map(f => <rect key={f.fragment.id} className={`seq-fragment ${f.fragment.kind}`} x={f.x} y={f.y} width={f.width} height={f.height} rx={4} />)}
             {layout.participants.map(p => <line key={p.participant.id} className={'seq-lifeline' + (p.participant.id === selected ? ' selected' : '')}
               x1={p.x} x2={p.x} y1={0} y2={H} />)}
@@ -139,7 +143,18 @@ function Participant({ laid, selected, onSelect }: { laid: LaidParticipant; sele
   </g>;
 }
 
-function Message({ laid: lm, hot, marker }: { laid: LaidMessage; hot: boolean; marker: string }) {
+/** The full-width hit row of a message (hover, click, keyboard); memoized so hovering re-renders two rows, not all. */
+const MessageRow = memo(function MessageRow({ laid: lm, width, hot, names, onHover, onOpen }: { laid: LaidMessage; width: number; hot: boolean;
+  names: Map<string, string>; onHover: Dispatch<SetStateAction<number | null>>; onOpen(m: SequenceMessage): void }) {
+  const m = lm.message, text = describe(m, id => names.get(id) ?? id);
+  return <rect className={'seq-row' + (hot ? ' hover' : '')} x={0} y={lm.top} width={width} height={lm.bottom - lm.top}
+    role="button" tabIndex={0} aria-label={`Message ${text}${m.source ? '' : ' (no source)'}`}
+    onMouseEnter={() => onHover(lm.row)} onMouseLeave={() => onHover(h => h === lm.row ? null : h)} onFocus={() => onHover(lm.row)}
+    onClick={() => onOpen(m)} onKeyDown={activate(() => onOpen(m))}>
+    <title>{[text, m.detail, m.link && `link: ${m.link}`, m.source && `${m.source.file}:${m.source.line} — click to open`].filter(Boolean).join('\n')}</title></rect>;
+});
+
+const Message = memo(function Message({ laid: lm, hot, marker }: { laid: LaidMessage; hot: boolean; marker: string }) {
   const m = lm.message, self = m.from === m.to || m.kind === 'self';
   const head = `url(#${marker}-${hot ? 'hot' : m.kind === 'return' ? 'return' : 'call'})`;
   const className = `seq-message ${m.kind}${m.certain ? '' : ' uncertain'}${hot ? ' hot' : ''}`;
@@ -149,7 +164,7 @@ function Message({ laid: lm, hot, marker }: { laid: LaidMessage; hot: boolean; m
     <text x={lm.labelX} y={self ? lm.y + SEQ.selfDrop / 2 + 4 : lm.y - 7} textAnchor={self ? 'start' : 'middle'}>
       {lm.label}{!m.certain && <tspan className="seq-uncertain">{UNCERTAIN}</tspan>}</text>
   </g>;
-}
+});
 
 function ParticipantInspector({ participant: p, explanationStatus, messages, name, onClose, onOpenSource, onFold }: {
   participant: SequenceParticipant; explanationStatus?: Parameters<typeof StaleMark>[0]['status']; messages: SequenceMessage[];

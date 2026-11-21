@@ -32,10 +32,17 @@ export function createOverlayGraphApi(overlay: Overlay, root?: string, lib?: Pic
   // shortcut: loads the whole merged graph once per GraphApi (one view evaluation); upgrade to id-filtered merged-view
   // queries when stinggraph exports them and large repos make this slow.
   let nodes: Map<string, MergedNode> | undefined, edges: MergedEdge[] | undefined;
+  let index: Record<'source' | 'target', Map<string, number[]>> | undefined; // end id -> positions in `edges`
   const byId = () => nodes ??= new Map(overlay.getNodes().map(n => [n.id, n]));
   const related = (end: 'source' | 'target', ids: string[], kinds: string[]) => {
-    const wanted = new Set(ids);
-    return (edges ??= overlay.getEdges().filter(e => !e.dangling)).filter(e => wanted.has(e[end]) && (!kinds.length || kinds.includes(e.kind))).map(relation);
+    if (!index) {
+      edges = overlay.getEdges().filter(e => !e.dangling);
+      index = { source: new Map(), target: new Map() };
+      edges.forEach((e, i) => { for (const k of ['source', 'target'] as const) { const at = index![k].get(e[k]); if (at) at.push(i); else index![k].set(e[k], [i]); } });
+    }
+    // Positions in merged-list order, as a scan of the whole list would return them.
+    const at = [...new Set(ids)].flatMap(id => index![end].get(id) ?? []).sort((a, b) => a - b);
+    return at.map(i => edges![i]).filter(e => !kinds.length || kinds.includes(e.kind)).map(relation);
   };
   return {
     findSymbols: (name, file) => safe(() => overlay.getNodes(file ? { filePath: file, name } : { name }).map(symbol), []),

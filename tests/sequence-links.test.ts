@@ -2,7 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SourcedRule } from '../electron/views/rules/types';
-import { fakeGraph, run } from './sequence-helpers';
+import { evaluate } from '../electron/views/rules/engine';
+import { codegraphGrammarDir } from '../electron/views/rules/grammars';
+import { fakeGraph, run, step } from './sequence-helpers';
 
 const FASTAPI = {
   'services/api/routes.py': `from typing import Annotated
@@ -141,7 +143,7 @@ def run_tools(state):
 test('sequence langgraph: invoke enters the compiled graph: nodes in edge order, conditional edges as alt by path-map key, loops marked once', async () => {
   const out = await run(AGENT, fakeGraph(AGENT, ['__call__>plan']), { start: { symbol: 'run' }, participants: 'file' });
   assert.deepEqual(out.text, [
-    'participants: graph.py, OpenAI (external), tools.py, External HTTP (external)',
+    'participants: graph.py, tools.py, OpenAI (external), External HTTP (external)',
     'graph.py -> graph.py: planner  [link langgraph]',
     'graph.py -> graph.py: agent  [link langgraph]',
     '  graph.py -> OpenAI: open ai',
@@ -305,4 +307,128 @@ test('sequence link rules: a call to an unresolved `from` and entering a functio
   ]);
   assert.deepEqual(out.diagnostics.sequence!.links, { 'rule:rpc': 1, 'rule:jobs': 1 });
   assert.ok(!out.warnings.some(w => /not applied/.test(w.message)));
+});
+
+const SHARED = {
+  'services/api/views.py': `from fastapi import Depends
+
+CurrentUser = Annotated[dict, Depends(get_user)]
+
+
+def get_user():
+    return 1
+
+
+def shared(user: CurrentUser):
+    return user
+
+
+def a():
+    return shared()
+
+
+def b():
+    return shared()
+
+
+def handler():
+    a()
+    b()
+`,
+};
+
+test('sequence walk: a function entered again reuses its calls relations and auth hops (no new graph queries)', async () => {
+  const graph = fakeGraph(SHARED, ['handler>a', 'handler>b', 'a>shared', 'b>shared']);
+  const queries = { outgoing: new Map<string, number>(), alias: 0 };
+  const counting = { ...graph,
+    outgoing: (ids: string[], kinds: string[]) => { for (const id of ids) queries.outgoing.set(id, (queries.outgoing.get(id) ?? 0) + 1); return graph.outgoing(ids, kinds); },
+    findSymbols: (name: string, file?: string) => { if (name === 'CurrentUser') queries.alias++; return graph.findSymbols(name, file); } };
+  const out = await run(SHARED, counting, { start: { symbol: 'handler' }, participants: 'file', internal: 'show', returns: false });
+  // Both entries still draw shared's dependency.
+  assert.equal(out.seq.messages.filter(m => m.label === 'get_user' && m.link === 'auth').length, 2);
+  assert.equal(queries.outgoing.get('services/api/views.py#shared'), 1);
+  assert.equal(queries.alias, 1);
+});
+
+const CELERY = {
+  'services/jobs/tasks.py': `from celery import shared_task
+from services.jobs.celery import app
+
+
+@app.task(name="reports.build")
+def build_report(rid):
+    return rid
+
+
+@shared_task(autoretry_for=(ConnectionError,), retry_kwargs={"max_retries": max(3, 5)}, name="mail.send")
+def send_mail(to):
+    return to
+
+
+def kick(rid, to):
+    build_report.delay(rid)
+    app.send_task("mail.send", args=[to])
+    send_mail.apply_async((to,))
+`,
+};
+
+test('sequence events: Celery tasks with an explicit name still link from .delay; decorator args with nested parens', async () => {
+  const out = await run(CELERY, fakeGraph(CELERY, []), { start: { symbol: 'kick' }, participants: 'file', internal: 'show' });
+  assert.deepEqual(out.seq.messages.map(m => [m.label, m.symbol!.name, m.link]), [
+    ['build_report', 'build_report', 'events'], ['mail.send', 'send_mail', 'events'], ['send_mail', 'send_mail', 'events']]);
+});
+
+const SENDS = {
+  'web/server.js': `const queue = require('./queue');
+
+function onOk(msg) { return msg; }
+queue.on('ok', onOk);
+
+function reply(req, res) {
+  res.send('ok');
+  ws.send('ok');
+}
+
+function forward(msg) { queue.send('ok', msg); }
+`,
+};
+
+test('sequence events: `send` links only on a bus/queue-like receiver (Express res.send, ws.send stay unlinked)', async () => {
+  const graph = fakeGraph(SENDS, []);
+  assert.deepEqual((await run(SENDS, graph, { start: { symbol: 'reply' }, participants: 'file', internal: 'show' })).seq.messages, []);
+  const forward = await run(SENDS, graph, { start: { symbol: 'forward' }, participants: 'file', internal: 'show' });
+  assert.deepEqual(forward.seq.messages.map(m => [m.label, m.symbol!.name]), [['ok', 'onOk']]);
+});
+
+test('sequence events: the registry scan stops when the evaluation is aborted', async () => {
+  const files: Record<string, string> = { ...EVENTS };
+  for (let i = 0; i < 50; i++) files[`services/more/m${i}.py`] = `def h${i}(e):\n    return e\n`;
+  const controller = new AbortController();
+  let scanned = 0;
+  const out = await evaluate({ view: { id: 'seq', kind: 'sequence', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [],
+    include: [], exclude: [], sequence: step({ start: { symbol: 'register' }, participants: 'file' }) }, graph: fakeGraph(EVENTS, []),
+  graphStatus: { state: 'ready', message: null }, grammarDir: codegraphGrammarDir(), signal: controller.signal,
+  files: { list: async () => ({ files: Object.keys(files), truncated: false }),
+    read: async f => { if (f.startsWith('services/more/')) { scanned++; controller.abort(); } return files[f] ?? null; } } });
+  assert.equal(scanned, 1);
+  assert.equal(out.diagnostics.sequence!.truncated, true);
+});
+
+const CHAINS = {
+  ...AGENT_APP,
+  'services/agent/rag.py': `def ask(q):
+    return chain.invoke(q)
+
+
+def plan(q):
+    return agent.invoke(q)
+`,
+};
+
+test('sequence langgraph: `chain.invoke` is not routed into the only StateGraph; `agent.invoke` is, uncertain', async () => {
+  const graph = fakeGraph(CHAINS, []);
+  assert.deepEqual((await run(CHAINS, graph, { start: { symbol: 'ask' } })).seq.messages, []);
+  const agent = await run(CHAINS, graph, { start: { symbol: 'plan' }, participants: 'file' });
+  assert.ok(agent.seq.messages.some(m => m.link === 'langgraph'));
+  assert.ok(agent.seq.messages.filter(m => m.link === 'langgraph').every(m => !m.certain));
 });
