@@ -144,8 +144,8 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
         return s ?? null;
       }),
-      callees: async ids => (api ? calleesOf(api, ids) : new Map()),
-      fileSymbols: async f => api?.fileSymbols(f) ?? [],
+      callees: async ids => (api ? calleesOf(api, ids) : null),
+      fileSymbols: async f => api?.fileSymbols(f) ?? null,
     });
     if (restamp && graph.indexedMtime) lagging = await laggingFiles(root, result.diagnostics?.explain ?? [], graph.indexedMtime);
   } finally { graph.close?.(); }

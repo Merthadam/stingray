@@ -78,8 +78,8 @@ class Graph implements WorktreeGraph {
     });
   }
 
-  async callees(ids: string[]) { const api = this.api(); return api ? calleesOf(api, ids) : new Map(ids.map(id => [id, []])); }
-  async fileSymbols(file: string) { return this.api()?.fileSymbols(posix(file)) ?? []; }
+  async callees(ids: string[]) { const api = this.api(); return api ? calleesOf(api, ids) : null; }
+  async fileSymbols(file: string) { return this.api()?.fileSymbols(posix(file)) ?? null; }
 
   evaluateView(view: ResolvedView) {
     return evaluateView(this.options, this.root, view, this.api(), this.current);
@@ -358,13 +358,13 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
         }
         case 'callees': {
           const graph = graphs.get(message.workspaceId)?.graph;
-          return void (graph ? graph.callees(message.ids) : Promise.resolve(new Map(message.ids.map(id => [id, []]))))
-            .then(result => send({ type: 'reply', id: message.id, result: [...result] }));
+          return void (graph ? graph.callees(message.ids) : Promise.resolve(null))
+            .then(result => send({ type: 'reply', id: message.id, result: result && [...result] }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         }
         case 'fileSymbols': {
           const graph = graphs.get(message.workspaceId)?.graph;
-          return void (graph ? graph.fileSymbols(message.file) : Promise.resolve([]))
-            .then(result => send({ type: 'reply', id: message.id, result }));
+          return void (graph ? graph.fileSymbols(message.file) : Promise.resolve(null))
+            .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         }
         case 'evaluateView': {
           // A graph that is not open here is not opened (or indexed) for this: the view is evaluated without it.

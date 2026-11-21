@@ -92,14 +92,17 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       const result = this.ready() && queries.length ? await request({ type: 'findSymbols', workspaceId: this.workspaceId, queries }) : null;
       return Array.isArray(result) && result.length === queries.length ? result as (GraphSymbol | null)[] : queries.map(() => null);
     }
-    // A Map does not survive IPC: the child sends [id, callees] entries.
+    // A Map does not survive IPC: the child sends [id, callees] entries. No valid reply (timeout, child down) is null: unknown.
     async callees(ids: string[]) {
-      const result = this.ready() && ids.length ? await request({ type: 'callees', workspaceId: this.workspaceId, ids }) : null;
-      return new Map(ids.map(id => [id, []] as [string, GraphSymbol[]]).concat(Array.isArray(result) ? result as [string, GraphSymbol[]][] : []));
+      if (!ids.length) return new Map<string, GraphSymbol[]>();
+      const result = this.ready() ? await request({ type: 'callees', workspaceId: this.workspaceId, ids }) : null;
+      if (!Array.isArray(result)) return null;
+      const entries = (result as unknown[]).filter((e): e is [string, GraphSymbol[]] => Array.isArray(e) && e.length === 2 && typeof e[0] === 'string' && Array.isArray(e[1]));
+      return new Map(ids.map(id => [id, []] as [string, GraphSymbol[]]).concat(entries));
     }
     async fileSymbols(file: string) {
       const result = this.ready() ? await request({ type: 'fileSymbols', workspaceId: this.workspaceId, file }) : null;
-      return Array.isArray(result) ? result as GraphSymbol[] : [];
+      return Array.isArray(result) ? result as GraphSymbol[] : null;
     }
     async evaluateView(view: ResolvedView) {
       const reply = await call({ type: 'evaluateView', workspaceId: this.workspaceId, root: this.root, view }, evaluateTimeoutMs);

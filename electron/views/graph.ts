@@ -20,10 +20,10 @@ export interface WorktreeGraph {
   onStatus(listener: (status: GraphStatus) => void): () => void;
   /** Look up symbols by exact name, one per query, in its file; null when not found or the graph is not ready. Never rejects. */
   findSymbols(queries: SymbolQuery[]): Promise<(GraphSymbol | null)[]>;
-  /** Direct callees per symbol id; empty lists when the graph is not ready. Never rejects. */
-  callees(ids: string[]): Promise<Map<string, GraphSymbol[]>>;
-  /** Every symbol of a file; [] when the graph is not ready. Never rejects. */
-  fileSymbols(file: string): Promise<GraphSymbol[]>;
+  /** Direct callees per symbol id; null (unknown, not "calls nothing") when the graph is not ready or did not answer. Never rejects. */
+  callees(ids: string[]): Promise<Map<string, GraphSymbol[]> | null>;
+  /** Every symbol of a file; null when the graph is not ready or did not answer. Never rejects. */
+  fileSymbols(file: string): Promise<GraphSymbol[] | null>;
   /** Run the rule engine on the worktree, with the code graph when it is ready (else without). Rejects on engine errors. */
   evaluateView(view: ResolvedView): Promise<EvaluateOutput>;
 }

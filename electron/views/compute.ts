@@ -23,10 +23,10 @@ export interface ComputeDeps {
   sqlalchemy?: () => Promise<DbSchemaResult>;
   sql?: () => Promise<DbSchemaResult>;
   findSymbols: (queries: SymbolQuery[]) => Promise<(GraphSymbol | null)[]>;
-  /** Direct `calls` targets per symbol id (heuristic relations included), in-repo symbols only; [] when unknown. */
-  callees?: (ids: string[]) => Promise<Map<string, GraphSymbol[]>>;
-  /** Every symbol of a file (for class → constructor); [] when unknown. */
-  fileSymbols?: (file: string) => Promise<GraphSymbol[]>;
+  /** Direct `calls` targets per symbol id (heuristic relations included), in-repo symbols only; null when unknown (no answer). */
+  callees?: (ids: string[]) => Promise<Map<string, GraphSymbol[]> | null>;
+  /** Every symbol of a file (for class → constructor); null when unknown (no answer). */
+  fileSymbols?: (file: string) => Promise<GraphSymbol[] | null>;
   readSource?: ReadSource;    // worktree files, for fingerprints of `explain:` entries (unchecked without it)
   graph: GraphStatus;
   workspaceId?: string;

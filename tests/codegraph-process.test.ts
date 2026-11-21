@@ -42,8 +42,8 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
   try {
     const graph = host.open('w1', root);
     assert.deepEqual(await graph.findSymbols([{ file: 'app/models.py', name: 'User' }]), [null]); // not ready yet
-    assert.deepEqual(await graph.callees(['x']), new Map([['x', []]]));
-    assert.deepEqual(await graph.fileSymbols('app/models.py'), []);
+    assert.equal(await graph.callees(['x']), null); // unknown, not "calls nothing"
+    assert.equal(await graph.fileSymbols('app/models.py'), null);
     const seen: GraphChange[] = []; graph.onChange(change => seen.push(change));
     await state(graph, 'ready');
     assert.equal(children.length, 1);
@@ -51,9 +51,9 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
     assert.deepEqual({ ...await find(graph, 'User'), id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1, endLine: 2, qualifiedName: 'User' });
     // callees and fileSymbols round-trip through the child (the Map travels as entries)
     const [run, helper] = await graph.findSymbols([{ file: 'app/models.py', name: 'run' }, { file: 'app/models.py', name: 'helper' }]);
-    const callees = await graph.callees([run!.id, helper!.id, 'missing']);
+    const callees = (await graph.callees([run!.id, helper!.id, 'missing']))!;
     assert.deepEqual([...callees].map(([id, list]) => [id, list.map(s => s.name)]), [[run!.id, ['helper']], [helper!.id, []], ['missing', []]]);
-    assert.deepEqual((await graph.fileSymbols('app/models.py')).filter(s => s.kind === 'function').map(s => s.name).sort(), ['helper', 'run']);
+    assert.deepEqual((await graph.fileSymbols('app/models.py'))!.filter(s => s.kind === 'function').map(s => s.name).sort(), ['helper', 'run']);
 
     await appendFile(path.join(root, 'app/models.py'), '\nclass Invoice:\n    pass\n');
     await until('models.py change', () => seen.some(c => c.files.includes('app/models.py')));
@@ -159,6 +159,35 @@ test('evaluateView round-trips through the worker: result, engine error, timeout
   } finally { await host.closeAll(); await rm(root, { recursive: true, force: true }); }
   const down = createCodeGraphProcessHost({ spawn: () => { throw new Error('spawn EACCES'); } });
   await assert.rejects(down.open('w1', root).evaluateView(view), { message: 'Code graph process unavailable' });
+  await down.closeAll();
+});
+
+test('callees and fileSymbols are null (unknown) when the child times out or is down; malformed callee entries are dropped', async () => {
+  let reply: ((message: WorkerRequest & { id: number }) => unknown) | null = null; // null: never answer
+  const spawn = () => {
+    const child = new EventEmitter() as EventEmitter & { exitCode: null; signalCode: null; send: ChildProcess['send']; kill: () => boolean };
+    child.exitCode = null; child.signalCode = null; child.kill = () => true;
+    child.send = ((message: WorkerRequest) => {
+      setImmediate(() => {
+        if (message.type === 'open') child.emit('message', { type: 'status', workspaceId: message.workspaceId, status: { state: 'ready', message: null } });
+        else if (reply) child.emit('message', { type: 'reply', id: message.id, result: reply(message) });
+      });
+      return true;
+    }) as ChildProcess['send'];
+    return child as unknown as ChildProcess;
+  };
+  const host = createCodeGraphProcessHost({ timeoutMs: 50, spawn });
+  try {
+    const graph = host.open('w1', '/repo');
+    await state(graph, 'ready');
+    assert.equal(await graph.callees(['a']), null);
+    assert.equal(await graph.fileSymbols('a.py'), null);
+    reply = () => [['a'], 'x', ['a', [{ id: 'b', name: 'b', kind: 'function', file: 'b.py', line: 1 }]]];
+    assert.deepEqual([...(await graph.callees(['a', 'c']))!].map(([id, list]) => [id, list.map(s => s.id)]), [['a', ['b']], ['c', []]]);
+  } finally { await host.closeAll(); }
+  const down = createCodeGraphProcessHost({ spawn: () => { throw new Error('spawn EACCES'); } });
+  assert.equal(await down.open('w1', '/repo').callees(['a']), null);
+  assert.equal(await down.open('w1', '/repo').fileSymbols('a.py'), null);
   await down.closeAll();
 });
 
