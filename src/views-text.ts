@@ -56,9 +56,11 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
   return lines.join('\n');
 }
 
-/** " — <explanation>" (a symbol's docstring summary or the view's `explain:` text, marked when its code changed since) or nothing. */
-const explained = (x: { explanation?: string | null; explanationStatus?: ExplanationStatus }) =>
-  x.explanation ? ` — ${x.explanation}${x.explanationStatus === 'stale' ? ' (may be outdated)' : ''}` : '';
+/** " — <explanation>" (a symbol's docstring summary or the view's `explain:` text, cut at TEXT_EXPLANATION chars, marked when its
+ * code changed since) or nothing. */
+const TEXT_EXPLANATION = 300;
+const explained = ({ explanation: x, explanationStatus }: { explanation?: string | null; explanationStatus?: ExplanationStatus }) =>
+  !x ? '' : ` — ${x.length > TEXT_EXPLANATION ? `${x.slice(0, TEXT_EXPLANATION - 1).trimEnd()}…` : x}${explanationStatus === 'stale' ? ' (may be outdated)' : ''}`;
 const MARKERS: Record<string, string> = { start: '(start)', end: '(end)', error: '(error)', decision: '<?>', loop: '<loop>', call: '[call]', action: '[ ]' };
 const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : e.kind === 'except' ? `except ${e.label}` : e.label ?? e.kind;
 

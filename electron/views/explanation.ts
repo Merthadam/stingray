@@ -2,7 +2,10 @@
 import type { SymbolRef } from '../../src/views';
 import type { GraphSymbol } from './rules/types';
 
-export const MAX_EXPLANATION = 300;
+// The full first paragraph: the UI clamps it to 3 lines with the full text in the tooltip/Inspector; text output cuts at 300.
+export const MAX_EXPLANATION = 2000;
+// A line ending in one of these abbreviations does not end a sentence.
+const ABBREVIATION_END = /\b(e\.g|i\.e|etc|vs|cf|approx)\.$/i;
 
 /** First paragraph of a docstring (up to a blank line or the first JSDoc `@tag`), comment markers and quotes stripped,
  * whitespace collapsed, capped at MAX_EXPLANATION with an ellipsis; null when nothing is left. Without any blank line
@@ -21,7 +24,7 @@ export function docstringSummary(raw: string | null | undefined): string | null 
   while (lines.length && !lines.at(-1)) lines.pop();
   const start = lines.findIndex(Boolean);
   const blank = lines.indexOf('', start + 1);
-  const sentenceEnd = lines.findIndex((t, i) => i >= start && /[.!?]["')\]]?$/.test(t));
+  const sentenceEnd = lines.findIndex((t, i) => i >= start && /[.!?]["')\]]?$/.test(t) && !ABBREVIATION_END.test(t));
   const end = blank >= 0 ? blank : sentenceEnd >= 0 ? sentenceEnd + 1 : lines.length;
   const summary = (start < 0 ? [] : lines.slice(start, end)).join(' ').replace(/\s+/g, ' ').trim();
   if (!summary) return null;
