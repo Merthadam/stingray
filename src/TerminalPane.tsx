@@ -27,7 +27,7 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
     // cannot be fitted, and output written into a grid of a different size than the PTY garbles TUIs.
     const terminal = new Terminal({
       cols: info.cols ?? 80, rows: info.rows ?? 24,
-      cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
+      cursorBlink: true, fontSize: 15, lineHeight: 1.25, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
       scrollback: terminalScrollback, allowProposedApi: true, macOptionClickForcesSelection: true,
       theme: { background: '#151110', foreground: '#eae8e6', cursor: '#e07850', selectionBackground: '#e0785040',
         black: '#151110', red: '#dc6b6b', green: '#7ec699', yellow: '#e5c07b', blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#eae8e6',
