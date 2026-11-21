@@ -18,8 +18,13 @@ export const cardFields = (node: DiagramNode) => ({ fields: node.fields.slice(0,
 /** Whether the node's card shows its explanation (never diamonds or the plain flow's tiny start/end pills). */
 export const showsExplanation = (node: DiagramNode, flowchart = false) =>
   !!node.explanation && (flowchart ? node.kind !== 'decision' && node.kind !== 'loop' : !node.role);
+// Cloud resource (node.service): a 48px service icon with the resource name and the service name under it.
+const INFRA_SIZE = { width: 168, height: 104 };
+/** Name of a cloud resource under its icon: a Terraform address without its type (`aws_s3_bucket.logs` → `logs`, also
+ * `data.<type>.<name>`); other labels (CDK construct ids) as they are. */
+export const infraName = (node: DiagramNode) => node.label.replace(/^(data\.)?[a-z0-9]+_[a-z0-9_]+\.(?=.)/, '');
 export const flowSize = (node: DiagramNode, flowchart = false) => {
-  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 }
+  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
     : { width: 220, height: 64 + Math.min(node.fields.length, MAX_FIELDS + 1) * FIELD_HEIGHT };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };

@@ -114,6 +114,8 @@ export interface DesktopAPI {
   codegraphConflicts(workspaceId: string): Promise<OverlayConflicts | null>;
   /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
+  /** Open the documentation of a cloud service of the infra catalog (src/infra/catalog.ts) in the default browser. */
+  openServiceDocs(serviceId: string): Promise<void>;
   pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
   containers(): Promise<ContainerInfo[]>;
   ports(): Promise<WorkspacePort[]>;
