@@ -48,39 +48,55 @@ export function explainTargets(key: string, nodes: DiagramNode[], groups: Diagra
 }
 
 export interface PieceDeps { read: ReadSource; callees?: ComputeDeps['callees']; fileSymbols?: ComputeDeps['fileSymbols'] }
+/** `pieces` null with `why`: the entry cannot be checked; null without `why`: the code graph did not answer (unchecked). */
 export interface Pieces { pieces: Record<string, string> | null; skipped: string[]; files: string[]; why?: string }
 
 // CodeGraph's qualified name is file-relative (e.g. "Store::get"), so the file is part of the key.
 const pieceKey = (s: SymbolRef | GraphSymbol) => `${s.file}::${s.qualifiedName || s.name}`;
+const MAX_KEY = 500; // the schema's limit on piece keys
 const CONSTRUCTORS = new Set(['__init__', 'constructor']);
+const CALLABLE = new Set(['function', 'method', 'component']); // CodeGraph node kinds that have a body worth hashing
 
 /** The pieces of code an entry's targets stand for, keyed by qualified name (or `drawn:<id>` for targets without a symbol):
- * each target's own body plus its direct callees (one level; a class callee stands for its constructor). `pieces` is null,
- * with `why`, when a target's own body cannot be hashed or there are more than MAX_PIECES; callees that cannot be hashed are
- * left out and listed in `skipped`. */
+ * each target's own body plus its direct callable callees (one level; a class callee stands for its constructor). Two
+ * symbols with the same key share it (their hashes folded in order). `pieces` is null, with `why`, when a target's own body
+ * cannot be hashed or there are more than MAX_PIECES; null without `why` when a graph lookup returned null (unknown, so
+ * never "calls nothing"). Callees that cannot be hashed are left out and listed in `skipped` (their files still in `files`). */
 export async function collectPieces(targets: Target[], nodes: DiagramNode[], groups: DiagramGroup[], deps: PieceDeps): Promise<Pieces> {
-  const pieces = new Map<string, string>(), skipped = new Set<string>(), files = new Set<string>();
-  const uncomputable = (why: string): Pieces => ({ pieces: null, skipped: [], files: [], why });
+  const pieces = new Map<string, string>(), skipped = new Set<string>(), files = new Set<string>(), hashed = new Set<string>();
+  const uncomputable = (why?: string): Pieces => ({ pieces: null, skipped: [], files: [], ...(why ? { why } : {}) });
+  const add = (key: string, fp: string) => { const prev = pieces.get(key); pieces.set(key, prev === undefined ? fp : hash(`${prev}\n${fp}`)); };
   for (const t of targets) {
     if (!t.symbol) { pieces.set(`drawn:${t.id}`, drawnFingerprint(t, nodes, groups)); continue; }
+    if (hashed.has(t.symbol.id)) continue; // two nodes linked to one symbol
     const source = await deps.read(t.symbol.file);
     if (source === null) return uncomputable(`${t.symbol.file} could not be read (missing, too large or unreadable)`);
     const fp = bodyFingerprint(source, t.symbol);
     if (fp === null) return uncomputable(t.symbol.endLine ? `${t.symbol.file} is shorter than the code graph says (re-index)` : `the code graph has no end line for ${t.symbol.name}`);
-    pieces.set(pieceKey(t.symbol), fp);
+    if (pieceKey(t.symbol).length > MAX_KEY) return uncomputable(`the name of ${t.symbol.name} is too long to fingerprint`);
+    add(pieceKey(t.symbol), fp);
+    hashed.add(t.symbol.id);
     files.add(t.symbol.file);
   }
   const ids = new Set(targets.flatMap(t => (t.symbol ? [t.symbol.id] : [])));
   const callees = ids.size && deps.callees ? await deps.callees([...ids]) : new Map<string, GraphSymbol[]>();
-  const constructorOf = async (c: GraphSymbol) => !c.endLine || !deps.fileSymbols ? undefined
-    : (await deps.fileSymbols(c.file)).find(s => CONSTRUCTORS.has(s.name) && s.line >= c.line && s.line <= c.endLine!);
+  if (!callees) return uncomputable();
   for (const id of ids) for (const callee of callees.get(id) ?? []) {
-    const fn = callee.kind === 'class' ? await constructorOf(callee) : callee;
-    if (!fn || ids.has(fn.id) || pieces.has(pieceKey(fn))) continue; // no constructor, recursion, or already there
-    const source = await deps.read(fn.file), fp = source === null ? null : bodyFingerprint(source, fn);
-    if (fp === null) { skipped.add(pieceKey(fn)); continue; }
-    pieces.set(pieceKey(fn), fp);
+    let fn: GraphSymbol | undefined = callee;
+    if (callee.kind === 'class') {
+      if (!callee.endLine || !deps.fileSymbols) continue;
+      const symbols = await deps.fileSymbols(callee.file);
+      if (!symbols) return uncomputable();
+      const inside = symbols.filter(s => s.kind === 'method' && CONSTRUCTORS.has(s.name) && s.line >= callee.line && s.line <= callee.endLine!);
+      // The class's own constructor, not a nested class's; by line range when the graph has no qualified names.
+      fn = callee.qualifiedName ? inside.find(s => s.qualifiedName === `${callee.qualifiedName}::${s.name}`) : inside[0];
+    }
+    if (!fn || !CALLABLE.has(fn.kind) || hashed.has(fn.id)) continue; // no constructor, not callable, recursion, or already there
+    hashed.add(fn.id);
     files.add(fn.file);
+    const source = await deps.read(fn.file), fp = source === null ? null : bodyFingerprint(source, fn);
+    if (fp === null || pieceKey(fn).length > MAX_KEY) { skipped.add(pieceKey(fn)); continue; }
+    add(pieceKey(fn), fp);
     if (pieces.size > MAX_PIECES) return uncomputable('it calls too many functions to fingerprint');
   }
   if (pieces.size > MAX_PIECES) return uncomputable('it calls too many functions to fingerprint');
@@ -111,10 +127,10 @@ const MAX_NAMES = 3;
 export function describeChanges(changes: ExplainChanges, labelOf: (id: string) => string = id => id): string {
   const shown = (keys: string[]) => keys.slice(0, MAX_NAMES);
   const short = (k: string) => k.startsWith('drawn:') ? `"${labelOf(k.slice(6))}"` : k.includes('::') ? k.slice(k.indexOf('::') + 2) : k;
-  const all = [...shown(changes.changed), ...shown(changes.added), ...shown(changes.removed)].map(short);
+  const drawn = changes.changed.filter(k => k.startsWith('drawn:')), code = changes.changed.filter(k => !k.startsWith('drawn:'));
+  const all = [...shown(code), ...shown(drawn), ...shown(changes.added), ...shown(changes.removed)].map(short);
   const name = (k: string) => (k.startsWith('drawn:') || all.filter(s => s === short(k)).length === 1 ? short(k) : k);
   const list = (keys: string[]) => shown(keys).map(name).join(', ') + (keys.length > MAX_NAMES ? ` (+${keys.length - MAX_NAMES} more)` : '');
-  const drawn = changes.changed.filter(k => k.startsWith('drawn:')), code = changes.changed.filter(k => !k.startsWith('drawn:'));
   const parts = [
     ...(code.length ? [`${list(code)} changed`] : []),
     ...(drawn.length ? [`${list(drawn)} changed (as drawn)`] : []),
@@ -137,10 +153,17 @@ export async function applyExplain(result: ViewResult, entries: ExplainEntry[],
   const read = (f: string) => sources.get(f) ?? sources.set(f, options.readSource ? options.readSource(f) : Promise.resolve(null)).get(f)!;
   const labelOf = (id: string) => [...nodes, ...groups].find(t => t.id === id)?.label ?? id;
   const warnings: ViewWarning[] = [], unresolved: UnresolvedLink[] = [], diagnostics: ExplainDiagnostic[] = [];
-  for (const e of entries) {
-    const targets = explainTargets(e.key, nodes, groups);
+  const targetsOf = entries.map(e => explainTargets(e.key, nodes, groups));
+  // One callee lookup per compute (all entries' symbols) and one symbol lookup per file.
+  const ids = [...new Set(targetsOf.flat().flatMap(t => (t.symbol ? [t.symbol.id] : [])))];
+  const allCallees = options.verify && options.callees && ids.length ? options.callees(ids) : null;
+  const symbolsOf = new Map<string, ReturnType<NonNullable<ComputeDeps['fileSymbols']>>>(), fileSymbols = options.fileSymbols;
+  const pieceDeps: PieceDeps = { read, callees: allCallees ? () => allCallees : undefined,
+    fileSymbols: fileSymbols && (f => symbolsOf.get(f) ?? symbolsOf.set(f, fileSymbols(f)).get(f)!) };
+  for (const [i, e] of entries.entries()) {
+    const targets = targetsOf[i];
     const current: Pieces = options.verify && targets.length
-      ? await collectPieces(targets, nodes, groups, { read, callees: options.callees, fileSymbols: options.fileSymbols })
+      ? await collectPieces(targets, nodes, groups, pieceDeps)
       : { pieces: null, skipped: [], files: [] };
     const files = current.pieces ? current.files : [...new Set(targets.flatMap(t => (t.symbol ? [t.symbol.file] : [])))].sort();
     const diagnostic: ExplainDiagnostic = { key: e.key, line: e.line, matches: targets.length, fingerprint: current.pieces && summaryHash(current.pieces),

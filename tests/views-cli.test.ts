@@ -297,6 +297,30 @@ test('views-cli check --restamp: writes nothing when check fails; skips aliased 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('views-cli check --restamp: skips an entry when only a callee\'s file changed since indexing (callee past the end of its file)', async () => {
+  const root = await repo();
+  try {
+    const file = path.join(root, '.stingray/views/flow.yaml'), yaml = ['version: 1', 'name: Agent flow', 'kind: flow', 'explain:', '  verify: { text: Accept }', ''].join('\n');
+    await writeFile(file, yaml);
+    await writeFile(path.join(root, 'app.py'), 'def verify():\n    return helper()\n');
+    await writeFile(path.join(root, 'lib.py'), 'x = 1\n'); // the index still has helper at lines 1-3
+    const appMtime = (await stat(path.join(root, 'app.py'))).mtimeMs;
+    const helper = { id: 'py:helper', name: 'helper', kind: 'function', file: 'lib.py', line: 1, endLine: 3 };
+    const fakeGraph = { findSymbols: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [],
+      outgoing: () => [{ from: 'py:verify', to: helper.id, kind: 'calls', line: 2, certain: true }], symbols: () => new Map([[helper.id, helper]]) };
+    const h = harness(root, {
+      loadViewPath: async () => ({ summary, view, ruleFiles: [], errors: [], explain: [{ key: 'verify', text: 'Accept', fingerprint: null, line: 5 }] }),
+      evaluate: async () => output({ nodes: [node('START', { role: 'start' }), node('verify', { symbol: { id: 'py:verify', name: 'verify', kind: 'function', file: 'app.py', line: 1, endLine: 2 } })] }),
+      createFileProvider: () => ({ list: async () => ({ files: [], truncated: false }), read: async f => readFile(path.join(root, f), 'utf8') }),
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null }, indexedMtime: f => (f === 'app.py' ? appMtime : 1) }),
+    });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--restamp'), 0);
+    assert.deepEqual(h.out.slice(h.out.lastIndexOf('') + 1), [
+      'restamp: skipped "verify" (lib.py changed since the code graph indexed it; restamp after Stingray re-indexes)', 'restamp: all fingerprints are current.']);
+    assert.equal(await readFile(file, 'utf8'), yaml);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('views-cli check: the sqlalchemy builtin is merged like ViewService (scope, table keys)', async () => {
   const root = await repo();
   try {

@@ -186,7 +186,7 @@ const FILES: Record<string, string> = {
 const gs = (file: string, name: string, line: number, endLine?: number, kind = 'function'): GraphSymbol =>
   ({ id: `${file}:${name}`, name, kind, file, line, ...(endLine ? { endLine } : {}), qualifiedName: name });
 const IDENTITY = gs('app.py', 'identity', 1, 3), VERIFY = gs('lib.py', 'verify', 1, 2), AUDIT = gs('lib.py', 'audit', 3, 4);
-const GET_USER = gs('excluded.py', 'get_user', 1, 2), USER = gs('models.py', 'User', 1, 3, 'class'), INIT = gs('models.py', '__init__', 2, 3, 'method');
+const GET_USER = gs('excluded.py', 'get_user', 1, 2), USER = gs('models.py', 'User', 1, 3, 'class'), INIT = { ...gs('models.py', '__init__', 2, 3, 'method'), qualifiedName: 'User::__init__' };
 const BARE = gs('models.py', 'Bare', 5, 6, 'class');
 const fakeDeps = (calls: GraphSymbol[], files: Record<string, string> = FILES) => ({
   read: async (f: string) => files[f] ?? null,
@@ -200,7 +200,7 @@ test('collectPieces: own body plus direct in-repo callees, excluded files kept, 
   // A library call is absent because the graph has no node for it; the fake callees() returns only repo symbols.
   const got = await collectPieces([target(IDENTITY)], [], [], fakeDeps([VERIFY, GET_USER, IDENTITY, USER, BARE, VERIFY]));
   assert.deepEqual(got, {
-    pieces: { 'app.py::identity': body(IDENTITY), 'excluded.py::get_user': body(GET_USER), 'lib.py::verify': body(VERIFY), 'models.py::__init__': body(INIT) },
+    pieces: { 'app.py::identity': body(IDENTITY), 'excluded.py::get_user': body(GET_USER), 'lib.py::verify': body(VERIFY), 'models.py::User::__init__': body(INIT) },
     skipped: [], files: ['app.py', 'excluded.py', 'lib.py', 'models.py'] });
   assert.deepEqual(Object.keys(got.pieces!), Object.keys(got.pieces!).sort());
   const noQualified = await collectPieces([node('c', { symbol: { ...target(IDENTITY).symbol!, qualifiedName: undefined } })], [], [], fakeDeps([]));
@@ -213,6 +213,11 @@ test('collectPieces: unhashable callees are skipped, an unhashable target or too
   const gone = gs('gone.py', 'lost', 1, 2), noEnd = gs('lib.py', 'open_ended', 1);
   const got = await collectPieces([target(IDENTITY)], [], [], fakeDeps([VERIFY, gone, noEnd, gone]));
   assert.deepEqual([Object.keys(got.pieces!), got.skipped], [['app.py::identity', 'lib.py::verify'], ['gone.py::lost', 'lib.py::open_ended']]);
+  assert.deepEqual(got.files, ['app.py', 'gone.py', 'lib.py'], 'a skipped callee\'s file is listed, so restamp sees it lag');
+  const long = { ...VERIFY, id: 'long', qualifiedName: 'x'.repeat(500) };
+  assert.deepEqual((await collectPieces([target(IDENTITY)], [], [], fakeDeps([long]))).skipped, [`lib.py::${'x'.repeat(500)}`], 'a key over 500 characters is skipped');
+  assert.deepEqual(await collectPieces([target(long)], [], [], fakeDeps([])),
+    { pieces: null, skipped: [], files: [], why: 'the name of verify is too long to fingerprint' });
   assert.deepEqual(await collectPieces([target(IDENTITY)], [], [], fakeDeps([VERIFY], {})),
     { pieces: null, skipped: [], files: [], why: 'app.py could not be read (missing, too large or unreadable)' });
   const many = Array.from({ length: 200 }, (_, i) => gs('lib.py', `f${i}`, 1, 2));
@@ -222,6 +227,28 @@ test('collectPieces: unhashable callees are skipped, an unhashable target or too
   const table = node('t', { kind: 'table', label: 'users' });
   assert.deepEqual((await collectPieces([table, target(IDENTITY)], [], [], fakeDeps([]))).pieces,
     { 'app.py::identity': body(IDENTITY), 'drawn:t': drawnFingerprint(table) }, 'targets with and without a symbol: the union');
+});
+
+test('collectPieces: only callable callees, a class\'s own constructor, colliding keys fold, unknown lookups make it unchecked', async () => {
+  const imp = gs('lib.py', 'jwt', 1, 1, 'import'), file = gs('lib.py', 'lib.py', 1, 4, 'file');
+  assert.deepEqual(Object.keys((await collectPieces([target(IDENTITY)], [], [], fakeDeps([imp, file, VERIFY]))).pieces!), ['app.py::identity', 'lib.py::verify']);
+  // A nested class's constructor that comes first is not the class's own.
+  const nested = { ...gs('models.py', '__init__', 2, 3, 'method'), id: 'nested', qualifiedName: 'User::Inner::__init__' };
+  const own = { ...gs('models.py', '__init__', 2, 3, 'method'), id: 'own', qualifiedName: 'User::__init__' };
+  const ctor = (symbols: GraphSymbol[]) => collectPieces([target(IDENTITY)], [], [], { ...fakeDeps([USER]), fileSymbols: async () => symbols });
+  assert.deepEqual(Object.keys((await ctor([nested, own])).pieces!), ['app.py::identity', 'models.py::User::__init__']);
+  assert.deepEqual(Object.keys((await ctor([nested, { ...own, kind: 'function' }])).pieces!), ['app.py::identity'], 'a constructor is a method');
+  // Same key, different symbols (e.g. a property getter and setter): both bodies count, folded in order.
+  const getter = gs('lib.py', 'verify', 1, 2), setter = { ...gs('lib.py', 'verify', 3, 4), id: 'setter' };
+  const folded = (await collectPieces([target(IDENTITY)], [], [], fakeDeps([getter, setter]))).pieces!['lib.py::verify'];
+  assert.notEqual(folded, body(getter));
+  const edited = { ...FILES, 'lib.py': FILES['lib.py'].replace('pass', 'return 2') };
+  assert.notEqual((await collectPieces([target(IDENTITY)], [], [], fakeDeps([getter, setter], edited))).pieces!['lib.py::verify'], folded, 'the second body counts');
+  const targets = await collectPieces([target(getter, 'a'), target(setter, 'b'), target(getter, 'c')], [], [], fakeDeps([]));
+  assert.equal(targets.pieces!['lib.py::verify'], folded, 'targets fold the same way; one symbol twice counts once');
+  // A lookup without an answer is unknown, never "calls nothing".
+  assert.deepEqual(await collectPieces([target(IDENTITY)], [], [], { ...fakeDeps([]), callees: async () => null }), { pieces: null, skipped: [], files: [] });
+  assert.deepEqual(await collectPieces([target(IDENTITY)], [], [], { ...fakeDeps([USER]), fileSymbols: async () => null }), { pieces: null, skipped: [], files: [] });
 });
 
 test('compareFingerprint: none → unstamped, string → legacy, map → view or stale with sorted changes', () => {
@@ -240,6 +267,16 @@ test('describeChanges: short names unless two read the same, at most 3 per categ
     'may be outdated: new calls f, g, h (+2 more)');
   assert.equal(describeChanges({ changed: ['drawn:t', 'x.py::f'], added: [], removed: [] }, id => (id === 't' ? 'users' : id)),
     'may be outdated: f changed; "users" changed (as drawn)');
+  assert.equal(describeChanges({ changed: ['drawn:a', 'drawn:b', 'drawn:c', 'x.py::f'], added: [], removed: [] }), 'may be outdated: f changed; "a", "b", "c" changed (as drawn)',
+    'names are unique among those shown');
+});
+
+test('applyExplain looks up callees once per compute and symbols once per file', async () => {
+  const deps = { ...fakeDeps([]), callees: async (ids: string[]) => new Map(ids.map(id => [id, [USER]])) }, asked: string[][] = [], files: string[] = [];
+  await applyExplain(result([target(IDENTITY), target(VERIFY, 'v'), target(USER, 'u')]),
+    ['identity', 'verify', 'u'].map(key => ({ key, text: 'x', fingerprint: null, line: 1 })),
+    { verify: true, readSource: deps.read, callees: ids => { asked.push(ids); return deps.callees(ids); }, fileSymbols: f => { files.push(f); return deps.fileSymbols(f); } });
+  assert.deepEqual([asked, files], [[[IDENTITY.id, VERIFY.id, USER.id]], ['models.py']]);
 });
 
 test('applyExplain with callees: callee edits, added and removed calls turn it stale; a callee\'s callee or a legacy stamp do not', async () => {
@@ -266,6 +303,10 @@ test('applyExplain with callees: callee edits, added and removed calls turn it s
   }
   const unstamped = await run(null, [VERIFY]);
   assert.deepEqual([unstamped.status, unstamped.reason], ['unstamped', undefined]);
+  // The code graph did not answer (timeout, child down): unchecked, no warning; restamp has nothing to write.
+  const unknown = await applyExplain(result([target(IDENTITY)]), [{ key: 'identity', text: 'Who', fingerprint: stamp, line: 6 }],
+    { verify: true, readSource: fakeDeps([]).read, callees: async () => null });
+  assert.deepEqual([unknown.nodes[0].explanationStatus, unknown.warnings.map(w => w.message), unknown.diagnostics!.explain![0].pieces], ['view', ['engine warning'], null]);
   const unreadable = await run(stamp, [VERIFY], {});
   assert.deepEqual([unreadable.status, unreadable.reason, unreadable.warning], ['unstamped', 'app.py could not be read (missing, too large or unreadable)',
     'explanation for "identity" cannot be checked: app.py could not be read (missing, too large or unreadable)']);
