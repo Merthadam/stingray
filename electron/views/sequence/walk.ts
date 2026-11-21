@@ -3,14 +3,15 @@
 // lifeline a function belongs to is decided afterwards (index.ts), when all reached files are known.
 import path from 'node:path';
 import type { SequenceFragmentKind, SourceRef, SymbolRef } from '../../../src/views';
-import type { GraphApi, GraphRelation, GraphSymbol, SequenceStep } from '../rules/types';
+import type { Tree } from 'web-tree-sitter';
+import type { FileProvider, GraphApi, GraphRelation, GraphSymbol, SequenceStep } from '../rules/types';
 import type { Call, Code, Construct } from '../flowchart/cfg';
 import { resolveCall, type LoadFunction } from '../flowchart/build';
 import { FUNCTION_KINDS } from '../flowchart';
 import { callLabel, caseLabel, truncate, words } from '../flowchart/labels';
 import { symbolRef } from '../explanation';
 import { externalCall } from './externals';
-import type { Hop, LinkContext, LinkProvider } from './links';
+import type { Hop, HopStep, LinkContext, LinkProvider } from './links';
 
 export const SEQUENCE_LIMITS = { messages: 400, participants: 30, functions: 150, events: 5000 };
 const MAX_RETURN_LABEL = 24;
@@ -28,7 +29,7 @@ export type TraceEvent =
   | { t: 'note'; at: End; text: string; source: SourceRef; entered: number | null }; // entered: the msg that entered its function (null: entry)
 
 type Arm = { label: string; body: Construct[]; calls?: { calls: Call[]; code: Code } };
-type How = Pick<Hop, 'label' | 'certain'> & { kind: 'call' | Hop['kind']; link: string | null };
+type How = Pick<Hop, 'label' | 'certain' | 'follow'> & { kind: 'call' | Hop['kind']; link: string | null };
 
 interface Frame {
   symbol: GraphSymbol;
@@ -55,9 +56,11 @@ export class SequenceWalker {
   private messages = 0;
   private cache = new Map<string, GraphSymbol>();
   private imports = new Map<string, Promise<Map<string, string>>>();
+  private memo = new Map<string, unknown>();
 
   constructor(private step: SequenceStep, private graph: GraphApi, private load: LoadFunction, private links: LinkProvider[],
-    private followable: (file: string) => boolean, private importsOf: (file: string) => Promise<Map<string, string>>) {}
+    private followable: (file: string) => boolean, private importsOf: (file: string) => Promise<Map<string, string>>,
+    private env: { tree: (file: string) => Promise<Tree | null>; files: FileProvider }) {}
 
   private get stopped() { return this.events.length >= SEQUENCE_LIMITS.events; }
 
@@ -72,7 +75,34 @@ export class SequenceWalker {
     this.parsed.add(symbol.id);
     if (this.step.trigger) this.push({ t: 'msg', id: this.messages++, from: { actor: true }, to: { symbol }, kind: 'call', label: this.step.trigger,
       detail: null, level: 0, certain: true, link: null, source: null, symbol: symbolRef(symbol) });
-    await this.body(constructs, this.frame(symbol, 0, [symbol.id], null));
+    const f = this.frame(symbol, 0, [symbol.id], null);
+    await this.before(f);
+    await this.body(constructs, f);
+  }
+
+  /** Hops entered before a function's body (auth dependencies, link rules on the function). */
+  private async before(f: Frame) {
+    await this.steps(await this.hops(f, null, ''), f, null, { file: f.symbol.file, line: f.symbol.line });
+  }
+
+  private async hops(f: Frame, call: Call | null, statement: string): Promise<HopStep[]> {
+    const steps: HopStep[] = [];
+    for (const p of this.links) steps.push(...await p.hops(f.symbol, call, this.context(f, statement)));
+    return steps;
+  }
+
+  /** Link hops in order; alternatives (LangGraph conditional edges) as an alt fragment. `detail` null: each hop's label. */
+  private async steps(steps: HopStep[], f: Frame, detail: string | null, source: SourceRef) {
+    for (const s of steps) {
+      if (this.stopped) { this.truncated = true; return; }
+      if (!('alt' in s)) { await this.enter(s.to, s, f, detail ?? s.label, source); continue; }
+      this.push({ t: 'open', kind: 'alt', label: s.alt[0].label, source: s.source });
+      for (const [i, arm] of s.alt.entries()) {
+        if (i) this.push({ t: 'branch', label: arm.label });
+        await this.steps(arm.steps, f, detail, source);
+      }
+      this.push({ t: 'close' });
+    }
   }
 
   private frame(symbol: GraphSymbol, level: number, stack: string[], entered: number | null): Frame {
@@ -84,7 +114,10 @@ export class SequenceWalker {
     if (missing.length) for (const [id, s] of this.graph.symbols(missing)) this.cache.set(id, s);
     return new Map(ids.flatMap(id => { const s = this.cache.get(id); return s ? [[id, s] as const] : []; }));
   };
-  private context(f: Frame, statement = ''): LinkContext { return { graph: this.graph, outgoing: f.outgoing, statement, symbols: this.symbols }; }
+  private context(f: Frame, statement = ''): LinkContext {
+    return { graph: this.graph, outgoing: f.outgoing, statement, symbols: this.symbols, resolve: call => resolveCall(call, f.outgoing, this.graph, this.cache)?.symbol ?? null,
+      tree: this.env.tree, imports: file => this.importsOfFile(file), files: this.env.files, followable: this.followable, memo: this.memo };
+  }
 
   /** Constructs in source order; a return/raise/break/continue ends its block (the rest is unreachable). */
   private async body(list: Construct[], f: Frame) {
@@ -161,8 +194,8 @@ export class SequenceWalker {
     for (const [i, call] of calls.entries()) {
       if (this.stopped) { this.truncated = true; return; }
       const source = { file: f.symbol.file, line: call.line };
-      const hops = this.links.flatMap(p => p.hops(f.symbol, call, this.context(f, code.text)));
-      if (hops.length) { for (const hop of hops) await this.enter(hop.to, hop, f, code.text, source); continue; }
+      const hops = await this.hops(f, call, code.text);
+      if (hops.length) { await this.steps(hops, f, code.text, source); continue; }
       const target = resolveCall(call, f.outgoing, this.graph, this.cache);
       if (target) {
         await this.enter(target.symbol, { kind: 'call', label: callLabel(call.callee), link: null, certain: target.certain }, f, code.text, source);
@@ -191,20 +224,20 @@ export class SequenceWalker {
     this.push({ t: 'msg', id, from: { symbol: f.symbol }, to: { symbol }, kind: how.kind,
       label: recursive ? `${how.label} (recursive)` : how.label, detail, level: f.level, certain: how.certain, link: how.link, source, symbol: symbolRef(symbol) });
     let returns: (string | null)[] = [];
-    if (!recursive && f.level < this.step.depth && FUNCTION_KINDS.has(symbol.kind) && this.followable(symbol.file)) {
+    if (!recursive && how.follow !== false && f.level < this.step.depth && FUNCTION_KINDS.has(symbol.kind) && this.followable(symbol.file)) {
       if (!this.parsed.has(symbol.id) && this.parsed.size >= SEQUENCE_LIMITS.functions) this.truncated = true;
       else {
         const loaded = await this.load(symbol);
         if ('constructs' in loaded) {
           this.parsed.add(symbol.id);
           const callee = this.frame(symbol, f.level + 1, [...f.stack, symbol.id], id);
-          for (const hop of this.links.flatMap(p => p.hops(symbol, null, this.context(callee)))) await this.enter(hop.to, hop, callee, hop.label, { file: symbol.file, line: symbol.line });
+          await this.before(callee);
           await this.body(loaded.constructs, callee);
           returns = callee.returns;
         }
       }
     }
-    if (!this.step.returns) return;
+    if (!this.step.returns || how.follow === false) return;
     const values = [...new Set(returns.map(v => v?.trim() ?? ''))];
     const label = how.kind === 'http' ? 'response' : values.length === 1 && values[0].length <= MAX_RETURN_LABEL ? values[0] : '';
     this.push({ t: 'ret', call: id, from: { symbol }, to: { symbol: f.symbol }, label, level: f.level, source: null });
