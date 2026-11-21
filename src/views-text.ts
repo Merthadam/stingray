@@ -17,7 +17,7 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
   const fieldLine = (f: DiagramField) =>
     `    - ${f.label}${f.type ? `: ${f.type}` : ''}${f.badges.length ? ` [${f.badges.join(', ')}]` : ''}${f.detail ? ` — ${f.detail}` : ''}`;
   const nodeLine = (n: DiagramNode) =>
-    `  ${n.role ? `[${n.role}] ` : ''}${name(n.id)}${n.kind && kind !== 'tables' ? ` (${n.kind})` : ''}${n.subtitle ? ` — ${n.subtitle}` : ''}${n.detail ? ` · ${n.detail}` : ''}`;
+    `  ${n.role ? `[${n.role}] ` : ''}${name(n.id)}${n.kind && kind !== 'tables' ? ` (${n.kind})` : ''}${n.subtitle ? ` — ${n.subtitle}` : ''}${n.detail ? ` · ${n.detail}` : ''}${explained(n)}`;
 
   const lines = [`${kind}: ${nodes.length} nodes, ${edges.length} edges${truncated ? ' (truncated: a limit was hit)' : ''}`];
   const byGroups = () => {
@@ -56,6 +56,8 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
   return lines.join('\n');
 }
 
+/** " — <explanation>" (a symbol's docstring summary) or nothing. */
+const explained = (x: { explanation?: string | null }) => x.explanation ? ` — ${x.explanation}` : '';
 const MARKERS: Record<string, string> = { start: '(start)', end: '(end)', error: '(error)', decision: '<?>', loop: '<loop>', call: '[call]', action: '[ ]' };
 const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : e.kind === 'except' ? `except ${e.label}` : e.label ?? e.kind;
 
@@ -65,7 +67,7 @@ const BRANCH_EDGE = (e: DiagramEdge) => e.kind === 'case' ? `case ${e.label}` : 
 function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: DiagramGroup[]): string[] {
   const byId = new Map(nodes.map(n => [n.id, n])), outgoing = new Map<string, DiagramEdge[]>();
   for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) outgoing.set(e.from, [...outgoing.get(e.from) ?? [], e]);
-  const parents = new Map(groups.map(g => [g.id, g.parent ?? null])), labels = new Map(groups.map(g => [g.id, g.label]));
+  const parents = new Map(groups.map(g => [g.id, g.parent ?? null])), groupsById = new Map(groups.map(g => [g.id, g]));
   const depthOf = (group: string | null): number => group === null || !parents.has(group) ? 0 : 1 + depthOf(parents.get(group)!);
   const within = (group: string | null, ancestor: string): boolean => group !== null && (group === ancestor || within(parents.get(group) ?? null, ancestor));
 
@@ -94,7 +96,7 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
   // Reached through a heuristic code-graph call (dashed in the diagram): a call node, or the first step of an expanded callee.
   const uncertain = new Set(edges.filter(e => !e.certain).map(e => e.to));
   const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}`
-    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}`;
+    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}${explained(n)}`;
   const walk = (from: string, stop: string | null, indent: number, baseDepth: number, group: string | null) => {
     for (let id: string | null = from; id !== null && id !== stop && id !== EXIT;) {
       const n = byId.get(id)!;
@@ -106,7 +108,7 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
       for (let g: string | null = n.group; g !== null && !within(group, g); g = parents.get(g) ?? null) entered.unshift(g);
       if (entered.length) baseDepth = Math.min(baseDepth, depthOf(entered[0]) - 1);
       // shortcut: an uncertain call marks the outermost callee entered, even when it is a nested callee's call that is uncertain.
-      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${labels.get(g) ?? g}${g === entered[0] && uncertain.has(id) ? ' (uncertain)' : ''}`);
+      for (const g of entered) lines.push(`${' '.repeat(indent + 2 * Math.max(0, depthOf(g) - 1 - baseDepth))}» ${groupsById.get(g)?.label ?? g}${g === entered[0] && uncertain.has(id) ? ' (uncertain)' : ''}${explained(groupsById.get(g) ?? {})}`);
       group = n.group;
       const pad = ' '.repeat(indent + 2 * Math.max(0, depthOf(n.group) - baseDepth));
       lines.push(pad + nodeText(n));

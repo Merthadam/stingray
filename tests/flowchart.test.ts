@@ -11,13 +11,13 @@ const grammarDir = codegraphGrammarDir();
 
 /** Fake code graph over in-memory files: a symbol per `def`/`function`/method/`const f = (...) =>`, relations "from>to"
  * (trailing ? = heuristic) at the first line of `from` (after its definition) that calls `to(`. */
-function fakeGraph(files: Record<string, string>, relations: string[]): GraphApi {
+function fakeGraph(files: Record<string, string>, relations: string[], docstrings: Record<string, string> = {}): GraphApi {
   const symbols: GraphSymbol[] = [];
   for (const [file, text] of Object.entries(files)) text.split('\n').forEach((line, i) => {
     const m = /^\s*(?:export\s+)?(?:async\s+)?(?:def|function)\s+(\w+)/.exec(line) ?? /^\s*(?:export\s+)?const\s+(\w+)\s*=.*=>/.exec(line)
       ?? /^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*(?::\s*[\w<>[\]]+\s*)?\{/.exec(line);
     if (m && !['if', 'for', 'while', 'switch', 'catch'].includes(m[1]))
-      symbols.push({ id: `${file}#${m[1]}`, name: m[1], kind: /^\s*(def|function|export|const|async def)/.test(line) ? 'function' : 'method', file, line: i + 1 });
+      symbols.push({ id: `${file}#${m[1]}`, name: m[1], kind: /^\s*(def|function|export|const|async def)/.test(line) ? 'function' : 'method', file, line: i + 1, ...(docstrings[m[1]] ? { docstring: docstrings[m[1]] } : {}) });
   });
   const byName = (name: string) => symbols.find(s => s.name === name)!;
   const rels = relations.map((r): GraphRelation => {
@@ -39,8 +39,9 @@ function fakeGraph(files: Record<string, string>, relations: string[]): GraphApi
 const viewOf = (flowchart: Partial<FlowchartStep> & { start: FlowchartStep['start'] }, extra: Partial<ResolvedView> = {}): ResolvedView =>
   ({ id: 'fc', kind: 'flowchart', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, builtins: [], include: [], exclude: [],
     flowchart: { depth: 1, ...flowchart }, ...extra });
-async function run(files: Record<string, string>, relations: string[], flowchart: Parameters<typeof viewOf>[0], extra: Partial<ResolvedView> = {}) {
-  const out = await evaluate({ view: viewOf(flowchart, extra), graph: fakeGraph(files, relations), graphStatus: { state: 'ready', message: null }, grammarDir,
+async function run(files: Record<string, string>, relations: string[], flowchart: Parameters<typeof viewOf>[0], extra: Partial<ResolvedView> = {},
+  docstrings: Record<string, string> = {}) {
+  const out = await evaluate({ view: viewOf(flowchart, extra), graph: fakeGraph(files, relations, docstrings), graphStatus: { state: 'ready', message: null }, grammarDir,
     files: { list: async () => ({ files: Object.keys(files), truncated: false }), read: async f => files[f] ?? null } });
   return { ...out, text: formatText({ kind: 'flowchart', ...out }).split('\n').slice(1) };
 }
@@ -182,6 +183,19 @@ test('python: depth 0 draws call nodes, depth 2 expands nested calls in nested g
   // an expanded callee reached through a heuristic relation: its header says so
   const loose = await run(AUTH, AUTH_CALLS.map(r => r === 'login>audit' ? 'login>audit?' : r), { start: { symbol: 'login' } });
   assert.ok(loose.text.includes('  » audit (uncertain)'), loose.text.join('\n'));
+});
+
+test('docstring summaries explain the start node, expanded-call groups and call nodes; symbols without one are unchanged', async () => {
+  const docstrings = { login: 'Sign a user in.', load_user: 'Find the user by name.\n\nRaises ValueError without a name.', db_get: 'Read one row.' };
+  const out = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } }, {}, docstrings);
+  assert.equal(node(out.nodes, 'login').explanation, 'Sign a user in.');
+  assert.equal(out.groups.find(g => g.label === 'load_user')!.explanation, 'Find the user by name.');
+  assert.equal(node(out.nodes, 'db get').explanation, 'Read one row.');
+  assert.ok(!('explanation' in out.groups.find(g => g.label === 'audit')!));
+  assert.ok(out.nodes.filter(n => n.kind !== 'start' && n.kind !== 'call').every(n => !('explanation' in n)));
+  assert.deepEqual(out.text.slice(0, 3), ['  (start) login · L15 — Sign a user in.', '  » load_user — Find the user by name.', '    <?> name? · L5']);
+  assert.ok(out.text.includes('    [call] db get — +1 steps (increase depth) · L7 — Read one row.'), out.text.join('\n'));
+  assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) .*$/, '')));
 });
 
 test('python: try/except/else/finally, match, with, await, ternary', async () => {
