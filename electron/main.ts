@@ -15,6 +15,7 @@ import { PullRequestService } from './pull-requests';
 import { GitStateService } from './git-state';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
+import { ActivityHistory } from './activity-history';
 import { extractDbSchema } from './db-schema';
 import type { DbSchemaResult } from '../src/db-schema';
 import { ViewService } from './views';
@@ -92,6 +93,7 @@ app.whenReady().then(async () => {
         extension: path.join(__dirname, 'pi-extension.js'), hookClient: path.join(__dirname, 'hook-client.cjs'),
         execPath: process.execPath, endpoint: activity.endpoint,
       }, terminals.viewsBin);
+      activity.restore(new ActivityHistory(app.getPath('userData'))); // after prepare: a failed setup closes the service
     }
   } catch { activityShell.startup = ''; await activity.close(); }
   win = new BrowserWindow({
@@ -140,6 +142,7 @@ app.whenReady().then(async () => {
     const result = await git.removeWorkspace(id, consent);
     gitState.forget(id);
     await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
+    activity.forgetWorkspace(id);
     return result;
   });
   handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
@@ -196,6 +199,7 @@ app.whenReady().then(async () => {
   handle('acknowledge-activity', z.tuple([idSchema, idSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)]), (id, terminalId, revision) => {
     if (win.isFocused() && win.isVisible() && !win.isMinimized() && visibleTerminals.has(terminalId)) activity.acknowledge(id, terminalId, revision);
   });
+  handle('dismiss-activity', z.tuple([idSchema]), workspaceId => activity.dismissRestored(workspaceId));
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
   handle('terminals', z.tuple([]), () => terminals.list());
   handle('terminal-snapshot', z.tuple([idSchema]), id => terminals.snapshot(id));
@@ -258,6 +262,6 @@ app.on('window-all-closed', () => app.quit());
 let cleanedUp = false;
 app.on('will-quit', event => {
   if (cleanedUp) return;
-  event.preventDefault(); terminals.closeAll(); gitState.dispose();
+  event.preventDefault(); activity.flushHistory(); terminals.closeAll(); gitState.dispose(); // flush first: closing terminals drops their entries
   void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { closeDatabase(app.getPath('userData')); cleanedUp = true; app.quit(); });
 });

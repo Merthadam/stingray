@@ -42,6 +42,7 @@ const api: DesktopAPI = {
   activity: () => ipcRenderer.invoke('activity'),
   activityView: ids => ipcRenderer.invoke('activity-view', ids),
   acknowledgeActivity: (id, terminalId, revision) => ipcRenderer.invoke('acknowledge-activity', id, terminalId, revision),
+  dismissActivity: workspaceId => ipcRenderer.invoke('dismiss-activity', workspaceId),
   onActivity: listener => {
     const handler = (_event: unknown, payload: ActivitySnapshot) => listener(payload);
     ipcRenderer.on('activity-event', handler);

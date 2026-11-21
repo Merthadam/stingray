@@ -5,7 +5,7 @@ import type { GitLineStats, Workspace } from './shared';
 import { useGitState } from './useGitState';
 import './workspace-git.css';
 import type { AgentActivity } from './activity';
-import { WorkspaceActivity } from './WorkspaceActivity';
+import { PreviousActivity, WorkspaceActivity } from './WorkspaceActivity';
 
 const counts = (lines: GitLineStats) => lines.kind === 'available' ? `+${lines.added} −${lines.deleted}` : 'unavailable';
 export function WorkspaceStatus({ workspace, selected, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRemove, children }: {
@@ -52,7 +52,8 @@ export function WorkspaceStatus({ workspace, selected, disabled, running, agents
       <div className="workspace-git-badges">{children}</div>
       </div>
     </div>
-    <WorkspaceActivity agents={agents} unavailable={activityUnavailable} />
+    <WorkspaceActivity agents={agents.filter(a => !a.restored)} unavailable={activityUnavailable} />
+    <PreviousActivity agents={agents.filter(a => a.restored)} onDismiss={() => { void api.dismissActivity(workspace.id).catch(() => {}); }} />
     <div className="workspace-card-bottom">
       <button disabled={disabled} className={'workspace-link ' + (selected ? 'selected' : '')} aria-label={workspace.name}
         aria-current={selected ? 'page' : undefined} title={`${branch} · ${workspace.name} · ${workspace.managed ? 'Git worktree' : 'Local repository'} · ${workspace.path}`} onClick={onSelect}>

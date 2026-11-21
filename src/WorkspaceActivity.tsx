@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle2, Circle, CirclePause, Eye, LoaderCircle, Unplug } from 'lucide-react';
-import { activityLabel, aggregateActivity, harnessLabel, harnessNames, type AgentActivity } from './activity';
+import { AlertCircle, CheckCircle2, Circle, CirclePause, Eye, History, LoaderCircle, Unplug, X } from 'lucide-react';
+import { activityLabel, aggregateActivity, harnessLabel, harnessNames, relativeTime, type AgentActivity } from './activity';
 import './workspace-activity.css';
 
 export function WorkspaceActivity({ agents, unavailable = false }: { agents: AgentActivity[]; unavailable?: boolean }) {
@@ -14,5 +14,20 @@ export function WorkspaceActivity({ agents, unavailable = false }: { agents: Age
     <Icon size={12} className={label === 'Working' ? 'spin' : ''} aria-hidden="true" />
     <b className="activity-harness">{harness}</b><span>{label}</span>{agents.length > 1 && <small>{agents.length}</small>}
     {!unavailable && agents.some(a => a.connection !== 'connected') && label === 'Needs review' && <Unplug size={11} aria-label="Tracking disconnected" />}
+  </div>;
+}
+
+/** Activity restored from the previous app session: its terminals are gone, so it is dismissed, not acknowledged. */
+export function PreviousActivity({ agents, onDismiss }: { agents: AgentActivity[]; onDismiss: () => void }) {
+  const label = aggregateActivity(agents);
+  if (!label) return null;
+  const harness = harnessLabel(agents);
+  const last = Math.max(...agents.map(a => a.lastEventAt));
+  const details = agents.map((a, i) => `${harnessNames[a.harness]} ${i + 1}: ${activityLabel(a)} · ${relativeTime(a.lastEventAt)} (last observed phase: ${a.phase})`).join('\n');
+  return <div className={'workspace-activity activity-previous activity-' + label.toLowerCase().replaceAll(' ', '-')} role="status"
+    aria-label={`Previous session, ${harness}: ${label}, ${relativeTime(last)}`} title={'Previous Stingray session\n' + details}>
+    <History size={12} aria-hidden="true" />
+    <b className="activity-harness">{harness}</b><span>{label} · previous session · {relativeTime(last)}</span>{agents.length > 1 && <small>{agents.length}</small>}
+    <button type="button" className="icon activity-dismiss" aria-label="Dismiss previous session activity" title="Dismiss" onClick={onDismiss}><X size={10} /></button>
   </div>;
 }

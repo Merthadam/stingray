@@ -279,6 +279,7 @@ export const demoAPI: DesktopAPI = {
   activity: async () => ({ revision: 0, agents: [] }),
   activityView: async () => undefined,
   acknowledgeActivity: async () => undefined,
+  dismissActivity: async () => undefined,
   onActivity: () => () => {},
   onViewsChanged: () => () => {},
   terminals: async () => terminalList.map(({ buffer: _, ...t }) => structuredClone(t)),
