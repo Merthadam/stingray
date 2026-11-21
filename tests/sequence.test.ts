@@ -363,3 +363,12 @@ test('sequence externals: file imports (python, ts, require), relative imports s
   assert.deepEqual([call('boto3.client'), call('j.encode'), call('store.save'), call('S.send'), call('sign'), call('requests.get'), call('self.client.initiate_auth'), call('local')]
     .map(c => externalCall(c, new Map([...py, ...ts]), { 'self.client': 'Cognito' })), ['AWS', 'JWT', null, 'AWS', 'JWT', 'External HTTP', 'Cognito', null]);
 });
+
+test('sequence notes: raises of the entry (also outside fragments) and of functions whose call is drawn; not of collapsed helpers', async () => {
+  const files = { 'e.py': 'def run():\n    helper()\n    raise ValueError("x")\n\n\ndef helper():\n    raise KeyError()\n' };
+  const out = await run(files, fakeGraph(files, ['run>helper']), { start: { symbol: 'run' } });
+  assert.deepEqual(out.seq.notes.map(n => [n.text, n.after, n.fragment ?? null]), [['error: ValueError', -1, null]]);
+  assert.deepEqual(out.text, ['participants: e.py', 'note e.py: error: ValueError']);
+  const shown = await run(files, fakeGraph(files, ['run>helper']), { start: { symbol: 'run' }, internal: 'show' });
+  assert.deepEqual(shown.seq.notes.map(n => n.text), ['error: KeyError', 'error: ValueError']);
+});

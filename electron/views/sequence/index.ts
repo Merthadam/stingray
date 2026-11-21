@@ -146,7 +146,7 @@ interface KeptFragment { id: string; arms: number[] }
  * message (arms without messages or notes dropped), notes after the row they follow. */
 function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep, exclude: Set<string>) {
   const participants: SequenceParticipant[] = [], byId = new Map<string, SequenceParticipant>();
-  const messages: SequenceMessage[] = [], notes: SequenceNote[] = [], drawn = new Set<number>(), crossed = new Set<number>();
+  const messages: SequenceMessage[] = [], notes: SequenceNote[] = [], drawn = new Set<number>();
   const fragments: (SequenceFragment & { order: number; parentOrder: number | null })[] = [], open: OpenFragment[] = [];
   const parentOf = new Map<number, number | null>(); // every fragment opened, kept or not
   const within: { order: number; arm: number }[][] = []; // per note: the fragments open around it, innermost first
@@ -176,7 +176,6 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
         const self = from.id === to.id && e.kind === 'call';
         if (self && step.internal === 'collapse') break;
         drawn.add(e.id);
-        if (from.id !== to.id) crossed.add(e.id);
         add({ from: from.id, to: to.id, kind: self ? 'self' : e.kind, label: e.label, detail: e.detail, level: e.level, certain: e.certain, link: e.link, source: e.source, symbol: e.symbol });
         break;
       }
@@ -188,9 +187,9 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
         break;
       }
       case 'note': {
-        // Only raises of functions drawn as entered across lifelines (the entry, handlers, other participants' functions):
-        // a helper's guard raise inside one participant is noise.
-        if (e.entered !== null && !crossed.has(e.entered)) break;
+        // Only raises of the entry and of functions whose call is drawn (handlers, other participants' functions; self
+        // calls with internal: show): a collapsed helper's guard raise is noise.
+        if (e.entered !== null && !drawn.has(e.entered)) break;
         const p = lifeline(e.at);
         if (!p) break;
         notes.push({ id: `n${notes.length}`, participant: p.id, after: messages.length - 1, text: e.text, kind: 'error', source: e.source });

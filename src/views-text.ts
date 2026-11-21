@@ -185,7 +185,7 @@ function sequenceLines({ participants, messages, fragments, notes }: SequenceDat
       const m = messages[row];
       items.push([row, () => {
         level = m.level;
-        lines.push(`${'  '.repeat(m.level + nesting)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}: ${m.label}`
+        lines.push(`${'  '.repeat(m.level + nesting)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
           + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : '  (uncertain)'}`);
       }]);
     }

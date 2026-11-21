@@ -53,7 +53,6 @@ export class SequenceWalker {
   private parsed = new Set<string>(); // function bodies walked (each parsed once)
   truncated = false;
   private messages = 0;
-  private openFragments = 0;
   private cache = new Map<string, GraphSymbol>();
   private imports = new Map<string, Promise<Map<string, string>>>();
 
@@ -140,7 +139,7 @@ export class SequenceWalker {
         return true;
       case 'raise':
         await this.calls(c.calls, f, c.code);
-        if (this.openFragments) this.push({ t: 'note', at: { symbol: f.symbol }, text: `error: ${errorType(c.value)}`, source: at(c.code), entered: f.entered });
+        this.push({ t: 'note', at: { symbol: f.symbol }, text: `error: ${errorType(c.value)}`, source: at(c.code), entered: f.entered });
         return true;
       case 'break': case 'continue': return true;
     }
@@ -149,13 +148,11 @@ export class SequenceWalker {
   /** A fragment with one arm per entry (the first arm's label is the fragment's). */
   private async arms(arms: Arm[], f: Frame, open: { kind: SequenceFragmentKind; source: SourceRef }) {
     this.push({ t: 'open', kind: open.kind, label: arms[0].label, source: open.source });
-    this.openFragments++;
     for (const [i, arm] of arms.entries()) {
       if (i) this.push({ t: 'branch', label: arm.label });
       if (arm.calls) await this.calls(arm.calls.calls, f, arm.calls.code);
       await this.body(arm.body, f);
     }
-    this.openFragments--;
     this.push({ t: 'close' });
   }
 
