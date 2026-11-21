@@ -87,6 +87,14 @@ test('linked worktree changes refresh only that workspace; PR poll runs only whi
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.ok(f.events.every(e => e.workspaceId === other.id), 'main checkout was not re-read');
     assert.ok(f.resolves.every(r => !r.refresh), 'staging alone does not force a GitHub re-query');
+    // The main checkout's top-level index/logs do not wake linked worktrees.
+    const reads: string[] = [], status = f.service.status.bind(f.service);
+    f.service.status = id => { reads.push(id); return status(id); };
+    await writeFile(path.join(f.repo, 'text'), 'one\nmain\n'); await git(f.repo, ['add', 'text']);
+    await waitFor(() => f.events.find(e => e.workspaceId === f.id && e.status?.changes.length === 1));
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.ok(reads.length && reads.every(id => id === f.id), 'linked worktree was not re-read');
+    f.service.status = status;
     f.resolves.length = 0;
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(f.resolves.length, 0, 'hidden window: no PR polling');

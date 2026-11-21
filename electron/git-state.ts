@@ -114,10 +114,13 @@ export class GitStateService {
     if (name.startsWith('objects/') || name.endsWith('.lock')) return;
     // Commits, checkouts, fetches and pushes move refs/HEAD: re-query GitHub right away instead of waiting for the poll.
     const refChange = !name || /(^|\/)(HEAD|packed-refs)$|(^|\/)refs\//.test(name);
-    const worktree = /^worktrees\/[^/]+/.exec(name)?.[0];
+    // Refs and config are shared; worktrees/<name>/ belongs to that linked worktree; other top-level files
+    // (index, HEAD, logs/HEAD, ORIG_HEAD, FETCH_HEAD, ...) belong to the main checkout only.
+    const shared = !name || name === 'packed-refs' || name === 'config' || name.startsWith('refs/');
+    const owner = shared ? '' : path.join(common, /^worktrees\/[^/]+/.exec(name)?.[0] ?? '');
     for (const id of ids) {
       const t = this.tracked.get(id);
-      if (!t || (worktree && path.join(common, worktree) !== t.gitDir)) continue;
+      if (!t || (owner && owner !== t.gitDir)) continue;
       t.forcePr ||= refChange;
       clearTimeout(t.timer);
       t.timer = setTimeout(() => { const force = t.forcePr; t.forcePr = false; void this.refresh(id, force).catch(() => {}); }, this.debounceMs);
