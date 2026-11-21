@@ -173,6 +173,14 @@ try {
   check('preview popups are blocked', await app.evaluate(({ webContents }) => webContents.getAllWebContents().length) === guestCount);
   const guestWidth = await app.evaluate(async ({ webContents }) => webContents.getAllWebContents().find(w => w.getType() === 'webview').executeJavaScript('innerWidth'));
   check('preview viewport fits the visible pane', Math.abs(guestWidth - (await page.locator('webview').boundingBox()).width) < 2);
+  await page.evaluate(() => { window.previewGuest = document.querySelector('webview'); });
+  await page.locator('.title-crumb h1').click(); await page.keyboard.press('Meta+b'); await page.keyboard.press('Meta+b');
+  check('hiding and showing the preview keeps the same webview', await page.evaluate(() => document.querySelector('.browser-pane:not([hidden]) webview') === window.previewGuest));
+  await page.getByRole('button', { name: 'Maximize preview', exact: true }).click();
+  check('maximized preview hides terminals', await page.locator('.terminal-area').evaluate(el => getComputedStyle(el).display === 'none'));
+  await page.getByRole('button', { name: 'Restore split view', exact: true }).click();
+  await page.getByRole('separator', { name: 'Resize browser preview' }).press('ArrowLeft');
+  check('splitter resizes and persists the preview width', await page.evaluate(() => Number(localStorage.getItem('stingray.browserSplit')) > .47));
   await waitFor(() => app.evaluate(({ webContents }) => !webContents.getAllWebContents().find(w => w.getType() === 'webview').isLoading()), 'preview load settled');
   await app.evaluate(async ({ BrowserWindow, webContents }) => {
     const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus();
