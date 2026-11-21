@@ -10,6 +10,7 @@ export const CARD_WIDTH = 260;
 export const HEADER_HEIGHT = 44;
 export const ROW_HEIGHT = 22;
 export const MAX_ROWS = 12;
+export const EXPLANATION_HEIGHT = 50; // band under the header: the explanation clamped to 3 lines (er-card-explanation)
 const GAP = 40;
 
 const isKey = (f: DiagramField) => f.badges.includes('PK') || f.badges.includes('FK');
@@ -24,10 +25,13 @@ export function cardRows(node: DiagramNode, expanded: boolean): { rows: DiagramF
   return { rows, more: node.fields.length - rows.length, toggle };
 }
 
+/** Top of the first field row: the header plus the explanation band when the node has one. */
+export const rowsTop = (node: DiagramNode) => HEADER_HEIGHT + (node.explanation ? EXPLANATION_HEIGHT : 0);
+
 /** Card size; a long card has one extra row for "+N more" / "Show less". */
 export function cardSize(node: DiagramNode, expanded: boolean) {
   const { rows, toggle } = cardRows(node, expanded);
-  return { width: CARD_WIDTH, height: HEADER_HEIGHT + (rows.length + (toggle ? 1 : 0)) * ROW_HEIGHT };
+  return { width: CARD_WIDTH, height: rowsTop(node) + (rows.length + (toggle ? 1 : 0)) * ROW_HEIGHT };
 }
 
 /** React Flow handle id for an edge end: the field row, the "+N more" row when the field is collapsed away, else the card. */
@@ -59,9 +63,10 @@ export function elkGraph(result: ViewResult, hidden: Iterable<string>, expanded:
       ports.push({ id: portId(n.id, `${handle}:t`), x: 0, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': 'WEST' } });
       ports.push({ id: portId(n.id, `${handle}:s`), x: CARD_WIDTH - 1, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': 'EAST' } });
     };
+    const top = rowsTop(n);
     add('card', HEADER_HEIGHT / 2);
-    rows.forEach((f, i) => add(`f:${f.id}`, HEADER_HEIGHT + i * ROW_HEIGHT + ROW_HEIGHT / 2));
-    if (toggle) add('more', HEADER_HEIGHT + rows.length * ROW_HEIGHT + ROW_HEIGHT / 2);
+    rows.forEach((f, i) => add(`f:${f.id}`, top + i * ROW_HEIGHT + ROW_HEIGHT / 2));
+    if (toggle) add('more', top + rows.length * ROW_HEIGHT + ROW_HEIGHT / 2);
     return { id: n.id, ...cardSize(n, exp.has(n.id)), ports, layoutOptions: { 'elk.portConstraints': 'FIXED_ORDER' } };
   });
   const edges: ElkExtendedEdge[] = visibleEdges(result, nodes).map(e => ({

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ViewService } from '../electron/views/service';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../electron/views/graph';
-import type { EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
+import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../electron/views/rules/types';
 import type { DiagramNode, GraphStatus, SymbolRef, ViewsChangedEvent } from '../src/views';
 
 const grammar = path.join(import.meta.dirname, '../electron/tree-sitter-python.wasm');
@@ -40,9 +40,10 @@ class FakeGraph implements WorktreeGraph {
   onChange(l: (c: GraphChange) => void) { this.changeListeners.add(l); return () => { this.changeListeners.delete(l); }; }
   onStatus(l: (s: GraphStatus) => void) { this.statusListeners.add(l); return () => { this.statusListeners.delete(l); }; }
   batches: SymbolQuery[][] = [];
-  async findSymbols(queries: SymbolQuery[]): Promise<(SymbolRef | null)[]> {
+  async findSymbols(queries: SymbolQuery[]): Promise<(GraphSymbol | null)[]> {
     this.batches.push(queries);
-    return queries.map(({ file, name, kinds }) => this.state.state === 'ready' ? { id: `${file}:${name}`, name, kind: kinds?.[0] ?? 'class', file, line: 5 } : null);
+    return queries.map(({ file, name, kinds }) => this.state.state === 'ready'
+      ? { id: `${file}:${name}`, name, kind: kinds?.[0] ?? 'class', file, line: 5, ...(name === 'User' ? { docstring: '"""A registered account.\n\n    Soft-deleted.\n    """' } : {}) } : null);
   }
   evaluated: ResolvedView[] = [];
   evaluate: (view: ResolvedView) => Promise<EvaluateOutput> = async () => { throw new Error('not scripted'); };
@@ -97,6 +98,7 @@ test('computeView filters membership and links symbols only when the graph is re
   assert.equal(core.name, 'Core');
   assert.deepEqual(core.nodes.map(n => n.label), ['users']);
   assert.deepEqual(core.nodes[0].symbol, { id: 'app/models/user.py:User', name: 'User', kind: 'class', file: 'app/models/user.py', line: 5 });
+  assert.equal(core.nodes[0].explanation, 'A registered account.'); // the model class docstring summary; the raw docstring is not kept
   const batches = host.graphs.get('ws')!.batches;
   assert.deepEqual(batches.at(-1), [{ file: 'app/models/user.py', name: 'User', kinds: ['class'] }]); // one batch per computation
   assert.deepEqual(core.edges, []);
