@@ -1,5 +1,6 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, ViewKind } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceFragment, ViewKind, ViewResult } from './views';
+import { sequenceEvents } from './sequence-events';
 
 export interface TextDiagramInput { kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean }
 export const MAX_TEXT_LINES = 400;
@@ -156,4 +157,40 @@ function timelineOrder(nodes: DiagramNode[], edges: DiagramEdge[]): DiagramNode[
     done.add(ready.id); result.push(ready);
     for (const to of next.get(ready.id) ?? []) indegree.set(to, indegree.get(to)! - 1);
   }
+}
+
+// ---- kind: sequence ----
+
+/** A sequence view as the CLI text (docs/sequence-view-spec.md, "CLI text"): `->` call, `-->` return, `alt|opt|loop|try <label>`
+ * … `else <label>` … `end`; indent = call level + enclosing fragments. */
+export function sequenceText({ name, sequence, diagnostics, truncated }: Pick<ViewResult, 'name' | 'sequence' | 'diagnostics' | 'truncated'>,
+  maxLines = MAX_TEXT_LINES): string {
+  const d = diagnostics?.sequence;
+  const lines = [`${name}  (sequence${d ? `, depth ${d.depth}` : ''})`];
+  if (d?.error) lines.push(`error: ${d.error}`);
+  if (sequence) {
+    const counts = new Map<string, number>();
+    for (const p of sequence.participants) counts.set(p.label, (counts.get(p.label) ?? 0) + 1);
+    const names = new Map(sequence.participants.map(p => [p.id, counts.get(p.label)! > 1 ? `${p.label} (${p.id})` : p.label]));
+    const name = (id: string) => names.get(id) ?? id;
+    const base = (f: SequenceFragment) => sequence.messages[f.first]?.level ?? 0;
+    const pad = (n: number) => '  '.repeat(Math.max(0, n));
+    let level = 0;
+    for (const e of sequenceEvents(sequence)) {
+      if (e.type === 'open') lines.push(`${pad(base(e.fragment) + e.depth)}${e.fragment.kind}${e.fragment.label ? ` ${e.fragment.label}` : ''}`);
+      else if (e.type === 'branch') lines.push(`${pad(base(e.fragment) + e.depth)}else${e.label && e.label !== 'else' ? ` ${e.label}` : ''}`);
+      else if (e.type === 'close') lines.push(`${pad(base(e.fragment) + e.depth)}end`);
+      else if (e.type === 'note') lines.push(`${pad(level + e.depth)}note ${name(e.note.participant)}: ${e.note.text}`);
+      else {
+        const m = e.message;
+        level = m.level;
+        lines.push(`${pad(m.level + e.depth)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
+          + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : ' (uncertain)'}`);
+      }
+    }
+    if (!sequence.messages.length && !d?.error) lines.push('(no messages)');
+  }
+  if (truncated || d?.truncated) lines.push('… truncated: a limit was hit (lower the depth or exclude files)');
+  if (lines.length > maxLines) return [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`].join('\n');
+  return lines.join('\n');
 }
