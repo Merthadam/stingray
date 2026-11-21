@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../src/views';
-import { cardRows, cardSize, elkGraph, handleId, layoutPositions, MAX_ROWS, portId, storedPositions, type Positions } from '../src/views-ui/er-layout';
+import { cardRows, cardSize, elkGraph, EXPLANATION_HEIGHT, HEADER_HEIGHT, handleId, layoutPositions, MAX_ROWS, portId, ROW_HEIGHT, storedPositions, type Positions } from '../src/views-ui/er-layout';
 
 const elk = new ELK();
 const field = (id: string, badges: string[] = []): DiagramField => ({ id, label: id, type: 'Integer', badges, detail: null, source: null });
@@ -44,6 +44,22 @@ test('elkGraph has ports per visible field row and maps collapsed or field-less 
   assert.equal(handleId(base.nodes[2], 'late_ref', true, 's'), 'f:late_ref:s');
   const ports = new Set(graph.children!.flatMap(c => c.ports!.map(p => p.id)));
   for (const e of graph.edges!) for (const p of [...e.sources, ...e.targets]) assert.ok(ports.has(p), p);
+});
+
+test('an explanation band grows the card and shifts its field ports; unexplained cards are unchanged', async () => {
+  const explained: DiagramNode = { ...base.nodes[2], explanation: 'Wide table with many columns.' };
+  for (const expanded of [false, true]) {
+    assert.equal(cardSize(explained, expanded).height, cardSize(base.nodes[2], expanded).height + EXPLANATION_HEIGHT);
+  }
+  assert.equal(cardSize({ ...base.nodes[0], explanation: null }, false).height, HEADER_HEIGHT + ROW_HEIGHT);
+  const portY = (r: ViewResult, id: string, handle: string) =>
+    elkGraph(r, [], []).children!.find(c => c.id === id)!.ports!.find(p => p.id === portId(id, handle))!.y;
+  const withExplained = result([base.nodes[0], base.nodes[1], explained, base.nodes[3]], base.edges);
+  assert.equal(portY(withExplained, 'wide', 'card:s'), HEADER_HEIGHT / 2);
+  assert.equal(portY(withExplained, 'wide', 'f:id:s'), HEADER_HEIGHT + EXPLANATION_HEIGHT + ROW_HEIGHT / 2);
+  assert.equal(portY(withExplained, 'wide', 'more:t'), portY(base, 'wide', 'more:t') + EXPLANATION_HEIGHT);
+  assert.deepEqual(elkGraph(withExplained, [], []).children!.filter(c => c.id !== 'wide'), elkGraph(base, [], []).children!.filter(c => c.id !== 'wide'));
+  assertNoOverlap(withExplained, await layoutPositions(elk, withExplained, [], [], {}), []);
 });
 
 test('hidden nodes and their edges are excluded', () => {
