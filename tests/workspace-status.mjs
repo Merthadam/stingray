@@ -61,7 +61,7 @@ async function startServer(workspaceId, label) {
   throw new Error('PTY server did not start');
 }
 async function waitPreview(expected) {
-  await page.waitForFunction(expected => { try { return document.querySelector('webview')?.getURL() === expected && !document.querySelector('.preview-loading'); } catch { return false; } }, expected);
+  await page.waitForFunction(expected => { try { return document.querySelector('.browser-pane:not([hidden]) webview')?.getURL() === expected && !document.querySelector('.browser-pane:not([hidden]) .preview-loading'); } catch { return false; } }, expected);
 }
 try {
   app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
@@ -104,7 +104,7 @@ try {
   await popover.getByRole('button',{name:new RegExp(':'+second.port)}).click();
   await waitPreview(`http://127.0.0.1:${second.port}/`);
   check('opening a background workspace port selects its workspace and loads the real preview', await page.locator('.workspace-link.selected').innerText() === 'other');
-  await page.getByLabel('Preview URL').fill(`http://127.0.0.1:${second.port}/slow`);
+  await page.locator('.browser-pane:not([hidden])').getByLabel('Preview URL').fill(`http://127.0.0.1:${second.port}/slow`);
   await page.getByRole('button',{name:'Load preview',exact:true}).click();
   await page.getByText('Loading preview…',{exact:true}).waitFor();
   await page.getByText('Still waiting for the server… Check its terminal output.',{exact:true}).waitFor();
@@ -141,7 +141,7 @@ try {
   check('compact layout has no horizontal overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.screenshot({path:path.join(evidence,'ports-compact.png')});
   await popover.getByRole('button',{name:new RegExp(':'+first.port)}).click();
-  check('compact quick-open reveals the preview',await page.evaluate(()=>{const p=document.querySelector('.browser-pane').getBoundingClientRect(),c=document.querySelector('.workspace-content').getBoundingClientRect();return p.top<c.bottom&&p.bottom>c.top;}));
+  check('compact quick-open reveals the preview',await page.evaluate(()=>{const p=document.querySelector('.browser-pane:not([hidden])').getBoundingClientRect(),c=document.querySelector('.workspace-content').getBoundingClientRect();return p.top<c.bottom&&p.bottom>c.top;}));
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1440,940));
   await writeFile(fixturePath, JSON.stringify({error:true, rows:[]}));
   popover=await openDetails('main');

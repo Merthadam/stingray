@@ -48,6 +48,7 @@ const api: DesktopAPI = {
     return () => ipcRenderer.removeListener('activity-event', handler);
   },
   terminals: () => ipcRenderer.invoke('terminals'),
+  terminalSnapshot: id => ipcRenderer.invoke('terminal-snapshot', id),
   createTerminal: id => ipcRenderer.invoke('create-terminal', id),
   writeTerminal: (id, data) => ipcRenderer.invoke('write-terminal', id, data),
   openTerminalLink: (id, uri) => ipcRenderer.invoke('open-terminal-link', id, uri),

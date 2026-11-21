@@ -195,6 +195,7 @@ app.whenReady().then(async () => {
   });
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
   handle('terminals', z.tuple([]), () => terminals.list());
+  handle('terminal-snapshot', z.tuple([idSchema]), id => terminals.snapshot(id));
   handle('create-terminal', z.tuple([idSchema]), id => git.useWorkspace(id, w => terminals.create(id, w.path)));
   handle('write-terminal', z.tuple([idSchema, z.string().max(65536)]), (id, data) => terminals.write(id, data));
   handle('open-terminal-link', z.tuple([idSchema, z.string().min(1).max(8192)]), async (id, uri) => {
