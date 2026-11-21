@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxshmfence1 libdrm2 libx11-xcb1 libsecret-1-0 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && usermod -s /bin/zsh node \
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
     && { [ -e /usr/sbin/lsof ] || ln -s /usr/bin/lsof /usr/sbin/lsof; } \
     && { [ -e /bin/ps ] || ln -s /usr/bin/ps /bin/ps; }
 
@@ -18,7 +19,8 @@ USER node
 
 # Dependency layer is cached until package-lock.json changes.
 COPY --chown=node:node package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Electron install scripts are not in allowScripts; fetch the binary here instead of on first launch.
+RUN npm ci --no-audit --no-fund && node node_modules/electron/install.js
 
 COPY --chown=node:node . .
 RUN npm run build
