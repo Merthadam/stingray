@@ -4,12 +4,17 @@ import path from 'node:path';
 import type {
   DiagramNode, SequenceData, SequenceDiagnostic, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant, ViewWarning,
 } from '../../../src/views';
-import type { FileProvider, GraphApi, GraphLayers, GraphSymbol, SequenceStep } from '../rules/types';
+import type { FileProvider, GraphApi, GraphLayers, GraphSymbol, LinkSet, SequenceStep } from '../rules/types';
 import { FUNCTION_KINDS, at, createLoader, type ParseText } from '../flowchart';
 import { explanationOf, symbolRef } from '../explanation';
 import { fileImports } from './externals';
-import { linkProviders } from './links';
+import { authLinks } from './auth-links';
+import { eventLinks } from './event-links';
+import { langgraphLinks } from './langgraph-links';
+import { httpLinks, ruleLinks, type LinkProvider, type RuleLink } from './links';
 import { SEQUENCE_LIMITS, SequenceWalker, type End, type TraceEvent } from './walk';
+
+const LINK_PROVIDERS: Record<LinkSet, LinkProvider> = { http: httpLinks, auth: authLinks, langgraph: langgraphLinks, events: eventLinks };
 
 export interface SequenceOutput {
   sequence: SequenceData;
@@ -23,7 +28,7 @@ type Granularity = 'service' | 'module' | 'file' | 'class';
 type Lifeline = Omit<SequenceParticipant, 'column'>;
 
 export async function runSequence(step: SequenceStep, graph: GraphApi, files: FileProvider, parse: ParseText,
-  inScope: (file: string) => boolean, exclude: string[] = []): Promise<SequenceOutput> {
+  inScope: (file: string) => boolean, exclude: string[] = [], rules: RuleLink[] = []): Promise<SequenceOutput> {
   const warnings: ViewWarning[] = [];
   const diagnostic: SequenceDiagnostic = { start: null, depth: step.depth, participants: step.participants === 'auto' ? 'file' : step.participants,
     functions: 0, messages: 0, links: {}, truncated: false, error: null };
@@ -44,7 +49,8 @@ export async function runSequence(step: SequenceStep, graph: GraphApi, files: Fi
     const matches = (globs: string[], file: string) => globs.some(g => path.posix.matchesGlob(file, g));
     const followable = (file: string) => (step.include ? matches(step.include, file) : inScope(file)) && !matches(step.exclude ?? [], file);
     const importsOf = async (file: string) => { const t = await loader.tree(file); return t ? fileImports(t.rootNode) : new Map<string, string>(); };
-    const walker = new SequenceWalker(step, graph, loader.load, linkProviders(step.links), followable, importsOf);
+    const providers = [...step.links.map(l => LINK_PROVIDERS[l]), ...ruleLinks(rules)];
+    const walker = new SequenceWalker(step, graph, loader.load, providers, followable, importsOf, { tree: loader.tree, files });
     await walker.entry(entry.symbol, body.constructs);
 
     const lifelines = new Lifelines(step, graph, walker.events);
