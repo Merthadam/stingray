@@ -52,7 +52,7 @@ test('indexes a worktree, finds symbols, reports edits, and touches nothing outs
     await state(graph, 'ready');
     assert.ok(statuses.includes('indexing'));
     const user = await find(graph, 'app/models.py', 'User', ['class']);
-    assert.deepEqual({ ...user, id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1, endLine: 2 });
+    assert.deepEqual({ ...user, id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1, endLine: 2, qualifiedName: 'User' });
     assert.equal(await find(graph, 'app/models.py', 'User', ['function']), null);
     assert.equal(await find(graph, 'missing.py', 'User'), null);
     assert.deepEqual((await graph.findSymbols([{ file: 'app/models.py', name: 'Order' }, { file: 'app/models.py', name: 'Nope' }, { file: 'app/views.py', name: 'show' }]))

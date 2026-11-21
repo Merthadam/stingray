@@ -19,7 +19,7 @@ async function repo() {
   await mkdir(path.join(root, 'app'));
   await writeFile(path.join(root, 'app/flow.py'),
     'def slug(x):\n    return x\n\n\ndef a():\n    return slug(1)\n\n\ndef b():\n    return slug(2)\n\n\ndef main():\n    a()\n    b()\n');
-  await writeFile(path.join(root, 'app/doc.py'), 'def documented():\n    """Accept a token.\n\n    More.\n    """\n    return 1\n');
+  await writeFile(path.join(root, 'app/doc.py'), 'def documented():\n    """Accept a token.\n\n    More.\n    """\n    return 1\n\n\nclass Store:\n    def get(self):\n        return 1\n');
   await writeFile(path.join(root, 'app/doc.ts'), '/**\n * Reconcile the email.\n * @param x the x\n */\nexport function reconcile(x: number) { return x }\n');
   return root;
 }
@@ -50,7 +50,7 @@ test('evaluateView hands the engine a CodeGraph-backed GraphApi and the worktree
 
     const api = input.graph!;
     const [main] = api.findSymbols('main', 'app/flow.py');
-    assert.deepEqual({ ...main, id: undefined }, { id: undefined, name: 'main', kind: 'function', file: 'app/flow.py', line: 13, endLine: 15 });
+    assert.deepEqual({ ...main, id: undefined }, { id: undefined, name: 'main', kind: 'function', file: 'app/flow.py', line: 13, endLine: 15, qualifiedName: 'main' });
     assert.deepEqual(api.findSymbols('main').map(s => s.id), [main.id]);
     assert.deepEqual(api.findSymbols('main', 'other.py'), []);
     const calls = api.outgoing([main.id], ['calls']);
@@ -65,6 +65,7 @@ test('evaluateView hands the engine a CodeGraph-backed GraphApi and the worktree
     assert.equal(docstringSummary(api.findSymbols('documented')[0].docstring), 'Accept a token.');
     assert.equal(docstringSummary(api.findSymbols('reconcile')[0].docstring), 'Reconcile the email.');
     assert.ok(!('docstring' in main));
+    assert.equal(api.findSymbols('get', 'app/doc.py')[0].qualifiedName, 'Store::get'); // the explain fingerprint key
 
     // End to end: main -> a, b; slug has fan-in 2 and no callees, so it collapses into a and b.
     const out = runGraphStep({ start: [{ symbol: 'main' }], follow: ['calls'], direction: 'out', depth: 3, helpers: 'collapse' }, api, () => true);

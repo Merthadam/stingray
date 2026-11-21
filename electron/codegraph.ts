@@ -12,6 +12,7 @@ import { evaluate } from './views/rules/engine';
 import { codegraphGrammarDir } from './views/rules/grammars';
 import { createFileProvider } from './views/rules/files';
 import { createGraphApi, createOverlayGraphApi } from './views/rules/codegraph-api';
+import { calleesOf } from './views/rules/callees';
 import { buildOverlay, ensureBase, gitOut, installOverlay, overlayConflicts, type SharedBaseTarget } from './codegraph-overlay';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
@@ -72,15 +73,22 @@ class Graph implements WorktreeGraph {
       try {
         const nodes = files.get(file) ?? files.set(file, nodesIn(posix(file))).get(file)!;
         const node = nodes.find(n => n.name === name && (!kinds?.length || kinds.includes(n.kind)));
-        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine, ...(node.docstring ? { docstring: node.docstring } : {}) } : null;
+        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine, ...(node.docstring ? { docstring: node.docstring } : {}), ...(node.qualifiedName ? { qualifiedName: node.qualifiedName } : {}) } : null;
       } catch { return null; }
     });
   }
 
+  async callees(ids: string[]) { const api = this.api(); return api ? calleesOf(api, ids) : null; }
+  async fileSymbols(file: string) { return this.api()?.fileSymbols(posix(file)) ?? null; }
+
   evaluateView(view: ResolvedView) {
+    return evaluateView(this.options, this.root, view, this.api(), this.current);
+  }
+
+  /** A GraphApi over the current graph, or null when it is not ready. */
+  private api(): GraphApi | null {
     const ready = this.current.state === 'ready' || this.current.state === 'read-only';
-    const graph = !ready ? null : this.overlay ? createOverlayGraphApi(this.overlay, this.root, this.lib ?? undefined) : this.cg ? createGraphApi(this.cg) : null;
-    return evaluateView(this.options, this.root, view, graph, this.current);
+    return !ready ? null : this.overlay ? createOverlayGraphApi(this.overlay, this.root, this.lib ?? undefined) : this.cg ? createGraphApi(this.cg) : null;
   }
 
   start() {
@@ -347,6 +355,16 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
           const graph = graphs.get(message.workspaceId)?.graph;
           return void (graph ? graph.findSymbols(message.queries) : Promise.resolve(message.queries.map(() => null)))
             .then(result => send({ type: 'reply', id: message.id, result }));
+        }
+        case 'callees': {
+          const graph = graphs.get(message.workspaceId)?.graph;
+          return void (graph ? graph.callees(message.ids) : Promise.resolve(null))
+            .then(result => send({ type: 'reply', id: message.id, result: result && [...result] }), error => send({ type: 'reply', id: message.id, error: short(error) }));
+        }
+        case 'fileSymbols': {
+          const graph = graphs.get(message.workspaceId)?.graph;
+          return void (graph ? graph.fileSymbols(message.file) : Promise.resolve(null))
+            .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         }
         case 'evaluateView': {
           // A graph that is not open here is not opened (or indexed) for this: the view is evaluated without it.
