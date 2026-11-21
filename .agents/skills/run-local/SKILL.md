@@ -52,7 +52,7 @@ scripts/test-env.sh test               # unit + all e2e headless in Docker (what
 scripts/test-env.sh test e2e repo-map  # selected suites; evidence lands in artifacts/testing/test-env/
 ```
 
-Known: on Linux `desktop`, `terminal-links` and `workspace-status` currently fail; don't treat those
+Known: on Linux `terminal-links` and `workspace-status` currently fail; don't treat those
 as regressions from your change unless they also fail on macOS.
 
 ## Stop (always clean up)

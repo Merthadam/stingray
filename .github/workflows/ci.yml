@@ -54,10 +54,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unit tests + required e2e suites
-        run: scripts/test-env.sh test unit e2e repo-map pull-requests worktree-removal add-project views-tab
+        run: scripts/test-env.sh test unit e2e desktop repo-map pull-requests worktree-removal add-project views-tab
       - name: Suites known to fail on Linux (non-blocking, tracked in docs/ci.md)
         continue-on-error: true
-        run: scripts/test-env.sh test e2e desktop terminal-links workspace-status
+        run: scripts/test-env.sh test e2e terminal-links workspace-status
       - name: Local run smoke (scripts/test-env.sh up)
         run: |
           out=$(scripts/test-env.sh up --detach)
@@ -85,8 +85,6 @@ jobs:
     needs: check
     runs-on: macos-latest
     timeout-minutes: 45
-    # Non-blocking until the suites are proven stable on hosted runners (docs/ci.md).
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -113,7 +111,7 @@ jobs:
   # ---- Stage 3: package the macOS app (CD up to, not including, deploy) -----------------
   package-macos:
     name: package (macos arm64)
-    needs: [check, e2e-linux]
+    needs: [check, e2e-linux, e2e-macos]
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
