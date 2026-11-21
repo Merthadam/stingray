@@ -126,7 +126,8 @@ sr_detach() {
   elif command -v perl >/dev/null 2>&1; then perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 0' "$@"
   else "$@"; fi
 }
-sr_detach ${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_run" $$ </dev/null >/dev/null 2>&1 &
+# HUP stays ignored (inherited by setsid/perl, which do not reset it) until the new session exists.
+(trap '' HUP; sr_detach ${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_run" $$ </dev/null >/dev/null 2>&1) &
 exec "$sr_real" -c ${shellQuote(notify)}"$sr_run"'","'$$'"]' "$@"
 `,
     });
