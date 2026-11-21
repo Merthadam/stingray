@@ -205,6 +205,7 @@ export const demoAPI: DesktopAPI = {
   setCodegraphSharedBase: async () => ({ sharedBase: false }),
   codegraphConflicts: async () => null,
   openSource: async (id, file, line) => { console.info('Demo: would open', file, line, 'in', editor.selected, 'for workspace', id); },
+  openServiceDocs: async serviceId => { console.info('Demo: would open the docs of', serviceId); },
   pullRequest: async id => {
     await new Promise(resolve => setTimeout(resolve, 700));
     const branch = state.workspaces.find(w => w.id === id)?.branch || 'unknown';

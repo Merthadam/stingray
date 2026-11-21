@@ -16,6 +16,7 @@ import { ActivityShell } from './activity-shell';
 import { extractDbSchema } from './db-schema';
 import type { DbSchemaResult } from '../src/db-schema';
 import { ViewService } from './views';
+import { infraServiceById } from '../src/infra/catalog';
 import { createCodeGraphProcessHost } from './codegraph-process';
 import { installLauncher } from './views/launcher';
 import { saveViewAs } from './views/save-view';
@@ -163,6 +164,12 @@ app.whenReady().then(async () => {
   });
   handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
     editors.openSource((await git.workspace(id)).path, file, line));
+  // Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs.
+  handle('open-service-docs', z.tuple([z.string().max(100)]), serviceId => {
+    const service = infraServiceById(serviceId);
+    if (!service) throw new Error('Unknown cloud service.');
+    return shell.openExternal(service.docUrl);
+  });
   handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
   handle('containers', z.tuple([]), () => containers.list());
   handle('ports', z.tuple([]), () => ports.list());

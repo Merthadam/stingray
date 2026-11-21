@@ -2,7 +2,9 @@ import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../views';
-import { cardFields, showsExplanation } from './flow-layout';
+import { INFRA_GROUP_ICONS, type InfraProvider } from '../infra/catalog';
+import { infraIconUrl } from '../infra/icons';
+import { cardFields, infraName, showsExplanation } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -25,9 +27,10 @@ export const explanationTitle = (text: string, status?: ExplanationStatus, reaso
 export const ExplanationReason = ({ status, reason }: { status?: ExplanationStatus; reason?: string }) =>
   reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void }>>) {
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void }>>) {
   const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
+    {data.provider && <img className="flow-frame-cloud-icon" src={infraIconUrl(INFRA_GROUP_ICONS[data.provider])} alt="" draggable={false} />}
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
       : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
     {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${note ? ` (${note})` : ''}: ${data.explanation}`}
@@ -63,8 +66,21 @@ export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<Flo
     <Explanation node={n} chart />{handles}</div>;
 });
 
+/** A cloud resource drawn like an AWS/Azure architecture diagram: the service icon, the resource name, the service name. */
+const InfraCard = ({ node: n }: { node: DiagramNode }) => <div className={`flow-card flow-infra ${n.service!.provider}`}>
+  <Handle type="target" position={Position.Top} id="in" />
+  <img className="flow-infra-icon" src={infraIconUrl(n.service!.id)} alt="" draggable={false} />
+  <strong title={n.label}>{infraName(n)}</strong>
+  <span title={n.subtitle ? `${n.service!.name} · ${n.subtitle}` : n.service!.name}>{n.service!.name}</span>
+  <Explanation node={n} />
+  <Handle type="source" position={Position.Bottom} id="out" />
+  <Handle type="source" position={Position.Right} id="return-out" style={{ top: '70%' }} />
+  <Handle type="target" position={Position.Right} id="return-in" style={{ top: '30%' }} />
+</div>;
+
 export const FlowNode = memo(function FlowNode({ data }: NodeProps<FlowStepNode>) {
   const n = data.node, { fields, more } = cardFields(n);
+  if (n.service) return <InfraCard node={n} />;
   return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ''}`}>
     <Handle type="target" position={Position.Top} id="in" />
     <strong title={n.label}>{n.label}</strong>

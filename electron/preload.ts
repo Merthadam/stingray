@@ -32,6 +32,7 @@ const api: DesktopAPI = {
   setCodegraphSharedBase: enabled => ipcRenderer.invoke('set-codegraph-shared-base', enabled),
   codegraphConflicts: id => ipcRenderer.invoke('codegraph-conflicts', id),
   openSource: (id, file, line) => ipcRenderer.invoke('open-source', id, file, line),
+  openServiceDocs: serviceId => ipcRenderer.invoke('open-service-docs', serviceId),
   pullRequest: (id, refresh) => ipcRenderer.invoke('pull-request', id, refresh),
   containers: () => ipcRenderer.invoke('containers'),
   ports: () => ipcRenderer.invoke('ports'),
