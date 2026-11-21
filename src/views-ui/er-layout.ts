@@ -90,7 +90,30 @@ export function storedPositions(result: ViewResult, local: Positions, useFile: b
 }
 
 /**
- * Positions for every visible node. Fixed nodes keep theirs; the rest come from ELK on the full visible graph.
+ * Stored cards moved down, top to bottom, until none overlaps a card above it (a card grows when it gains an
+ * explanation, so a saved layout can overlap). Returns only the moved cards.
+ */
+export function separateCards(nodes: DiagramNode[], positions: Positions, expanded: Set<string>): Positions {
+  const placed: { x: number; y: number; width: number; height: number }[] = [];
+  const moved: Positions = {};
+  const cards = nodes.filter(n => positions[n.id]).sort((a, b) => positions[a.id].y - positions[b.id].y || positions[a.id].x - positions[b.id].x);
+  for (const n of cards) {
+    const p = { ...positions[n.id] }, { width, height } = cardSize(n, expanded.has(n.id));
+    // y only grows past each overlapped card's bottom, so this ends after at most placed.length moves.
+    for (let hit = true; hit;) {
+      hit = false;
+      for (const r of placed) {
+        if (p.x < r.x + r.width && p.x + width > r.x && p.y < r.y + r.height && p.y + height > r.y) { p.y = r.y + r.height + GAP; hit = true; }
+      }
+    }
+    if (p.y !== positions[n.id].y) moved[n.id] = p;
+    placed.push({ ...p, width, height });
+  }
+  return moved;
+}
+
+/**
+ * Positions for every visible node. Fixed nodes keep theirs (moved down only where they overlap, see separateCards); the rest come from ELK on the full visible graph.
  * When some nodes are fixed, each new node keeps its ELK offset to a fixed neighbour (or sits right of the
  * existing cards) and is pushed down until it overlaps no placed card.
  */
@@ -100,6 +123,7 @@ export async function layoutPositions(elk: ElkLayouter, result: ViewResult, hidd
   const nodes = visibleNodes(result, hidden);
   const out: Positions = {};
   for (const n of nodes) if (fixed[n.id]) out[n.id] = { ...fixed[n.id] };
+  Object.assign(out, separateCards(nodes, out, exp));
   const fresh = nodes.filter(n => !out[n.id]);
   if (!fresh.length) return out;
   const laid = await elk.layout(elkGraph(result, hidden, exp));

@@ -12,7 +12,7 @@ export function FlowEdge(props: EdgeProps<FlowTransition>) {
   // Edges into an explained frame go around its side and enter under the explanation, labelled on the lane above the frame.
   const path = entry ? `M ${sourceX} ${sourceY} V ${entry.aboveY} H ${entry.laneX} V ${entry.belowY} H ${targetX} V ${targetY}`
     : lane === undefined ? forward : `M ${sourceX} ${sourceY} H ${lane} V ${targetY} H ${targetX}`;
-  const [labelX, labelY] = entry ? [entry.laneX, entry.labelY] : lane === undefined ? [targetX, targetY - 26] : [lane, (sourceY + targetY) / 2];
+  const [labelX, labelY] = entry ? [entry.labelX, entry.labelY] : lane === undefined ? [targetX, targetY - 26] : [lane, (sourceY + targetY) / 2];
   return <>
     <BaseEdge id={props.id} path={path} markerEnd={props.markerEnd} style={props.style} interactionWidth={20} />
     {typeof label === 'string' && label && <EdgeLabelRenderer>

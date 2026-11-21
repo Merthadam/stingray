@@ -171,3 +171,31 @@ test('the grid fallback places every node without overlapping cards', () => {
     assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
   }
 });
+
+test('an edge from a source beside an explained frame band also routes around the band', () => {
+  const chart = {
+    kind: 'flowchart',
+    groups: [{ id: 'call:a', label: 'a', source: null, parent: null, explanation: 'Reject inactive users, then verify the password.' }],
+    nodes: [{ ...node('side', null), kind: 'action' }, { ...node('low', null), kind: 'action' }, { ...node('active', 'call:a'), kind: 'action' }],
+    edges: [edge('side', 'active', 'Yes'), edge('low', 'active')],
+  } as ViewResult;
+  // The frame's first row is at y 400, so its title + explanation band spans y 298..400 at x 460..; `side` ends at 330.
+  const positions = { side: { x: 0, y: 274 }, low: { x: 0, y: 420 }, active: { x: 500, y: 400 } };
+  const frames = flowFrames(chart, positions), [a] = frames, byId = new Map(chart.nodes.map(n => [n.id, n]));
+  assert.equal(a.y, 400 - 50 - FRAME_EXPLANATION_HEIGHT);
+  const entry = bandEntry(chart, frameIndex(chart, frames), positions, byId.get('side')!, byId.get('active')!)!;
+  assert.ok(entry, 'a source ending beside the band detours');
+  const ss = flowSize(byId.get('side')!, true), ts = flowSize(byId.get('active')!, true);
+  const sx = ss.width / 2, sy = positions.side.y + ss.height, tx = 500 + ts.width / 2;
+  assert.ok(sy > a.y && sy < a.y + 50 + FRAME_EXPLANATION_HEIGHT);
+  const points = [[sx, sy], [sx, entry.aboveY], [entry.laneX, entry.aboveY], [entry.laneX, entry.belowY], [tx, entry.belowY], [tx, 400]];
+  const band = { x: a.x, y: a.y, right: a.x + a.width, bottom: a.y + 50 + FRAME_EXPLANATION_HEIGHT - 20 };
+  const hits = (x1: number, y1: number, x2: number, y2: number) =>
+    Math.max(x1, x2) > band.x && Math.min(x1, x2) < band.right && Math.max(y1, y2) > band.y && Math.min(y1, y2) < band.bottom;
+  for (let i = 1; i < points.length; i++) assert.ok(!hits(...points[i - 1] as [number, number], ...points[i] as [number, number]), `segment ${i}`);
+  assert.ok(entry.aboveY > sy, 'the path leaves the source downwards');
+  const label = { w: shortEdgeLabel('Yes').length * 6.5 + 16, h: 24 };
+  assert.ok(!hits(entry.labelX - label.w / 2, entry.labelY - label.h / 2, entry.labelX + label.w / 2, entry.labelY + label.h / 2), 'label stays out of the band');
+  assert.ok(entry.labelY - label.h / 2 >= sy, 'label stays below the source');
+  assert.equal(bandEntry(chart, frameIndex(chart, frames), positions, byId.get('low')!, byId.get('active')!), undefined, 'a source ending below the band keeps its path');
+});

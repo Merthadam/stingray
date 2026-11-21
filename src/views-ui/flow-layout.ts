@@ -106,9 +106,9 @@ export function frameIndex(result: ViewResult, frames: FlowFrame[]) {
 }
 export type FrameIndex = ReturnType<typeof frameIndex>;
 
-/** Detour for an edge entering an explained frame from above, so neither the line nor its label crosses the frame's
+/** Detour for an edge entering an explained frame from above (or from beside its band), so neither the line nor its label crosses the frame's
  * explanation: down to `aboveY`, across to a lane beside the frame, down to `belowY` (under the band), across to the target.
- * The label sits on the lane just above the frame, at `labelY`. Undefined for edges that need no detour. */
+ * The label sits on the lane just above the frame, at (`labelX`, `labelY`). Undefined for edges that need no detour. */
 export function bandEntry(result: ViewResult, index: FrameIndex, positions: Positions, from: DiagramNode, to: DiagramNode) {
   if (!index.explained) return undefined;
   const chain = (id: string | null | undefined) => {
@@ -121,10 +121,15 @@ export function bandEntry(result: ViewResult, index: FrameIndex, positions: Posi
   const frame = chain(to.group).reverse().filter(id => !outside.has(id)).map(id => index.byGroup.get(id))
     .find(f => f?.group.explanation);
   const p = positions[from.id], size = flowSize(from, result.kind === 'flowchart');
-  if (!frame || !p || p.y + size.height >= frame.y) return undefined;
-  const sx = p.x + size.width / 2, sy = p.y + size.height, aboveY = (sy + frame.y) / 2;
-  return { laneX: sx < frame.x + frame.width / 2 ? frame.x - 20 : frame.x + frame.width + 20, aboveY,
-    belowY: frame.y + 50 + FRAME_EXPLANATION_HEIGHT - 13, labelY: (aboveY + frame.y) / 2 };
+  if (!frame || !p) return undefined;
+  const sx = p.x + size.width / 2, sy = p.y + size.height;
+  // A source ending beside the frame's title or explanation (above its first row) also detours: across to the lane just
+  // under the source, labelled on that crossing; a source ending lower keeps its path.
+  if (sy >= frame.y + 50 + FRAME_EXPLANATION_HEIGHT) return undefined;
+  const beside = sy >= frame.y, aboveY = beside ? sy + 16 : (sy + frame.y) / 2;
+  const laneX = sx < frame.x + frame.width / 2 ? frame.x - 20 : frame.x + frame.width + 20;
+  return { laneX, aboveY, belowY: frame.y + 50 + FRAME_EXPLANATION_HEIGHT - 13,
+    labelX: beside ? (sx + laneX) / 2 : laneX, labelY: beside ? aboveY : (aboveY + frame.y) / 2 };
 }
 
 /** Group frames around their nodes and nested groups' frames, in `result.groups` order (flowchart: parents first). */

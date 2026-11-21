@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../src/views';
-import { cardRows, cardSize, elkGraph, EXPLANATION_HEIGHT, HEADER_HEIGHT, handleId, layoutPositions, MAX_ROWS, portId, ROW_HEIGHT, storedPositions, type Positions } from '../src/views-ui/er-layout';
+import { cardRows, cardSize, elkGraph, EXPLANATION_HEIGHT, HEADER_HEIGHT, handleId, layoutPositions, MAX_ROWS, portId, ROW_HEIGHT, separateCards, storedPositions, type Positions } from '../src/views-ui/er-layout';
 
 const elk = new ELK();
 const field = (id: string, badges: string[] = []): DiagramField => ({ id, label: id, type: 'Integer', badges, detail: null, source: null });
@@ -92,6 +92,22 @@ test('incremental placement keeps existing positions and avoids overlaps', async
   assertNoOverlap(added, out, []);
   // Deterministic for the same input.
   assert.deepEqual(await layoutPositions(elk, added, [], [], existing), out);
+});
+
+test('a saved layout whose cards grew (explanation band) is pushed apart, column by column', async () => {
+  // users sat right above posts; with an explanation users is now taller and overlaps posts, and posts then overlaps wide.
+  const users = { ...base.nodes[0], explanation: 'A registered account.' };
+  const grown = result([users, base.nodes[1], base.nodes[2], base.nodes[3]], base.edges);
+  const saved: Positions = { users: { x: 0, y: 0 }, posts: { x: 0, y: 70 }, wide: { x: 0, y: 140 }, lonely: { x: 400, y: 20 } };
+  const out = await layoutPositions({ layout: () => { throw new Error('ELK not needed') } }, grown, [], [], saved);
+  assertNoOverlap(grown, out, []);
+  assert.deepEqual(out.users, saved.users, 'the top card stays');
+  assert.deepEqual(out.lonely, saved.lonely, 'another column is untouched');
+  assert.equal(out.posts.y, cardSize(users, false).height + 40);
+  assert.equal(out.posts.x, 0);
+  assert.ok(out.wide.y > out.posts.y);
+  assert.deepEqual(separateCards(grown.nodes, out, new Set()), {}, 'a separated layout stays as is');
+  assert.deepEqual(Object.keys(separateCards(grown.nodes, saved, new Set())).sort(), ['posts', 'wide']);
 });
 
 test('large graph lays out (150 tables x 15 columns)', async () => {
