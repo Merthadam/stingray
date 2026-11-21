@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronRight } from 'lucide-react';
 import type { DiagramNode } from '../views';
-import { showsExplanation } from './flow-layout';
+import { cardFields, showsExplanation } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -43,11 +43,14 @@ export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<Flo
 });
 
 export const FlowNode = memo(function FlowNode({ data }: NodeProps<FlowStepNode>) {
-  const n = data.node;
+  const n = data.node, { fields, more } = cardFields(n);
   return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ''}`}>
     <Handle type="target" position={Position.Top} id="in" />
     <strong title={n.label}>{n.label}</strong>
     {!n.role && (n.subtitle || n.detail) && <span title={n.subtitle || n.detail || undefined}>{n.subtitle || n.detail}</span>}
+    {!n.role && n.fields.length > 0 && <ul className="flow-fields" aria-label={`Fields of ${n.label}`}>
+      {fields.map(f => <li key={f.id} title={f.detail ? `${f.label} · ${f.detail}` : f.label}>{f.label}</li>)}
+      {more > 0 && <li className="flow-fields-more">+{more} more</li>}</ul>}
     <Explanation node={n} />
     <Handle type="source" position={Position.Bottom} id="out" />
     <Handle type="source" position={Position.Right} id="return-out" style={{ top: '70%' }} />

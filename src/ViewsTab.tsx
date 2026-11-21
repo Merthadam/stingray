@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Database, GanttChart, Network, PanelLeftClose, PanelLeftOpen, RefreshCw, Stethoscope, Table2, TriangleAlert, Workflow, X } from 'lucide-react';
+import { Database, FileText, GanttChart, Network, PanelLeftClose, PanelLeftOpen, RefreshCw, Stethoscope, Table2, TriangleAlert, Workflow, X } from 'lucide-react';
 import { api } from './api';
 import type { Workspace } from './shared';
 import type { ViewKind, ViewLocalState, ViewResult, ViewSummary } from './views';
@@ -10,7 +10,7 @@ import { TextViewFallback } from './views-ui/TextViewFallback';
 import { DiagnosticsDrawer } from './views-ui/DiagnosticsDrawer';
 import { SaveViewDialog } from './views-ui/SaveViewDialog';
 import { EditorPicker } from './views-ui/EditorPicker';
-import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, viewDepth } from './views-tab-model';
+import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, textViewNote, viewDepth } from './views-tab-model';
 import './views-tab.css';
 
 const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
@@ -36,6 +36,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const [actionError, setActionError] = useState('');
   // Flowchart and layers depth overrides by view id: session-only, never written back to the view file.
   const [depths, setDepths] = useState<Record<string, number>>({});
+  const [asText, setAsText] = useState<Record<string, boolean>>({}); // graph views the user switched to text, by view id
   const depthsRef = useRef(depths); depthsRef.current = depths;
   const fileDepths = useRef<Record<string, number>>({}); // the depth each view file sets (first result without override)
   const listSequence = useRef(0), viewSequence = useRef(0);
@@ -91,6 +92,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
 
   // Debounced persistence of the diagram's local state; flushed on view switch and unmount.
   const pending = useRef<{ id: string; state: ViewLocalState } | null>(null);
+  const latest = useRef<{ id: string; state: ViewLocalState } | null>(null); // last state, to remount the diagram from
   const timer = useRef<number | undefined>(undefined);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
@@ -103,7 +105,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const onStateChange = useCallback((state: ViewLocalState) => {
     // Layouts at an overridden depth are not saved: they would misplace the nodes of the file's depth.
     if (!currentRef.current || readOnlyRef.current || depthsRef.current[currentRef.current] !== undefined) return;
-    pending.current = { id: currentRef.current, state };
+    latest.current = pending.current = { id: currentRef.current, state };
     clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY);
   }, [flush]);
@@ -128,7 +130,16 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     depthsRef.current = depth === fileDepths.current[current] ? others : { ...others, [current]: depth }; // back to the file's depth: no override
     setDepths(depthsRef.current); void loadView(current);
   };
+  const toggleText = !!current && result?.kind === 'graph' && isFlowDiagram(result); // too-big graphs are text only
+  const showText = toggleText && !!asText[current!];
   const tools = <>
+    {toggleText && <button className="views-tool" onClick={() => {
+      // Leaving the diagram unmounts it: remount it later from its last state, not the one loaded with the view.
+      const last = latest.current;
+      if (!showText && last?.id === current) setLocal(l => l?.id === current ? { ...l, state: last.state } : l);
+      setAsText(t => ({ ...t, [current!]: !showText }));
+    }}>
+      {showText ? <><Network size={13} /> Show as diagram</> : <><FileText size={13} /> Show as text</>}</button>}
     {depth !== null && <label className="views-depth" title={depth.layers ? 'Drill down: 1 services, 2 modules, 3 files, 4 symbols (this session only)'
       : 'Call levels expanded inline (this session only)'}>Depth
       <input type="range" min={depth.min} max={4} step={1} value={depth.value} aria-label={depth.layers ? 'Layers depth' : 'Flowchart depth'}
@@ -156,7 +167,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     {view?.error && <div className="inline-error views-banner" role="alert">{view.error} · Showing the last result.
       <button className="secondary" onClick={() => void loadView(summary.id)}>Retry</button></div>}
     <div className="views-content">
-      {result.kind !== 'tables' && !isFlowDiagram(result) ? <TextViewFallback result={result} toolbar={tools} />
+      {showText || result.kind !== 'tables' && !isFlowDiagram(result)
+        ? <TextViewFallback result={result} toolbar={tools} note={showText ? undefined : textViewNote(result)} />
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
           <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? result.diagnostics?.layers?.depth ?? ''}`} result={result}
             initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}

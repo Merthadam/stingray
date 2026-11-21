@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -88,6 +88,13 @@ test('flowchart layout nests expanded callees as frames inside their caller and 
   assert.ok(a.x < b.x && a.y < b.y && a.x + a.width > b.x + b.width && a.y + a.height > b.y + b.height);
 });
 
+test('step cards grow by one row per field (graph views: collapsed helpers), explanation room on top', () => {
+  const helper = (name: string) => ({ id: `helper:${name}`, label: name, type: null, badges: [], detail: 'helper', source: null });
+  const handle = { ...node('handle', null), fields: [helper('clean'), helper('log')] };
+  assert.deepEqual(flowSize(handle), { width: 220, height: 100 });
+  assert.deepEqual(flowSize({ ...handle, explanation: 'Handle a request.' }), { width: 260, height: 148 });
+});
+
 test('explained nodes and frames get room for the explanation; others keep their size', async () => {
   const chartNode = (id: string, kind: string, group: string | null, explanation?: string): DiagramNode => ({ ...node(id, group), kind, explanation });
   const why = 'Accept a Cognito access token and return the signed-in user.';
@@ -125,7 +132,7 @@ test('edges entering an explained frame from above route around its explanation 
   const positions = await flowPositions(new ELK(), chart);
   const frames = flowFrames(chart, positions);
   const [a] = frames, byId = new Map(chart.nodes.map(n => [n.id, n]));
-  const route = (from: string, to: string) => bandEntry(chart, frames, positions, byId.get(from)!, byId.get(to)!);
+  const route = (from: string, to: string) => bandEntry(chart, frameIndex(chart, frames), positions, byId.get(from)!, byId.get(to)!);
   const entry = route('check', 'active')!;
   assert.ok(entry, 'the Yes edge from above detours');
   const s = positions.check, t = positions.active, ss = flowSize(byId.get('check')!, true), ts = flowSize(byId.get('active')!, true);
@@ -141,6 +148,28 @@ test('edges entering an explained frame from above route around its explanation 
   assert.ok(entry.labelY - label.h / 2 >= sy && entry.labelY + label.h / 2 <= a.y, 'label sits between the source and the frame');
   assert.equal(route('active', 'fail'), undefined, 'edges inside the frame keep their path');
   assert.equal(route('done', 'write'), undefined, 'frames without an explanation keep their path');
+  const plain = { ...chart, groups: chart.groups.map(g => ({ ...g, explanation: null })) } as ViewResult;
+  assert.deepEqual(frameIndex(plain, flowFrames(plain, positions)).explained, false);
+  assert.equal(bandEntry(plain, frameIndex(plain, flowFrames(plain, positions)), positions, byId.get('check')!, byId.get('active')!), undefined,
+    'no explained frame: no detours');
+});
+
+test('step cards list at most 8 fields plus a +N more row, and size for exactly that', () => {
+  const fields = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `f${i}`, label: `f${i}`, detail: null })) as DiagramNode['fields'];
+  const card = (n: number) => ({ ...node('x', null), fields: fields(n) });
+  assert.deepEqual(cardFields(card(8)), { fields: fields(8), more: 0 });
+  assert.deepEqual(cardFields(card(20)), { fields: fields(8), more: 12 });
+  assert.equal(flowSize(card(8)).height + 18, flowSize(card(9)).height, '9 fields: 8 rows + the more row');
+  assert.equal(flowSize(card(9)).height, flowSize(card(500)).height);
+});
+
+test('the grid fallback places every node without overlapping cards', () => {
+  const positions = flowGrid(result);
+  assert.equal(Object.keys(positions).length, result.nodes.length);
+  const boxes = result.nodes.map(n => ({ ...positions[n.id], ...flowSize(n) }));
+  for (const a of boxes) for (const b of boxes) if (a !== b) {
+    assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+  }
 });
 
 test('an edge from a source beside an explained frame band also routes around the band', () => {
@@ -154,7 +183,7 @@ test('an edge from a source beside an explained frame band also routes around th
   const positions = { side: { x: 0, y: 274 }, low: { x: 0, y: 420 }, active: { x: 500, y: 400 } };
   const frames = flowFrames(chart, positions), [a] = frames, byId = new Map(chart.nodes.map(n => [n.id, n]));
   assert.equal(a.y, 400 - 50 - FRAME_EXPLANATION_HEIGHT);
-  const entry = bandEntry(chart, frames, positions, byId.get('side')!, byId.get('active')!)!;
+  const entry = bandEntry(chart, frameIndex(chart, frames), positions, byId.get('side')!, byId.get('active')!)!;
   assert.ok(entry, 'a source ending beside the band detours');
   const ss = flowSize(byId.get('side')!, true), ts = flowSize(byId.get('active')!, true);
   const sx = ss.width / 2, sy = positions.side.y + ss.height, tx = 500 + ts.width / 2;
@@ -168,5 +197,5 @@ test('an edge from a source beside an explained frame band also routes around th
   const label = { w: shortEdgeLabel('Yes').length * 6.5 + 16, h: 24 };
   assert.ok(!hits(entry.labelX - label.w / 2, entry.labelY - label.h / 2, entry.labelX + label.w / 2, entry.labelY + label.h / 2), 'label stays out of the band');
   assert.ok(entry.labelY - label.h / 2 >= sy, 'label stays below the source');
-  assert.equal(bandEntry(chart, frames, positions, byId.get('low')!, byId.get('active')!), undefined, 'a source ending below the band keeps its path');
+  assert.equal(bandEntry(chart, frameIndex(chart, frames), positions, byId.get('low')!, byId.get('active')!), undefined, 'a source ending below the band keeps its path');
 });
