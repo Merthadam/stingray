@@ -14,7 +14,7 @@ export class GitStateService {
   private states = new Map<string, WorkspaceGitState>();
   private tracked = new Map<string, Tracked>();
   private tracking = new Map<string, Promise<void>>();
-  private watchers = new Map<string, { ids: Set<string>; close(): void }>();
+  private watchers = new Map<string, { ids: Set<string>; watcher: FSWatcher }>();
   private refreshing = new Map<string, Promise<WorkspaceGitState>>();
   private queued = new Map<string, { force: boolean; promise: Promise<WorkspaceGitState> }>();
   private revision = 0;
@@ -63,11 +63,11 @@ export class GitStateService {
   forget(id: string) {
     const t = this.tracked.get(id);
     clearTimeout(t?.timer);
-    this.tracked.delete(id); this.states.delete(id);
+    this.tracked.delete(id); this.states.delete(id); this.tracking.delete(id);
     if (!t) return;
     const watcher = this.watchers.get(t.common);
     watcher?.ids.delete(id);
-    if (watcher && !watcher.ids.size) { watcher.close(); this.watchers.delete(t.common); }
+    if (watcher && !watcher.ids.size) { watcher.watcher.close(); this.watchers.delete(t.common); }
   }
 
   dispose() {
@@ -76,19 +76,26 @@ export class GitStateService {
   }
 
   private track(id: string) {
-    if (this.tracked.has(id)) return Promise.resolve();
+    const t = this.tracked.get(id);
+    if (t) {
+      // Re-watch after a watcher error (e.g. .git was removed and recreated).
+      if (t.common && !this.watchers.get(t.common)?.ids.has(id)) this.watch(t.common, id);
+      return Promise.resolve();
+    }
     let job = this.tracking.get(id);
     if (!job) {
-      job = (async () => {
+      let current!: Promise<void>;
+      current = (async () => {
         const w = await this.git.workspace(id);
         let gitDir = '', common = '';
         try {
           [gitDir, common] = (await git(w.path, ['rev-parse', '--git-dir', '--git-common-dir'])).trim().split('\n').map(dir => path.resolve(w.path, dir));
         } catch { /* Unreadable repository: the fallback poll and manual refresh still report it. */ }
+        if (this.tracking.get(id) !== current) return; // forget() ran meanwhile
         this.tracked.set(id, { path: w.path, gitDir, common, remote: null, forcePr: false });
         if (common) this.watch(common, id);
-      })().finally(() => this.tracking.delete(id));
-      this.tracking.set(id, job);
+      })().finally(() => { if (this.tracking.get(id) === current) this.tracking.delete(id); });
+      this.tracking.set(id, job = current);
     }
     return job;
   }
@@ -98,13 +105,13 @@ export class GitStateService {
     let entry = this.watchers.get(common);
     if (!entry) {
       const ids = new Set<string>();
-      let watcher: FSWatcher | undefined;
+      let watcher: FSWatcher;
       try {
         watcher = watch(common, { recursive: true }, (_event, filename) => this.changed(common, ids, filename?.toString() ?? ''));
-        watcher.on('error', () => watcher?.close());
-      } catch { /* Watching unsupported here: the fallback poll still runs. */ }
-      entry = { ids, close: () => watcher?.close() };
-      this.watchers.set(common, entry);
+      } catch { return; /* Watching unavailable here: the fallback poll still runs and the next track() retries. */ }
+      const created = { ids, watcher };
+      watcher.on('error', () => { watcher.close(); if (this.watchers.get(common) === created) this.watchers.delete(common); });
+      this.watchers.set(common, entry = created);
     }
     entry.ids.add(id);
   }

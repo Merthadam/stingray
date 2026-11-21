@@ -108,3 +108,28 @@ test('linked worktree changes refresh only that workspace; PR poll runs only whi
     assert.deepEqual(f.resolves.map(r => r.cwd).sort(), [f.repo, other.path].sort());
   } finally { await f.cleanup(); }
 });
+
+test('a failed watcher is re-created on the next refresh; forget() during track() leaves nothing registered', async () => {
+  const f = await fixture();
+  try {
+    await f.gitState.get(f.id);
+    const watchers = (f.gitState as unknown as { watchers: Map<string, { watcher: import('node:fs').FSWatcher }> }).watchers;
+    const [common] = [...watchers.keys()];
+    watchers.get(common)!.watcher.emit('error', new Error('watch failed'));
+    assert.equal(watchers.size, 0);
+    await f.gitState.refresh(f.id);
+    assert.ok(watchers.has(common), 're-watched');
+    f.events.length = 0;
+    await writeFile(path.join(f.repo, 'text'), 'one\nwatched\n'); await git(f.repo, ['add', 'text']);
+    await waitFor(() => f.events.find(e => e.status?.changes.length === 1));
+
+    f.gitState.forget(f.id);
+    assert.equal(watchers.size, 0);
+    const internals = f.gitState as unknown as { tracked: Map<string, unknown>; track(id: string): Promise<void> };
+    const tracking = internals.track(f.id);
+    f.gitState.forget(f.id);
+    await tracking;
+    assert.equal(internals.tracked.size, 0, 'not registered after forget()');
+    assert.equal(watchers.size, 0, 'not watched after forget()');
+  } finally { await f.cleanup(); }
+});
