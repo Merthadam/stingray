@@ -119,10 +119,14 @@ sr_run=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 case "$sr_run" in *[!a-f0-9]*|'') exec "$sr_real" "$@";; esac
 [ \${#sr_run} = 64 ] || exec "$sr_real" "$@"
 # exec keeps this pid ($$) for Codex: it identifies the run and its liveness. Registered in the background.
-# Its own session where possible (Linux setsid): a terminal hangup during Node's cold start would otherwise kill it
-# before it can install its SIGHUP handler (Node resets inherited ignored signals, so \`trap '' HUP\` cannot help).
-sr_detach=; command -v setsid >/dev/null 2>&1 && sr_detach=setsid
-$sr_detach ${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_run" $$ </dev/null >/dev/null 2>&1 &
+# Its own session (setsid on Linux, Perl's POSIX::setsid on macOS): a terminal hangup during Node's cold start would
+# otherwise kill it before it installs its SIGHUP handler (Node resets inherited ignored signals, so \`trap '' HUP\` cannot help).
+sr_detach() {
+  if command -v setsid >/dev/null 2>&1; then setsid "$@"
+  elif command -v perl >/dev/null 2>&1; then perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 0' "$@"
+  else "$@"; fi
+}
+sr_detach ${runner.map(shellQuote).join(' ')} start ${shellQuote(ctx.endpoint)} "$sr_run" $$ </dev/null >/dev/null 2>&1 &
 exec "$sr_real" -c ${shellQuote(notify)}"$sr_run"'","'$$'"]' "$@"
 `,
     });
