@@ -8,6 +8,7 @@ import { createFileProvider } from '../electron/views/rules/files';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 import { parseRuleFileYaml } from '../electron/views/rules/schema';
 import { BUILTIN_SETS, TS_EXTRACTORS, EXTRACTOR_DESCRIPTIONS } from '../electron/views/sets';
+import { withInfraServices } from '../electron/views/infra';
 
 const fixtures = path.join(import.meta.dirname, 'fixtures/views');
 const KINDS: Record<string, ViewKind> = { alembic: 'timeline', langgraph: 'flow', terraform: 'graph', cdk: 'graph' };
@@ -71,12 +72,36 @@ test('terraform: resources, data sources, modules and outputs with reference edg
 test('cdk: stacks, constructs grouped by stack, grants, props and dependencies', async () => {
   const { out, edges } = await run('cdk');
   assert.deepEqual(out.nodes.map(n => `${n.group}/${n.label}:${n.subtitle}`).sort(), [
-    'ApiStack/Api:LambdaRestApi', 'ApiStack/ApiStack:Stack', 'ApiStack/ExportWorker:Function', 'ApiStack/Exports:Queue', 'ApiStack/Handler:Function',
-    'DataStack/AccessLogs:Bucket', 'DataStack/DataStack:Stack', 'DataStack/Trips:Table', 'DataStack/Uploads:Bucket']);
+    'ApiStack/Api:apigw.LambdaRestApi', 'ApiStack/ApiStack:Stack', 'ApiStack/ExportWorker:lambda.Function', 'ApiStack/Exports:sqs.Queue',
+    'ApiStack/Handler:lambda.Function', 'DataStack/AccessLogs:s3.Bucket', 'DataStack/DataStack:Stack', 'DataStack/Trips:dynamodb.Table',
+    'DataStack/Uploads:s3.Bucket']);
   assert.deepEqual(edges, [
     'Api ..> Handler', 'Api -> Exports', 'ApiStack ..> Trips', 'ApiStack ..> Uploads', 'ApiStack -> DataStack',
     'ExportWorker ..> Uploads [grantPut]', 'ExportWorker -> Exports [grantConsumeMessages]',
     'Handler ..> Trips [grantReadWriteData]', 'Handler -> Exports [grantSendMessages]', 'Uploads ..> AccessLogs'].sort());
+});
+
+test('terraform and cdk nodes get their cloud service; groups of one cloud get its provider', async () => {
+  const { out: tf } = await run('terraform');
+  const view = (name: string) => ({ rules: parseRuleFileYaml(BUILTIN_SETS[name].yaml, null, name, `builtin/${name}`).rules });
+  const t = withInfraServices(view('terraform'), tf.nodes, tf.groups);
+  const tfService = (id: string) => t.nodes.find(n => n.id === id)?.service?.id ?? null;
+  assert.equal(tfService('aws_lambda_function.api'), 'aws/lambda');
+  assert.equal(tfService('aws_vpc.main'), 'aws/vpc');
+  assert.equal(tfService('data.aws_iam_policy_document.assume_lambda'), 'aws/iam');
+  assert.equal(tfService('module.network'), null);
+  assert.equal(tfService('output.vpc_id'), null);
+  assert.deepEqual(t.groups.map(g => `${g.id}:${g.provider ?? '-'}`), ['main.tf:aws', 'modules/network/main.tf:aws', 'modules/storage/main.tf:aws', 'outputs.tf:-']);
+
+  const { out: cdk } = await run('cdk');
+  const c = withInfraServices(view('cdk'), cdk.nodes, cdk.groups);
+  assert.deepEqual(c.nodes.map(n => `${n.label}:${n.service?.id}`).sort(), [
+    'AccessLogs:aws/s3', 'Api:aws/api-gateway', 'ApiStack:aws/cloudformation', 'DataStack:aws/cloudformation', 'ExportWorker:aws/lambda',
+    'Exports:aws/sqs', 'Handler:aws/lambda', 'Trips:aws/dynamodb', 'Uploads:aws/s3']);
+  assert.deepEqual(c.groups.map(g => g.provider), ['aws', 'aws']);
+  // Other sets (and repo rules) are untouched.
+  const { out: lg } = await run('langgraph');
+  assert.equal(withInfraServices(view('langgraph'), lg.nodes, lg.groups).nodes, lg.nodes);
 });
 
 test('TypeScript extractor sets include SQL with a distinct description', () => {

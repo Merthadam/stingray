@@ -1,6 +1,7 @@
 // Main <-> renderer contract for Views: named, generic diagrams computed from a worktree's source.
 // Every view type (database tables today; flows, timelines, ... later) produces the same diagram model,
 // so one renderer can draw all of them. Results come from static analysis; repository code is never executed.
+import type { InfraProvider, InfraService } from './infra/catalog';
 
 export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph' | 'flowchart';
 
@@ -50,6 +51,8 @@ export interface DiagramNode {
   explanationStatus?: ExplanationStatus;
   explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
+  service?: InfraService;      // cloud service of a Terraform resource/data source or CDK construct/stack (builtin terraform
+                               // and cdk sets); drawn as its official icon; absent for other nodes
 }
 
 export interface DiagramEdge {
@@ -74,6 +77,7 @@ export interface DiagramGroup {
   explanationStatus?: ExplanationStatus;
   explanationReason?: string;  // as on DiagramNode
   symbol?: SymbolRef | null;   // flowchart expanded call: the callee
+  provider?: InfraProvider;    // every service node in the group is of this cloud: drawn as that cloud's group box
 }
 
 export interface ViewWarning { file: string | null; line: number | null; message: string }
