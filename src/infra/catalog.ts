@@ -191,7 +191,7 @@ export const INFRA_CATALOG: CatalogEntry[] = [
   azure('resource-group', 'Resource Group', 'management', 'A container that holds related Azure resources so they can be deployed, managed and deleted together.',
     'https://learn.microsoft.com/azure/azure-resource-manager/management/manage-resource-groups-portal', ['azurerm_resource_group*']),
   azure('virtual-machine', 'Azure Virtual Machines', 'compute', 'On-demand Windows and Linux virtual servers in Azure.',
-    'https://learn.microsoft.com/azure/virtual-machines/', ['azurerm_virtual_machine*', 'azurerm_linux_virtual_machine', 'azurerm_windows_virtual_machine', 'azurerm_managed_disk', 'azurerm_availability_set']),
+    'https://learn.microsoft.com/azure/virtual-machines/', ['azurerm_virtual_machine*', 'azurerm_linux_virtual_machine', 'azurerm_windows_virtual_machine', 'azurerm_availability_set']),
   azure('vm-scale-sets', 'Virtual Machine Scale Sets', 'compute', 'Groups of identical VMs that scale in and out automatically.',
     'https://learn.microsoft.com/azure/virtual-machine-scale-sets/', ['azurerm_linux_virtual_machine_scale_set', 'azurerm_windows_virtual_machine_scale_set', 'azurerm_orchestrated_virtual_machine_scale_set', 'azurerm_virtual_machine_scale_set*']),
   azure('app-service', 'Azure App Service', 'compute', 'Managed hosting for web apps and APIs with built-in scaling, deployment slots and TLS.',
@@ -231,7 +231,7 @@ export const INFRA_CATALOG: CatalogEntry[] = [
   azure('application-gateway', 'Azure Application Gateway', 'networking', 'Layer-7 web traffic load balancer with TLS termination and an optional web application firewall.',
     'https://learn.microsoft.com/azure/application-gateway/', ['azurerm_application_gateway']),
   azure('front-door', 'Azure Front Door', 'networking', 'Global entry point and CDN that accelerates and protects web applications.',
-    'https://learn.microsoft.com/azure/frontdoor/', ['azurerm_cdn_frontdoor_*', 'azurerm_frontdoor*', 'azurerm_cdn_*']),
+    'https://learn.microsoft.com/azure/frontdoor/', ['azurerm_cdn_frontdoor_*', 'azurerm_frontdoor*']),
   azure('dns', 'Azure DNS', 'networking', 'Hosts DNS zones and records on Azure infrastructure.',
     'https://learn.microsoft.com/azure/dns/', ['azurerm_dns_*', 'azurerm_private_dns_*']),
   azure('firewall', 'Azure Firewall', 'security', 'Managed, stateful network firewall for virtual networks.',
@@ -239,7 +239,7 @@ export const INFRA_CATALOG: CatalogEntry[] = [
   azure('key-vault', 'Azure Key Vault', 'security', 'Stores secrets, keys and certificates and controls access to them.',
     'https://learn.microsoft.com/azure/key-vault/', ['azurerm_key_vault*']),
   azure('managed-identity', 'Managed Identities', 'security', 'Identities for Azure resources so they can reach other services without stored credentials.',
-    'https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/', ['azurerm_user_assigned_identity', 'azurerm_role_assignment', 'azurerm_role_definition', 'azuread_*']),
+    'https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/', ['azurerm_user_assigned_identity']),
   azure('service-bus', 'Azure Service Bus', 'integration', 'Enterprise message broker with queues and publish-subscribe topics.',
     'https://learn.microsoft.com/azure/service-bus-messaging/', ['azurerm_servicebus_*']),
   azure('event-hubs', 'Azure Event Hubs', 'analytics', 'Big-data streaming platform that ingests millions of events per second.',
@@ -368,7 +368,7 @@ const CDK_MODULE_ALIASES: Record<string, string> = {
   apigw: 'apigateway', agw: 'apigateway', apigwv2: 'apigatewayv2', ddb: 'dynamodb', sfn: 'stepfunctions', tasks: 'stepfunctions_tasks',
   elbv2: 'elasticloadbalancingv2', elb: 'elasticloadbalancing', cw: 'cloudwatch', acm: 'certificatemanager', sm: 'secretsmanager',
   firehose: 'kinesisfirehose', opensearch: 'opensearchservice', sns_subs: 'sns_subscriptions', subs: 'sns_subscriptions',
-  origins: 'cloudfront_origins', targets: 'events_targets', nodejs: 'lambda_nodejs',
+  origins: 'cloudfront_origins', s3deploy: 's3_deployment', targets: 'events_targets', nodejs: 'lambda_nodejs',
 };
 const normalizeModule = (m: string) => {
   const name = m.toLowerCase().replace(/-/g, '_').replace(/^aws_/, '').replace(/_alpha$/, '');
@@ -384,14 +384,16 @@ const cdkIndex = (() => {
 })();
 
 /** The service of a CDK construct class as written at `new X(...)`: "s3.Bucket", "cdk.aws_s3.Bucket", "Bucket", "CfnBucket".
- * Lookup: module.Class, module.*, then the bare class; L1 "Cfn" classes fall back to their L2 name. Null when unknown. */
+ * Lookup: module.Class, then module.*; the bare class only without a module; L1 "Cfn" classes fall back to their L2 name. Null when unknown. */
 export function cdkService(constructor: string): InfraService | null {
   const parts = constructor.replace(/<.*$/, '').trim().split('.');
   const cls = parts[parts.length - 1], module = parts.length > 1 ? normalizeModule(parts[parts.length - 2]) : null;
-  for (const name of cls.startsWith('Cfn') && cls.length > 3 ? [cls, cls.slice(3)] : [cls]) {
-    const e = (module && (cdkIndex.get(`${module}.${name}`) ?? cdkIndex.get(`${module}.*`))) || cdkIndex.get(name);
-    if (e) return service(e);
-  }
+  const names = cls.startsWith('Cfn') && cls.length > 3 ? [cls, cls.slice(3)] : [cls];
+  // A known module decides (module.Class, then module.*); the bare class only when there is no module (named
+  // imports); an unknown module (`acme.Table`) matches nothing rather than being taken for DynamoDB.
+  const known = module !== null && [...cdkIndex.keys()].some(k => k.startsWith(`${module}.`));
+  const lookups = known ? [...names.map(n => `${module}.${n}`), `${module}.*`] : module ? [] : names;
+  for (const key of lookups) { const e = cdkIndex.get(key); if (e) return service(e); }
   return null;
 }
 

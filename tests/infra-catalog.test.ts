@@ -41,6 +41,8 @@ test('terraform types: exact, longest prefix, wildcard, provider fallback, non-c
   assert.equal(id('aws_made_up_thing'), 'aws/generic');
   assert.equal(id('azurerm_made_up'), 'azure/generic');
   assert.equal(id('google_made_up'), 'gcp/generic');
+  for (const t of ['azurerm_managed_disk', 'azurerm_cdn_profile', 'azurerm_role_assignment', 'azuread_application'])
+    assert.equal(id(t), 'azure/generic', `${t}: no icon of another product`);
   assert.equal(id('random_password'), null);
   assert.equal(id('null_resource'), null);
 });
@@ -70,6 +72,9 @@ test('cdk constructors: module-qualified, aliased, bare, L1 Cfn, unknown', () =>
   assert.equal(id('Stack'), 'aws/cloudformation');
   assert.equal(id('MyCustomConstruct'), null);
   assert.equal(id('acme.Widget'), null);
+  assert.equal(id('acme.Table'), null, 'an unknown module does not fall back to the bare class');
+  assert.equal(id('ec2.CfnSecurityGroup'), 'aws/vpc', 'module-qualified L1 classes use their L2 name before module.*');
+  assert.equal(id('s3deploy.BucketDeployment'), 'aws/s3');
 });
 
 test('infraServiceById finds catalog entries and fallbacks only', () => {
