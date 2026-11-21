@@ -10,6 +10,7 @@ import type { DbSchemaResult } from '../src/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../src/views';
 import type { Evaluate, FileProvider, GraphApi } from './views/rules/types';
 import { computeView } from './views/compute';
+import { calleesOf } from './views/rules/callees';
 import { formatText } from '../src/views-text';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from './views/sets';
 import { listViewFiles, loadViewPath } from './views/view-file';
@@ -139,6 +140,8 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
         return s ?? null;
       }),
+      callees: async ids => (api ? calleesOf(api, ids) : new Map()),
+      fileSymbols: async f => api?.fileSymbols(f) ?? [],
     });
     if (restamp && graph.indexedMtime) lagging = await laggingFiles(root, result.diagnostics?.explain ?? [], graph.indexedMtime);
   } finally { graph.close?.(); }
