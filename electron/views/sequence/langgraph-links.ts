@@ -16,8 +16,9 @@ import { callMethod, importBase, symbolNamed, type Hop, type HopStep, type LinkC
 
 const INVOKE = new Set(['invoke', 'ainvoke', 'stream', 'astream']);
 const MAX_STEPS = 60; // node visits per invocation (alt arms each walk their own path)
-/** Receiver names that read like a compiled graph, for the "only graph in scope" fallback. */
-const GRAPHISH = /graph|workflow|agent|app|compiled|flow|chain|pipeline/i;
+/** Receiver names that read like a compiled graph, for the "only graph in scope" fallback (uncertain). Not `chain`: a
+ * LangChain runnable's `chain.invoke` is no graph. */
+const GRAPHISH = /graph|workflow|agent|app|compiled|flow|pipeline/i;
 
 interface GraphNode { fn: string | null; handler: string | null }
 interface GraphEdge { from: string; to: string; kind: string; label: string | null; line: number; at: number }

@@ -413,3 +413,22 @@ test('sequence events: the registry scan stops when the evaluation is aborted', 
   assert.equal(scanned, 1);
   assert.equal(out.diagnostics.sequence!.truncated, true);
 });
+
+const CHAINS = {
+  ...AGENT_APP,
+  'services/agent/rag.py': `def ask(q):
+    return chain.invoke(q)
+
+
+def plan(q):
+    return agent.invoke(q)
+`,
+};
+
+test('sequence langgraph: `chain.invoke` is not routed into the only StateGraph; `agent.invoke` is, uncertain', async () => {
+  const graph = fakeGraph(CHAINS, []);
+  assert.deepEqual((await run(CHAINS, graph, { start: { symbol: 'ask' } })).seq.messages, []);
+  const agent = await run(CHAINS, graph, { start: { symbol: 'plan' }, participants: 'file' });
+  assert.ok(agent.seq.messages.some(m => m.link === 'langgraph'));
+  assert.ok(agent.seq.messages.filter(m => m.link === 'langgraph').every(m => !m.certain));
+});
