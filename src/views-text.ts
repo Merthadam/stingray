@@ -1,5 +1,5 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, SequenceFragment, ViewKind, ViewResult } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, ViewKind } from './views';
 import { sequenceEvents } from './sequence-events';
 
 export interface TextDiagramInput {
@@ -166,78 +166,36 @@ function timelineOrder(nodes: DiagramNode[], edges: DiagramEdge[]): DiagramNode[
   }
 }
 
-/** Sequence as arrows in row order (docs/sequence-view-spec.md §CLI text): indent = call level plus enclosing fragments,
- * `-->` = return, fragments open with `alt|opt|loop|try <label>`, later arms with `else <label>`, close with `end`. */
-function sequenceLines({ participants, messages, fragments, notes }: SequenceData, truncated: boolean): string[] {
-  const name = (id: string) => participants.find(p => p.id === id)?.label ?? id;
+/** Sequence as arrows in row order (docs/sequence-view-spec.md §CLI text), in the reading order the diagram draws
+ * (sequence-events.ts): indent = call level plus enclosing fragments, `-->` = return, fragments open with
+ * `alt|opt|loop|try <label>`, later arms with `else <label>`, close with `end`; notes indent under their fragment. */
+function sequenceLines(sequence: SequenceData, truncated: boolean): string[] {
+  const { participants, messages } = sequence;
+  // A label shared by several participants gets its id appended.
+  const counts = new Map<string, number>();
+  for (const p of participants) counts.set(p.label, (counts.get(p.label) ?? 0) + 1);
+  const names = new Map(participants.map(p => [p.id, counts.get(p.label)! > 1 ? `${p.label} (${p.id})` : p.label]));
+  const name = (id: string) => names.get(id) ?? id;
   const lines = [`sequence: ${participants.length} participants, ${messages.length} messages${truncated ? ' (truncated: a limit was hit)' : ''}`,
-    `participants: ${participants.map(p => p.kind === 'participant' ? p.label : `${p.label} (${p.kind})`).join(', ')}`];
-  let level = 0; // of the last message printed: notes indent like it
-  // Rows [from, to] of one fragment arm (or the whole diagram): its messages, child fragments and notes in row order.
-  const range = (from: number, to: number, parent: string | null, arm: number | null, nesting: number) => {
-    const children = fragments.filter(f => f.parent === parent && f.first >= from && f.first <= to);
-    const items: [number, () => void][] = [
-      ...children.map((f): [number, () => void] => [f.first - 0.5, () => fragment(f, nesting)]),
-      ...notes.filter(n => (n.fragment ?? null) === parent && (parent === null || n.arm === arm) && (n.after >= from - 1 && n.after <= to || parent !== null))
-        .map((n): [number, () => void] => [n.after + 0.25, () => lines.push(`${'  '.repeat(level + nesting)}note ${name(n.participant)}: ${n.text}`)]),
-    ];
-    for (let row = from; row <= to; row++) {
-      if (children.some(f => row >= f.first && row <= f.last)) continue;
-      const m = messages[row];
-      items.push([row, () => {
-        level = m.level;
-        lines.push(`${'  '.repeat(m.level + nesting)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
-          + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : '  (uncertain)'}`);
-      }]);
+    `participants: ${participants.map(p => p.kind === 'participant' ? name(p.id) : `${name(p.id)} (${p.kind})`).join(', ')}`];
+  const pad = (n: number) => '  '.repeat(Math.max(0, n));
+  const indents: number[] = []; // of the open fragments, innermost last
+  let level = 0; // of the last message printed: notes outside fragments indent like it
+  for (const e of sequenceEvents(sequence)) {
+    if (e.type === 'open') {
+      // A fragment sits at the level of the function it is in: the lowest call level among its rows.
+      const rows = messages.slice(e.fragment.first, e.fragment.last + 1).map(m => m.level);
+      indents.push((rows.length ? Math.min(...rows) : level) + e.depth);
+      lines.push(`${pad(indents.at(-1)!)}${e.fragment.kind}${e.fragment.label && e.fragment.label !== e.fragment.kind ? ` ${e.fragment.label}` : ''}`);
+    } else if (e.type === 'branch') lines.push(`${pad(indents.at(-1)!)}else${e.label && e.label !== 'else' ? ` ${e.label}` : ''}`);
+    else if (e.type === 'close') lines.push(`${pad(indents.pop()!)}end`);
+    else if (e.type === 'note') lines.push(`${pad(indents.length ? indents.at(-1)! + 1 : level)}note ${name(e.note.participant)}: ${e.note.text}`);
+    else {
+      const m = e.message;
+      level = m.level;
+      lines.push(`${pad(m.level + e.depth)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
+        + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : '  (uncertain)'}`);
     }
-    items.sort((a, b) => a[0] - b[0]).forEach(([, print]) => print());
-  };
-  const fragment = (f: SequenceData['fragments'][number], nesting: number) => {
-    const indent = '  '.repeat((messages[f.first]?.level ?? level) + nesting);
-    const arms = [{ label: f.label, first: f.first }, ...f.branches];
-    lines.push(`${indent}${f.kind}${f.label !== f.kind ? ` ${f.label}` : ''}`);
-    arms.forEach((a, i) => {
-      if (i) lines.push(`${indent}else${a.label !== 'else' ? ` ${a.label}` : ''}`);
-      range(a.first, Math.min(f.last, (arms[i + 1]?.first ?? f.last + 1) - 1), f.id, i, nesting + 1);
-    });
-    lines.push(`${indent}end`);
-  };
-  range(0, messages.length - 1, null, null, 0);
-  return lines;
-}
-
-// ---- kind: sequence ----
-
-/** A sequence view as the CLI text (docs/sequence-view-spec.md, "CLI text"): `->` call, `-->` return, `alt|opt|loop|try <label>`
- * … `else <label>` … `end`; indent = call level + enclosing fragments. */
-export function sequenceText({ name, sequence, diagnostics, truncated }: Pick<ViewResult, 'name' | 'sequence' | 'diagnostics' | 'truncated'>,
-  maxLines = MAX_TEXT_LINES): string {
-  const d = diagnostics?.sequence;
-  const lines = [`${name}  (sequence${d ? `, depth ${d.depth}` : ''})`];
-  if (d?.error) lines.push(`error: ${d.error}`);
-  if (sequence) {
-    const counts = new Map<string, number>();
-    for (const p of sequence.participants) counts.set(p.label, (counts.get(p.label) ?? 0) + 1);
-    const names = new Map(sequence.participants.map(p => [p.id, counts.get(p.label)! > 1 ? `${p.label} (${p.id})` : p.label]));
-    const name = (id: string) => names.get(id) ?? id;
-    const base = (f: SequenceFragment) => sequence.messages[f.first]?.level ?? 0;
-    const pad = (n: number) => '  '.repeat(Math.max(0, n));
-    let level = 0;
-    for (const e of sequenceEvents(sequence)) {
-      if (e.type === 'open') lines.push(`${pad(base(e.fragment) + e.depth)}${e.fragment.kind}${e.fragment.label ? ` ${e.fragment.label}` : ''}`);
-      else if (e.type === 'branch') lines.push(`${pad(base(e.fragment) + e.depth)}else${e.label && e.label !== 'else' ? ` ${e.label}` : ''}`);
-      else if (e.type === 'close') lines.push(`${pad(base(e.fragment) + e.depth)}end`);
-      else if (e.type === 'note') lines.push(`${pad(level + e.depth)}note ${name(e.note.participant)}: ${e.note.text}`);
-      else {
-        const m = e.message;
-        level = m.level;
-        lines.push(`${pad(m.level + e.depth)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
-          + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : ' (uncertain)'}`);
-      }
-    }
-    if (!sequence.messages.length && !d?.error) lines.push('(no messages)');
   }
-  if (truncated || d?.truncated) lines.push('… truncated: a limit was hit (lower the depth or exclude files)');
-  if (lines.length > maxLines) return [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`].join('\n');
-  return lines.join('\n');
+  return lines;
 }

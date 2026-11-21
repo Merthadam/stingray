@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { SequenceData, SequenceMessage, SequenceParticipant, ViewResult } from '../src/views';
+import type { SequenceData, SequenceMessage, SequenceParticipant } from '../src/views';
 import { SEQ, sequenceLayout } from '../src/views-ui/sequence-layout';
 import { sequenceEvents } from '../src/sequence-events';
-import { sequenceText } from '../src/views-text';
+import { formatText, type TextDiagramInput } from '../src/views-text';
 
 const p = (id: string, label: string, column: number, kind: SequenceParticipant['kind'] = 'participant'): SequenceParticipant =>
   ({ id, label, kind, subtitle: null, column, source: null, symbol: null });
@@ -22,29 +22,29 @@ function login(): SequenceData {
       m('cog', 'auth', 'return', 'tokens', 1), m('auth', 'web', 'return', 'response', 0),
     ],
     fragments: [{ id: 'f0', kind: 'alt', label: 'user active?', first: 4, last: 5, branches: [{ label: 'else', first: 6 }], parent: null, source: null }],
-    notes: [{ id: 'n0', participant: 'auth', after: 5, text: 'error: HTTPException', kind: 'error', source: null }],
+    notes: [{ id: 'n0', participant: 'auth', after: 5, text: 'error: HTTPException', kind: 'error', source: null, fragment: 'f0', arm: 1 }],
   };
 }
 
-test('sequenceText prints the spec format: arrows, call-level indent, fragments with an empty else branch holding the note', () => {
-  const result = { name: 'Login', truncated: false, sequence: login(),
-    diagnostics: { sequence: { start: 'submit', depth: 3, participants: 'service', functions: 3, messages: 7, links: {}, truncated: false, error: null } } } as unknown as ViewResult;
-  assert.equal(sequenceText(result), [
-    'Login  (sequence, depth 3)',
+test('formatText sequence (CLI and Views tab text) prints the spec format: arrows, call-level indent, a notes-only else arm', () => {
+  const result: TextDiagramInput = { kind: 'sequence', groups: [], nodes: [], edges: [], truncated: false, sequence: login() };
+  assert.equal(formatText(result), [
+    'sequence: 4 participants, 7 messages',
+    'participants: User (actor), web, auth, Cognito (external)',
     'User -> web: click Sign in',
     'web -> web: submit',
     'web -> auth: POST /auth/login',
     '  auth -> auth: get_current_user  [link auth]',
     '  alt user active?',
-    '    auth -> Cognito: initiate auth (uncertain)',
+    '    auth -> Cognito: initiate auth  (uncertain)',
     '    Cognito --> auth: tokens',
     '  else',
     '    note auth: error: HTTPException',
     '  end',
     'auth --> web: response',
   ].join('\n'));
-  const failed = { name: 'Login', truncated: true, sequence: null, diagnostics: { sequence: { depth: 2, error: 'start symbol not found: submit', truncated: false } } } as unknown as ViewResult;
-  assert.equal(sequenceText(failed), 'Login  (sequence, depth 2)\nerror: start symbol not found: submit\n… truncated: a limit was hit (lower the depth or exclude files)');
+  const twice = { ...login(), participants: [p('a', 'api', 0), p('b', 'api', 1)], messages: [], fragments: [], notes: [] };
+  assert.equal(formatText({ ...result, sequence: twice }).split('\n')[1], 'participants: api (a), api (b)');
 });
 
 test('sequenceEvents nests fragments outer first, branches before their row, closes inner first', () => {
@@ -57,6 +57,23 @@ test('sequenceEvents nests fragments outer first, branches before their row, clo
   const trace = sequenceEvents(data).map(e => e.type === 'message' ? `${e.message.label}@${e.depth}` : e.type === 'note' ? 'note'
     : `${e.type}:${e.type === 'branch' ? e.label : e.fragment.id}@${e.depth}`);
   assert.deepEqual(trace, ['note', 'open:outer@0', 'open:inner@1', 'one@2', 'close:inner@1', 'two@1', 'branch:except E@0', 'three@1', 'close:outer@0']);
+});
+
+test('sequenceEvents puts notes into the fragment arm they name, also arms holding only notes (first and last arms)', () => {
+  row = 0;
+  const note = (id: string, after: number, fragment?: string, arm?: number) => ({ id, participant: 'a', after, text: id, kind: 'error' as const, source: null, fragment, arm });
+  const data: SequenceData = { participants: [p('a', 'a', 0), p('b', 'b', 1)],
+    messages: [m('a', 'b', 'call', 'one', 0), m('a', 'b', 'call', 'two', 0), m('a', 'b', 'call', 'three', 0)],
+    // Engine shape: arms 0 and 1 hold only notes (first = the next arm's), arm 3 too (first = last + 1).
+    fragments: [{ id: 'f0', kind: 'alt', label: 'none', first: 1, last: 1, branches: [{ label: 'bad', first: 1 }, { label: 'else', first: 1 }, { label: 'other', first: 2 }], parent: null, source: null }],
+    notes: [note('n0', 0, 'f0', 0), note('n1', 0, 'f0', 1), note('n3', 1, 'f0', 3), note('top', 1), note('first', 0)] };
+  const trace = sequenceEvents(data).map(e => e.type === 'message' ? `${e.message.label}@${e.depth}` : e.type === 'note' ? `${e.note.id}@${e.depth}`
+    : `${e.type}:${e.type === 'branch' ? e.label : e.fragment.id}`);
+  assert.deepEqual(trace, ['one@0', 'first@0', 'open:f0', 'n0@1', 'branch:bad', 'n1@1', 'branch:else', 'two@1', 'branch:other', 'n3@1', 'close:f0', 'top@0', 'three@0']);
+  const layout = sequenceLayout(data), [frame] = layout.fragments;
+  const inside = (id: string) => { const n = layout.notes.find(x => x.note.id === id)!; return n.y > frame.y && n.y + n.height < frame.y + frame.height; };
+  assert.deepEqual(['n0', 'n1', 'n3', 'top', 'first'].map(inside), [true, true, true, false, false]);
+  assert.deepEqual(frame.branches.map(b => b.label), ['bad', 'else', 'other']);
 });
 
 test('sequenceLayout places lifelines left to right, wide enough for the labels between them', () => {
