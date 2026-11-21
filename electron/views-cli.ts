@@ -2,16 +2,19 @@
 // Bundled to dist-electron/views-cli.cjs and run by the launcher (electron/views/launcher.ts) with ELECTRON_RUN_AS_NODE=1
 // and --liftoff-only. Runs the rule engine in-process; opens an existing .codegraph index read-only, never indexes or writes.
 import { execFile } from 'node:child_process';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { isMap, parseDocument } from 'yaml';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { DbSchemaResult } from '../src/db-schema';
-import type { GraphStatus, ViewSummary, ViewWarning } from '../src/views';
+import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../src/views';
 import type { Evaluate, FileProvider, GraphApi } from './views/rules/types';
 import { computeView } from './views/compute';
+import { symbolRef } from './views/explanation';
 import { formatText } from '../src/views-text';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from './views/sets';
 import { listViewFiles, loadViewPath } from './views/view-file';
+import { explainPair } from './views/rules/schema';
 
 type LoadedView = Awaited<ReturnType<typeof loadViewPath>>;
 export interface OpenedGraph { api: GraphApi | null; status: GraphStatus; close?: () => void }
@@ -32,10 +35,12 @@ export interface CliDeps {
 }
 
 export const USAGE = `Usage:
-  stingray-views check <file.yaml> [--json] [--depth N]
+  stingray-views check <file.yaml> [--json] [--depth N] [--restamp]
                                               validate a view and print diagnostics + a text diagram
                                               (--depth 0-4: flowchart call levels, overrides flowchart.depth;
-                                               1-4: layers level, overrides layers.depth)
+                                               1-4: layers level, overrides layers.depth;
+                                               --restamp: after reviewing explain: texts, write the current
+                                               fingerprints into the file)
   stingray-views list                         views of this worktree
   stingray-views sets                         builtin rule sets for \`use:\`
   stingray-views help                         the full guide (view format, rules, workflow)
@@ -63,7 +68,8 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const usage = () => { deps.err(USAGE); return 2; };
   switch (command) {
     case 'check': {
-      const json = rest.includes('--json'), args = rest.filter(a => a !== '--json');
+      const json = rest.includes('--json'), restamp = rest.includes('--restamp'), args = rest.filter(a => a !== '--json' && a !== '--restamp');
+      if (json && restamp) { deps.err('--restamp cannot be combined with --json'); return 2; }
       let depth: number | null = null;
       const at = args.indexOf('--depth');
       if (at >= 0) {
@@ -71,7 +77,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
         depth = Number(args.splice(at, 2)[1]);
       }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
-      return check(path.resolve(deps.cwd, args[0]), json, deps, depth);
+      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp);
     }
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
@@ -99,7 +105,7 @@ async function list(deps: CliDeps): Promise<number> {
   return views.some(v => v.summary.error) ? 1 : 0;
 }
 
-async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null): Promise<number> {
+async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
   const root = await worktreeRoot(path.dirname(file));
@@ -125,11 +131,11 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   let result;
   try {
     result = await computeView({ ...loaded, view: loaded.view }, {
-      graph: graph.status, sqlalchemy: () => deps.dbSchema(root), sql: () => deps.sqlSchema(root),
+      graph: graph.status, readSource: deps.createFileProvider(root).read, sqlalchemy: () => deps.dbSchema(root), sql: () => deps.sqlSchema(root),
       evaluate: view => deps.evaluate({ view, files: deps.createFileProvider(root), graph: api, graphStatus: graph.status, grammarDir: deps.grammarDir() }),
       findSymbols: async queries => queries.map(q => {
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
-        return s ? { id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line } : null;
+        return s ? symbolRef(s) : null;
       }),
     });
   } finally { graph.close?.(); }
@@ -161,7 +167,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
     deps.out(`layers: ${l.config ?? 'inferred (no .stinggraph/layers.yaml)'}  depth ${l.depth}  services ${l.services}  files ${l.files}  nodes ${l.nodes}${l.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${l.error}` : ''}`);
   }
   if (d.unresolved.length) {
-    deps.out('unresolved links (edge ends matching no node id or alias):');
+    deps.out('unresolved links (edge ends matching no node id or alias; explain: keys matching no node, group, alias or symbol):');
     for (const u of d.unresolved) deps.out(`  ${u.rule}: "${u.value}" at ${u.file}:${u.line}`);
   }
   if (result.warnings.length) {
@@ -174,7 +180,29 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   deps.out(formatText(result));
   deps.out('');
   deps.out(failed ? 'FAILED: fix the errors above and run check again.' : 'OK: no errors. Check that the diagram above matches the code.');
+  if (restamp && !(await restampFile(file, relFile, d.explain ?? [], graph.api !== null, deps))) return 1;
   return failed ? 1 : 0;
+}
+
+/** `--restamp`: write the current fingerprints of resolved `explain:` entries into the view file, keeping comments and
+ * formatting. Needs the code graph: without it symbol-backed entries cannot be fingerprinted. */
+async function restampFile(file: string, relFile: string, entries: ExplainDiagnostic[], graphOpen: boolean, deps: CliDeps): Promise<boolean> {
+  deps.out('');
+  if (!entries.length) { deps.out('restamp: the view has no explain: entries.'); return true; }
+  if (!graphOpen) { deps.err('restamp: needs the code graph (open the worktree in Stingray to index it); nothing was written.'); return false; }
+  const doc = parseDocument(await readFile(file, 'utf8'));
+  const stamped: string[] = [];
+  for (const e of entries) {
+    const pair = explainPair(doc, e.key);
+    if (e.fingerprint === null || !isMap(pair?.value)) { deps.out(`restamp: skipped "${e.key}" (${e.matches ? 'could not fingerprint its code' : 'matches nothing in the view'})`); continue; }
+    if (pair.value.get('fingerprint') === e.fingerprint) continue;
+    pair.value.set('fingerprint', e.fingerprint);
+    stamped.push(`restamp: stamped "${e.key}" ${e.fingerprint}${e.line !== null ? ` (${relFile}:${e.line})` : ''}`);
+  }
+  if (stamped.length) await writeFile(file, doc.toString({ lineWidth: 0 }));
+  for (const line of stamped) deps.out(line);
+  deps.out(stamped.length ? `restamp: wrote ${stamped.length} fingerprint${stamped.length === 1 ? '' : 's'} to ${relFile}` : 'restamp: all fingerprints are current.');
+  return true;
 }
 
 // ---- Entry (bundled CommonJS only; tests import runCli) ----

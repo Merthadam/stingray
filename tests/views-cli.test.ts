@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs
 import os from 'node:os';
 import path from 'node:path';
 import { runCli, worktreeRoot, type CliDeps } from '../electron/views-cli';
+import { drawnFingerprint as drawn } from '../electron/views/explain';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
 import type { DbSchemaResult } from '../src/db-schema';
 import type { DiagramNode, RuleDiagnostic, ViewResult, ViewSummary } from '../src/views';
@@ -132,6 +133,54 @@ test('views-cli check: rule errors and graph-step errors with a graph fail, unre
     assert.deepEqual(parsed.summary, summary);
     assert.equal(parsed.result.nodes.length, 2);
     assert.equal(parsed.result.diagnostics!.rules[0].errors[0].line, 7);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('views-cli check --restamp: writes current fingerprints of resolved explain: entries, keeping comments and formatting', async () => {
+  const root = await repo();
+  try {
+    const file = path.join(root, '.stingray/views/flow.yaml');
+    const yaml = [
+      '# Agent flow', 'version: 1', 'name: Agent flow', 'kind: flow', '',
+      'explain:', '  # the planning step', '  plan:', '    text: "Plans the trip, step by step" # keep me',
+      '    fingerprint: 000000000000', '  START: { text: Entry }', '  ghost:', '    text: Nothing', '',
+    ].join('\n');
+    await writeFile(file, yaml);
+    const explain = [{ key: 'plan', text: 'Plans the trip, step by step', fingerprint: '000000000000', line: 8 },
+      { key: 'START', text: 'Entry', fingerprint: null, line: 11 }, { key: 'ghost', text: 'Nothing', fingerprint: null, line: 12 }];
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const deps: Partial<CliDeps> = { loadViewPath: async () => ({ summary, view, ruleFiles: [], errors: [], explain }),
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) };
+
+    const check = harness(root, deps);
+    assert.equal(await check.run('check', '.stingray/views/flow.yaml'), 0);
+    const text = check.out.join('\n');
+    assert.match(text, /warnings:\n {2}\.stingray\/views\/flow\.yaml:8: explanation for "plan" may be outdated \(code changed since it was written\) — review it and run stingray-views check --restamp\n {2}\.stingray\/views\/flow\.yaml:11: explanation for "START" has no fingerprint/);
+    assert.match(text, /unresolved links.*\n {2}explain: "ghost" at \.stingray\/views\/flow\.yaml:12/);
+    assert.match(text, /\[start\] START \(step\) — Entry\n {2}plan \(step\) — Plans the trip, step by step \(may be outdated\)/);
+    assert.equal(await readFile(file, 'utf8'), yaml, 'check alone never writes');
+
+    const h = harness(root, deps);
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--restamp'), 0);
+    const plan = drawn(node('plan')), start = drawn(node('START', { role: 'start' }));
+    assert.deepEqual(h.out.slice(h.out.lastIndexOf('') + 1), [
+      'restamp: skipped "ghost" (matches nothing in the view)',
+      `restamp: stamped "plan" ${plan} (.stingray/views/flow.yaml:8)`,
+      `restamp: stamped "START" ${start} (.stingray/views/flow.yaml:11)`,
+      'restamp: wrote 2 fingerprints to .stingray/views/flow.yaml']);
+    assert.equal(await readFile(file, 'utf8'), yaml.replace('000000000000', plan).replace('{ text: Entry }', `{ text: Entry, fingerprint: ${start} }`));
+
+    const again = harness(root, { ...deps, loadViewPath: async () => ({ summary, view, ruleFiles: [], errors: [],
+      explain: [{ ...explain[0], fingerprint: plan }, { ...explain[1], fingerprint: start }] }) });
+    assert.equal(await again.run('check', '.stingray/views/flow.yaml', '--restamp'), 0);
+    assert.equal(again.out.at(-1), 'restamp: all fingerprints are current.');
+    assert.doesNotMatch(again.out.join('\n'), /warnings:/);
+
+    const noGraph = harness(root, { loadViewPath: deps.loadViewPath });
+    assert.equal(await noGraph.run('check', '.stingray/views/flow.yaml', '--restamp'), 1);
+    assert.match(noGraph.err[0], /^restamp: needs the code graph/);
+    assert.equal(await noGraph.run('check', '.stingray/views/flow.yaml', '--restamp', '--json'), 2);
+    assert.match(noGraph.err[1], /--restamp cannot be combined with --json/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
