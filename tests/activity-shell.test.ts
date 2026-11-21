@@ -117,12 +117,14 @@ test('claude wrapper adds the app-owned --settings hooks file and its own pid; p
     assert.deepEqual(Object.keys(hooks), [...claudeHookEvents]);
     for (const event of claudeHookEvents) {
       const [{ hooks: [hook] }] = hooks[event];
-      assert.equal(hook.type, 'command'); assert.equal(hook.timeout, 5);
+      assert.equal(hook.type, 'command'); assert.equal(hook.timeout, 5); assert.equal(hook.async, event === 'PostToolUse' || undefined);
       assert.equal(hook.command, ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, client, 'claude', event].map(shellQuote).join(' '));
     }
     for (const args of [['--help'], ['-v'], ['-p', 'x'], ['--settings', 'mine.json'], ['--settings=mine.json'], ['--bare'], ['mcp', 'list'], ['config'], ['update'], ['doctor']]) {
       await f.run('claude ' + args.map(shellQuote).join(' ')); assert.deepEqual((await f.args()).args, args);
     }
+    // Pass-through matching stops at `--`: later arguments are prompt text.
+    await f.run(`claude -- -p`); assert.deepEqual((await f.args()).args, ['--settings', settings, '--', '-p']);
     await f.run('claude no-tty', false); assert.deepEqual((await f.args()).args, ['no-tty']);
     const result = await f.run(`export PATH=${shellQuote(f.shell.bin + ':/usr/bin:/bin')}; claude; print status=$?`);
     assert.match(result.stdout, /Claude Code is not installed/); assert.match(result.stdout, /status=127/);
@@ -138,7 +140,11 @@ test('codex wrapper attaches notify per invocation, reports start, and never ove
     assert.equal(actual.args[0], '-c'); assert.deepEqual(actual.args.slice(2), ['resume', '--last']);
     // The -c value is a TOML array of basic strings; these are JSON-compatible.
     const notify = JSON.parse(actual.args[1].replace(/^notify=/, ''));
-    assert.deepEqual(notify, ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, client, 'codex', 'notify', f.service.endpoint, f.env.STINGRAY_ACTIVITY_TOKEN, actual.pid]);
+    const [nonce] = notify.splice(7, 1);
+    assert.deepEqual(notify, ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, client, 'codex', 'notify', f.service.endpoint, actual.pid]);
+    // argv is world-readable: it holds a fresh per-run nonce, never the terminal token.
+    assert.match(nonce, /^[a-f0-9]{64}$/); assert.notEqual(nonce, f.env.STINGRAY_ACTIVITY_TOKEN);
+    notify.splice(7, 0, nonce);
     // The wrapper's background start event registers the run (by pid) without claiming any phase.
     await (async () => { for (let i = 0; i < 200 && !f.service.snapshot().agents.length; i++) await new Promise(r => setTimeout(r, 10)); })();
     const [codex] = f.service.snapshot().agents;
@@ -146,8 +152,17 @@ test('codex wrapper attaches notify per invocation, reports start, and never ove
     // Running the notify argv exactly as Codex would (JSON appended) marks the completion for review.
     await exec(notify[0], [...notify.slice(1), JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 't', 'last-assistant-message': 'PRIVATE' })]);
     assert.ok(f.service.snapshot().agents[0].reviewRevision);
-    for (const args of [['--help'], ['-V'], ['exec', 'x'], ['e', 'x'], ['review'], ['login'], ['mcp', 'list'], ['features', 'list'], ['-c', 'notify=["x"]'], ['--remote', 'ws://h:1']]) {
+    // A notify with any other nonce is rejected.
+    f.service.acknowledge(codex.id, codex.terminalId, f.service.snapshot().agents[0].reviewRevision!);
+    await exec(notify[0], [...notify.slice(1, 7), 'f'.repeat(64), notify[8], JSON.stringify({ type: 'agent-turn-complete' })]);
+    assert.equal(f.service.snapshot().agents[0].reviewRevision, null);
+    for (const args of [['--help'], ['-V'], ['exec', 'x'], ['e', 'x'], ['review'], ['login'], ['mcp', 'list'], ['features', 'list'], ['-c', 'notify=["x"]'], ['--config', 'notify = ["x"]'], ['--config=notify=["x"]'], ['--remote', 'ws://h:1']]) {
       await f.run('codex ' + args.map(shellQuote).join(' ')); assert.deepEqual((await f.args()).args, args);
+    }
+    // A prompt mentioning notify=, or anything after `--`, still attaches.
+    for (const args of [['set notify=x'], ['--', '--help']]) {
+      await f.run('codex ' + args.map(shellQuote).join(' ')); const { args: actual } = await f.args();
+      assert.equal(actual[0], '-c'); assert.deepEqual(actual.slice(2), args);
     }
     await f.run('codex no-tty', false); assert.deepEqual((await f.args()).args, ['no-tty']);
     await mkdir(path.join(f.home, '.codex'));

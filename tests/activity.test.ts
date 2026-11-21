@@ -9,8 +9,8 @@ import { activityLabel, aggregateActivity, harnessLabel, newerActivity, type Age
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => unknown) { for (let i = 0; i < 200; i++) { if (fn()) return; await pause(); } assert.fail('Timed out'); }
-async function fixture(lease = 20000) {
-  const service = new ActivityService(() => {}, lease); await service.start();
+async function fixture(lease = 20000, hookWorking?: number) {
+  const service = new ActivityService(() => {}, lease, hookWorking); await service.start();
   const terminal = randomUUID(), workspace = randomUUID();
   const env = service.bind(terminal, workspace);
   const sockets: Socket[] = [];
@@ -183,7 +183,8 @@ test('hook events fail closed on bad tokens, payload fields and identities', asy
   try {
     const token = f.env.STINGRAY_ACTIVITY_TOKEN;
     for (const value of [hookEvent('0'.repeat(64)), hookEvent(token, { prompt: 'private' }), hookEvent(token, { harness: 'pi' }),
-      hookEvent(token, { session: '../x' }), hookEvent(token, { session: 'x'.repeat(129) }), hookEvent(token, { pid: 1 }), hookEvent(token, { phase: 'done' }), hookEvent(token, { v: 1 })]) {
+      hookEvent(token, { session: '../x' }), hookEvent(token, { session: 'x'.repeat(129) }), hookEvent(token, { pid: 1 }), hookEvent(token, { phase: 'done' }), hookEvent(token, { v: 1 }),
+      hookEvent(token, { token: undefined, run: 'a'.repeat(64) }), hookEvent(token, { token: undefined })]) {
       await hook(f, value);
     }
     await hook(f, hookEvent(token, { ended: true })); // an end for an unknown session creates nothing
@@ -201,6 +202,54 @@ test('hook-reported agents disconnect when their process exits, not on socket cl
     await pause(150);
     assert.equal(f.service.snapshot().agents[0].connection, 'connected');
     child.kill(); await until(() => f.service.snapshot().agents[0].connection === 'disconnected');
+  } finally { await f.close(); }
+});
+
+test('async resume hooks only leave Waiting; a late one never re-opens a finished turn', async () => {
+  const f = await fixture();
+  try {
+    const token = f.env.STINGRAY_ACTIVITY_TOKEN, t0 = Date.now();
+    await hook(f, hookEvent(token, { at: t0, resume: true })); // creates nothing
+    assert.equal(f.service.snapshot().agents.length, 0);
+    await hook(f, hookEvent(token, { at: t0 + 1, phase: 'waiting' }));
+    await hook(f, hookEvent(token, { at: t0 + 2, resume: true }));
+    await until(() => f.service.snapshot().agents[0]?.phase === 'working');
+    await hook(f, hookEvent(token, { at: t0 + 3, phase: 'idle', completed: true }));
+    await hook(f, hookEvent(token, { at: t0 + 4, resume: true }));
+    await pause(30); assert.equal(f.service.snapshot().agents[0].phase, 'idle');
+  } finally { await f.close(); }
+});
+
+test('codex notify authenticates with the registered per-run nonce only while the run is live', async () => {
+  const f = await fixture(50);
+  try {
+    const token = f.env.STINGRAY_ACTIVITY_TOKEN, nonce = 'a'.repeat(64), t0 = Date.now();
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+    const codex = (overrides = {}) => ({ ...hookEvent(token, { harness: 'codex', session: String(child.pid), pid: child.pid, phase: 'unknown' }), ...overrides });
+    const notify = (at: number, overrides = {}) => { const { token: _, ...rest } = codex({ run: nonce, at, completed: true, ...overrides }); return rest; };
+    await hook(f, notify(t0)); // not registered yet
+    assert.equal(f.service.snapshot().agents.length, 0);
+    await hook(f, codex({ run: nonce, at: t0 + 1 }));
+    await until(() => f.service.snapshot().agents[0]?.harness === 'codex');
+    for (const bad of [notify(t0 + 2, { run: 'b'.repeat(64) }), notify(t0 + 2, { harness: 'claude' }), notify(t0 + 2, { session: '1' })]) await hook(f, bad);
+    await pause(30); assert.equal(f.service.snapshot().agents[0].reviewRevision, null);
+    await hook(f, notify(t0 + 3));
+    await until(() => f.service.snapshot().agents[0].reviewRevision);
+    const id = f.service.snapshot().agents[0].id;
+    f.service.acknowledge(id, f.terminal, f.service.snapshot().agents[0].reviewRevision!);
+    child.kill(); await until(() => f.service.snapshot().agents[0].connection === 'disconnected');
+    await hook(f, notify(t0 + 4)); // a dead run's nonce is useless
+    await pause(30); assert.deepEqual([f.service.snapshot().agents[0].connection, f.service.snapshot().agents[0].reviewRevision], ['disconnected', null]);
+  } finally { await f.close(); }
+});
+
+test('hook Working without events expires to unknown while the process lives', async () => {
+  const f = await fixture(50, 100);
+  try {
+    await hook(f, hookEvent(f.env.STINGRAY_ACTIVITY_TOKEN));
+    await until(() => f.service.snapshot().agents[0]?.phase === 'working');
+    await until(() => f.service.snapshot().agents[0].phase === 'unknown');
+    assert.equal(f.service.snapshot().agents[0].connection, 'connected');
   } finally { await f.close(); }
 });
 
