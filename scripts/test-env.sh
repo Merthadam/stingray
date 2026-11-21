@@ -3,6 +3,8 @@
 # release/*-candidate copies: nothing is installed, promoted or kept on the host.
 #
 #   scripts/test-env.sh up [--ref REF] [--port N] [--repo PATH] [--detach]
+#   scripts/test-env.sh test [--ref REF] [unit] [e2e [SUITE...]]
+#                                             run unit + Electron e2e suites headless (Linux/Xvfb)
 #   scripts/test-env.sh down [NAME|--all]     stop/remove test containers
 #   scripts/test-env.sh ls                    list running test envs
 #   scripts/test-env.sh prune                 down --all + remove test images
@@ -11,6 +13,7 @@
 # runs Electron under Xvfb and exposes Chrome DevTools Protocol on
 # 127.0.0.1:PORT (default: first free port from 9222). Without --detach the
 # container is removed when you press Ctrl-C.
+# test: same image, throwaway container; evidence is copied to artifacts/testing/test-env/.
 set -euo pipefail
 
 LABEL=stingray.test-env
@@ -34,19 +37,9 @@ free_port() {
   echo "$p"
 }
 
-cmd_up() {
-  local ref="" port="" repo="" detach=0
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --ref) ref=$2; shift 2 ;;
-      --port) port=$2; shift 2 ;;
-      --repo) repo=$(cd "$2" && pwd); shift 2 ;;
-      --detach|-d) detach=1; shift ;;
-      *) die "unknown option $1" ;;
-    esac
-  done
-  ensure_docker
-
+# Builds REF (or the working tree when empty) into $IMAGE:<slug>; sets TAG.
+build_image() {
+  local ref=$1
   local stage; stage=$(mktemp -d "${TMPDIR:-/tmp}/stingray-test-env.XXXXXX")
   local slug
   if [ -n "$ref" ]; then
@@ -61,11 +54,27 @@ cmd_up() {
   fi
   # Always use this checkout's Docker files so older refs can be tested too.
   rm -rf "$stage/.test-env"; cp -Rp "$ROOT/docker/test-env" "$stage/.test-env"
-  chmod +x "$stage/.test-env/entrypoint.sh"
+  chmod +x "$stage/.test-env/"*.sh
 
   echo "Building $IMAGE:$slug ..." >&2
   local ok=0; docker build -t "$IMAGE:$slug" -f "$stage/.test-env/Dockerfile" "$stage" >&2 || ok=$?
   rm -rf "$stage"; [ $ok -eq 0 ] || die "image build failed"
+  TAG=$slug
+}
+
+cmd_up() {
+  local ref="" port="" repo="" detach=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --ref) ref=$2; shift 2 ;;
+      --port) port=$2; shift 2 ;;
+      --repo) repo=$(cd "$2" && pwd); shift 2 ;;
+      --detach|-d) detach=1; shift ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  ensure_docker
+  build_image "$ref"; local slug=$TAG
 
   port=${port:-$(free_port 9222)}
   local name="stingray-test-$slug-$(LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 4)"
@@ -98,6 +107,20 @@ EOF
   fi
 }
 
+cmd_test() {
+  local ref=""
+  [ "${1:-}" = "--ref" ] && { ref=$2; shift 2; }
+  ensure_docker
+  build_image "$ref"
+  local out="$ROOT/artifacts/testing/test-env/$TAG-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"; chmod 777 "$out"  # container runs as uid 1000
+  local name="stingray-test-$TAG-run-$(LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 4)"
+  local status=0
+  docker run --rm --init --name "$name" --label "$LABEL=1" --shm-size=1g -v "$out:/out" \
+    --entrypoint /app/.test-env/run-tests.sh "$IMAGE:$TAG" "$@" || status=$?
+  echo "Evidence: $out" >&2
+  return $status
+}
+
 cmd_down() {
   ensure_docker
   if [ "${1:-}" = "--all" ] || [ -z "${1:-}" ]; then
@@ -123,8 +146,9 @@ cmd_prune() {
 
 case ${1:-} in
   up) shift; cmd_up "$@" ;;
+  test) shift; cmd_test "$@" ;;
   down) shift; cmd_down "$@" ;;
   ls) cmd_ls ;;
   prune) cmd_prune ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

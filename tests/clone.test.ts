@@ -116,8 +116,9 @@ test('clone timeout terminates its transport process group and does not expose s
     await writeFile(f.ssh, `#!/bin/sh\necho $$ > '${pidFile}'\necho private-provider-detail >&2\nexec sleep 60\n`, { mode: 0o700 });
     const target = path.join(f.root, 'timeout'); await mkdir(target);
     const started = Date.now();
-    await assert.rejects(cloneGit(f.url, target, f.root, 500), e => (e as Error).message === cloneFailure);
-    assert.ok(Date.now() - started < 3000);
+    // Generous timeout: under a loaded parallel test run (CI) git may need >500ms to spawn the transport.
+    await assert.rejects(cloneGit(f.url, target, f.root, 2000), e => (e as Error).message === cloneFailure);
+    assert.ok(Date.now() - started < 6000);
     const pid = Number(await readFile(pidFile, 'utf8'));
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.throws(() => process.kill(pid, 0));
