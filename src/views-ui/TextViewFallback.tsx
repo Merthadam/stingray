@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Copy, Search } from 'lucide-react';
 import type { ViewResult } from '../views';
-import { formatText } from '../views-text';
+import { formatText, sequenceText } from '../views-text';
 import { matchingLines, splitMatches } from '../views-tab-model';
 
 /** The CLI's text form, read-only and searchable: kinds without a drawn diagram, views too big to draw, or on request. */
 export function TextViewFallback({ result, toolbar, note }: { result: ViewResult; toolbar: ReactNode; note?: string }) {
-  const lines = useMemo(() => formatText(result).split('\n'), [result]);
+  const lines = useMemo(() => (result.kind === 'sequence' ? sequenceText(result) : formatText(result)).split('\n'), [result]);
   const [query, setQuery] = useState('');
   const [current, setCurrent] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -20,7 +20,8 @@ export function TextViewFallback({ result, toolbar, note }: { result: ViewResult
   };
   return <div className="views-text">
     <div className="views-toolbar">
-      <strong>{result.name}</strong><span className="views-muted">{result.kind} · {result.nodes.length} nodes · {result.edges.length} edges</span>
+      <strong>{result.name}</strong><span className="views-muted">{result.kind} · {result.sequence ? `${result.sequence.participants.length} participants · ${result.sequence.messages.length} messages`
+        : `${result.nodes.length} nodes · ${result.edges.length} edges`}</span>
       <span className="views-toolbar-spacer" />{toolbar}
     </div>
     {note && <p className="views-text-note">{note}</p>}
