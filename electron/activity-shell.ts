@@ -1,32 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { claudeSettings, harnesses, shellQuote, type HarnessContext } from './harnesses';
 
-export const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-export function piWrapper(bin: string, extension: string) {
-  return `#!/bin/sh
-# Resolve the real command at invocation time, not at app startup. No eval.
-sr_rest=$PATH
-sr_clean=
-sr_first=1
-while :; do
-  case "$sr_rest" in *:*) sr_part=\${sr_rest%%:*}; sr_rest=\${sr_rest#*:}; sr_more=1;; *) sr_part=$sr_rest; sr_more=0;; esac
-  if [ "$sr_part" != ${shellQuote(bin)} ]; then
-    if [ "$sr_first" = 1 ]; then sr_clean=$sr_part; sr_first=0; else sr_clean=$sr_clean:$sr_part; fi
-  fi
-  [ "$sr_more" = 1 ] || break
-done
-sr_real=$(PATH="$sr_clean" command -v pi) || { printf '%s\\n' 'Pi is not installed on this terminal PATH.' >&2; exit 127; }
-if [ "$sr_real" -ef "$0" ]; then printf '%s\\n' 'Pi wrapper loop refused. Use the real Pi executable.' >&2; exit 127; fi
-# Preserve maintenance/help/explicitly disabled and non-interactive invocations.
-if [ ! -t 0 ] || [ ! -t 1 ]; then exec "$sr_real" "$@"; fi
-case "\${1-}" in install|remove|update|list|config|uninstall|auth|mcp) exec "$sr_real" "$@";; esac
-for sr_arg in "$@"; do
-  case "$sr_arg" in --help|-h|--version|-v|--no-extensions|-ne|--print|-p|--mode|--mode=*|--list-models|--export) exec "$sr_real" "$@";; esac
-done
-unset STINGRAY_PI_RUN STINGRAY_PI_PID
-exec "$sr_real" --extension ${shellQuote(extension)} "$@"
-`;
-}
+export { shellQuote };
 
 /** Zsh login-shell proxies preserve startup ordering and user ZDOTDIR changes.
  * We do not replace aliases/functions or install persistent shell configuration.
@@ -34,11 +10,13 @@ exec "$sr_real" --extension ${shellQuote(extension)} "$@"
 export class ActivityShell {
   bin = '';
   startup = '';
-  /** `viewsBin`: the installed `stingray-views` launcher's directory ('' when not installed); kept on PATH like the Pi bin. */
-  async prepare(directory: string, extension: string, viewsBin = '') {
+  /** `viewsBin`: the installed `stingray-views` launcher's directory ('' when not installed); kept on PATH like the agent bin. */
+  async prepare(directory: string, agents: Omit<HarnessContext, 'bin' | 'claudeSettings'>, viewsBin = '') {
     this.bin = path.join(directory, 'bin'); this.startup = path.join(directory, 'zsh');
     await mkdir(this.bin, { mode: 0o700 }); await mkdir(this.startup, { mode: 0o700 });
-    await writeFile(path.join(this.bin, 'pi'), piWrapper(this.bin, extension), { mode: 0o700 });
+    const ctx = { ...agents, bin: this.bin, claudeSettings: path.join(directory, 'claude-settings.json') };
+    await writeFile(ctx.claudeSettings, claudeSettings(ctx), { mode: 0o600 });
+    for (const harness of harnesses) await writeFile(path.join(this.bin, harness.command), harness.wrapper(ctx), { mode: 0o700 });
     // rc files may rebuild PATH: put our directories first again afterwards, without duplicates.
     const dirs = [this.bin, viewsBin].filter(Boolean).map(shellQuote);
     const others = dirs.reduce((rest, d) => `\${${rest}:#${d}}`, 'path'); // ${${path:#'a'}:#'b'}: path without a and b

@@ -14,7 +14,7 @@ import { RemoveWorktreeForm } from './RemoveWorktreeForm';
 import { WorkspacePortsChip } from './WorkspacePortsChip';
 import { useWorkspacePorts } from './useWorkspacePorts';
 import { useActivity } from './useActivity';
-import { aggregateActivity } from './activity';
+import { aggregateActivity, harnessLabel } from './activity';
 import { navigationKey, parseSelection, resolveSelection, type ProjectSelection } from './project-navigation';
 
 const emptyState: State = { version: 1, repos: [], workspaces: [] };
@@ -73,7 +73,8 @@ export default function App() {
   const visibleTerminalIds = split ? [active, workspaceTerminals.find(t => t.id !== active)?.id] : [active];
   const activity = useActivity(!initializing && !loadFailed && workspace && tab === 'workspace' && !modal
     ? visibleTerminalIds.filter((id): id is string => Boolean(id)) : []);
-  const activeActivity = aggregateActivity(activity.agents.filter(a => a.terminalId === active));
+  const activeAgents = activity.agents.filter(a => a.terminalId === active);
+  const activeActivity = aggregateActivity(activeAgents);
   const setErrorMessage = useCallback((message: string) => setError(message), []);
   const apply = (next: State) => setState(next);
   function openProject(repoId: string) {
@@ -153,7 +154,7 @@ export default function App() {
     <button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={13} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button>
     <button role="tab" aria-selected={tab === 'views'} className={tab === 'views' ? 'active' : ''} onClick={() => setTab('views')}><Network size={13} /> Views</button>
   </div>;
-  const piState = api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable';
+  const piState = api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Agents: Tracking unavailable' : activeActivity ? `${harnessLabel(activeAgents)}: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Agents: not attached' : 'Agents: Tracking unavailable';
   return <div className="app-shell">
     <header className="titlebar"><div className="window-space" />
       <button className="icon titlebar-toggle" aria-label={drawer ? 'Hide sidebar' : 'Show sidebar'} aria-expanded={drawer} title={(drawer ? 'Hide' : 'Show') + ' sidebar · ⌘ \\'} onClick={() => setDrawer(v => !v)}>{drawer ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}</button>
@@ -214,7 +215,7 @@ export default function App() {
         </>}
       </main>
     </div>
-    <footer className="statusbar"><span><span className="local-indicator" />{workspace && !initializing && !loadFailed ? <>{workspaceTerminals.filter(t => !t.exited).length} running<span className="status-divider">/</span><span className="pi-terminal-state" title="Pi 1.5.0 tracking attaches to typed pi commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Claude/Codex tracking is not supported. Shell liveness is not agent activity.">{piState}</span><span className="status-divider">/</span><GitBranch size={11} />{status?.branch || workspace.branch}</> : repo?.name || 'Projects home'}</span>
+    <footer className="statusbar"><span><span className="local-indicator" />{workspace && !initializing && !loadFailed ? <>{workspaceTerminals.filter(t => !t.exited).length} running<span className="status-divider">/</span><span className="pi-terminal-state" title="Activity tracking attaches to typed pi (1.5.0), claude and codex commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Codex reports turn completion only. Shell liveness is not agent activity.">{piState}</span><span className="status-divider">/</span><GitBranch size={11} />{status?.branch || workspace.branch}</> : repo?.name || 'Projects home'}</span>
       <span><span title={api.mode === 'demo' ? 'Simulated GitHub states.' : 'GitHub via your gh login.'}><ShieldCheck size={11} /> {api.mode === 'desktop' ? 'On your machine' : 'Simulated demo'}</span><span className="status-divider">/</span><button className="status-link" onClick={() => openModal('about')}><CircleHelp size={11} /> Help</button><span className="status-divider">/</span>Stingray 0.1.0</span></footer>
     {modal && <Modal title={{ open: 'Add project', create: 'Create a worktree', remove: 'Remove this worktree?', 'close-terminal': 'Close terminal?', about: 'Built for focused work.' }[modal]} busy={busy} onClose={() => { setModal(null); setError(''); }}>
       {api.mode === 'demo' && <p className="info-box">Browser demo: actions here are simulated. No local files or processes will change.</p>}

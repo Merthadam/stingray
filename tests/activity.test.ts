@@ -4,7 +4,7 @@ import { createConnection, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { ActivityService } from '../electron/activity';
-import { activityLabel, aggregateActivity, newerActivity, type PiActivity } from '../src/activity';
+import { activityLabel, aggregateActivity, newerActivity, type AgentActivity } from '../src/activity';
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => unknown) { for (let i = 0; i < 200; i++) { if (fn()) return; await pause(); } assert.fail('Timed out'); }
@@ -21,7 +21,7 @@ async function fixture(lease = 20000) {
 const state = (seq: number, phase = 'idle', completed = 0) => ({ type: 'state', seq, phase, completed });
 
 test('labels do not confuse shell/disconnection/error with idle; deterministic workspace priority', () => {
-  const base: PiActivity = { id: 'a', terminalId: 't', workspaceId: 'w', connection: 'connected', phase: 'idle', reviewRevision: null };
+  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'pi', connection: 'connected', phase: 'idle', reviewRevision: null };
   assert.equal(activityLabel(base), 'Idle');
   for (const [phase, label] of [['working','Working'],['waiting','Waiting for you'],['failed','Failed'],['interrupted','Interrupted'],['unknown','Tracking unavailable']] as const) assert.equal(activityLabel({ ...base, phase }), label);
   assert.equal(activityLabel({ ...base, connection: 'disconnected' }), 'Disconnected');
@@ -45,7 +45,8 @@ test('private socket, metadata-only snapshots, exact acknowledgement and termina
     f.send(s, state(2, 'idle', 1)); await until(() => f.service.snapshot().agents[0]?.reviewRevision);
     const a = f.service.snapshot().agents[0];
     assert.equal(a.workspaceId, f.workspace); assert.equal(a.terminalId, f.terminal);
-    assert.deepEqual(Object.keys(a).sort(), ['connection','id','phase','reviewRevision','terminalId','workspaceId']);
+    assert.deepEqual(Object.keys(a).sort(), ['connection','harness','id','phase','reviewRevision','terminalId','workspaceId']);
+    assert.equal(a.harness, 'pi');
     assert.ok(!JSON.stringify(f.service.snapshot()).includes(f.env.STINGRAY_ACTIVITY_TOKEN));
     f.service.acknowledge(a.id, randomUUID(), a.reviewRevision!);
     assert.equal(f.service.snapshot().agents[0].reviewRevision, a.reviewRevision);

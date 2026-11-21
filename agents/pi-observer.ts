@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import type { PiPhase } from '../src/activity';
+import type { AgentPhase } from '../src/activity';
 
 // The observer only reads these scalar fields, never messages, prompts, tool data,
 // session files, UI titles, auth, or model output. It never returns a hook decision.
@@ -14,8 +14,8 @@ export function registerPiObserver(pi: PiObserverAPI, version: string, env = pro
   const supported = version === '1.5.0';
   let socket: Socket | undefined, timer: ReturnType<typeof setInterval> | undefined;
   let active = false, connected = false, runtime = '', run = '', seq = 0, completed = 0;
-  let working = false, waiting = false, outcome = 'none', rest: PiPhase = 'idle';
-  const phase = (): PiPhase => waiting ? 'waiting' : working ? 'working' : rest;
+  let working = false, waiting = false, outcome = 'none', rest: AgentPhase = 'idle';
+  const phase = (): AgentPhase => waiting ? 'waiting' : working ? 'working' : rest;
   function send() {
     if (!connected || !socket || socket.destroyed || !supported) return;
     // Full snapshots + monotonic completion counter allow coalescing during outages.
@@ -33,7 +33,7 @@ export function registerPiObserver(pi: PiObserverAPI, version: string, env = pro
       clearTimeout(deadline);
       if (!active || socket !== current) { current.destroy(); return; }
       connected = true;
-      current.write(JSON.stringify({ type: 'hello', v: 1, token, run, runtime, supported }) + '\n');
+      current.write(JSON.stringify({ type: 'hello', v: 2, harness: 'pi', token, run, runtime, supported }) + '\n');
       if (supported) send(); else current.end();
     });
     current.on('close', () => {

@@ -3,13 +3,25 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ActivitySnapshot, PiActivity, PiPhase } from '../src/activity';
+import type { ActivitySnapshot, AgentActivity, AgentPhase } from '../src/activity';
 
 const uuid = z.string().uuid();
-const hello = z.object({ type: z.literal('hello'), v: z.literal(1), token: z.string().regex(/^[a-f0-9]{64}$/), run: uuid, runtime: uuid, supported: z.boolean() }).strict();
-const state = z.object({ type: z.literal('state'), seq: z.number().int().min(1).max(1e9), phase: z.enum(['idle', 'working', 'waiting', 'failed', 'interrupted', 'unknown']), completed: z.number().int().min(0).max(1e9) }).strict();
+const token = z.string().regex(/^[a-f0-9]{64}$/);
+const phase = z.enum(['idle', 'working', 'waiting', 'failed', 'interrupted', 'unknown']);
+// v1 is the original Pi-only hello; v2 names the harness. Only Pi streams state over a long-lived socket.
+const helloV1 = z.object({ type: z.literal('hello'), v: z.literal(1), token, run: uuid, runtime: uuid, supported: z.boolean() }).strict();
+const hello = z.union([helloV1, helloV1.extend({ v: z.literal(2), harness: z.literal('pi') }).strict()]);
+const state = z.object({ type: z.literal('state'), seq: z.number().int().min(1).max(1e9), phase, completed: z.number().int().min(0).max(1e9) }).strict();
+/** One-shot frame from a short-lived hook process (Claude Code hooks, Codex notify): authenticate + report, then close.
+ * `session` is the harness's opaque session identity, `pid` the agent process used for liveness, `at` orders racing hooks. */
+const hookEvent = z.object({
+  type: z.literal('event'), v: z.literal(2), token, harness: z.enum(['claude', 'codex']),
+  session: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), pid: z.number().int().min(2).max(2 ** 22), at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  phase, completed: z.boolean(), ended: z.boolean(),
+}).strict();
+type HookEvent = z.infer<typeof hookEvent>;
 type TerminalBinding = { terminalId: string; workspaceId: string; token: string };
-type Entry = PiActivity & { run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: Socket };
+type Entry = AgentActivity & { run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: Socket; pid?: number; at: number };
 
 /** A private local socket. Credentials bind to terminals, never to client-selected workspaces.
  * This protects against unrelated connections, not hostile code running as the same OS user
@@ -20,6 +32,7 @@ export class ActivityService {
   private terminals = new Map<string, TerminalBinding>();
   private entries = new Map<string, Entry>();
   private revision = 0;
+  private liveness?: ReturnType<typeof setInterval>;
   directory = '';
   endpoint = '';
   constructor(private publish: (snapshot: ActivitySnapshot) => void, private leaseMs = 20000) {}
@@ -36,6 +49,8 @@ export class ActivityService {
       });
       await chmod(this.endpoint, 0o600);
       this.server.on('error', () => { for (const socket of this.sockets) socket.destroy(); });
+      // Hook-reported agents have no socket to close: their liveness is the agent process.
+      this.liveness = setInterval(() => this.checkProcesses(), Math.min(5000, this.leaseMs)); this.liveness.unref();
     } catch (error) { await this.close(); throw error; }
   }
   bind(terminalId: string, workspaceId: string) {
@@ -55,7 +70,7 @@ export class ActivityService {
     if (changed) this.changed();
   }
   snapshot(): ActivitySnapshot {
-    return { revision: this.revision, agents: [...this.entries.values()].map(e => ({ id: e.id, terminalId: e.terminalId, workspaceId: e.workspaceId, connection: e.connection, phase: e.phase, reviewRevision: e.reviewRevision })) };
+    return { revision: this.revision, agents: [...this.entries.values()].map(e => ({ id: e.id, terminalId: e.terminalId, workspaceId: e.workspaceId, harness: e.harness, connection: e.connection, phase: e.phase, reviewRevision: e.reviewRevision })) };
   }
   acknowledge(id: string, terminalId: string, reviewRevision: number) {
     const entry = this.entries.get(id);
@@ -63,6 +78,43 @@ export class ActivityService {
     entry.reviewRevision = null; this.changed();
   }
   private changed() { ++this.revision; this.publish(this.snapshot()); }
+  private checkProcesses() {
+    let changed = false;
+    for (const entry of this.entries.values()) {
+      if (!entry.pid || entry.connection !== 'connected') continue;
+      try { process.kill(entry.pid, 0); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') { entry.connection = 'disconnected'; changed = true; }
+      }
+    }
+    if (changed) this.changed();
+  }
+  /** Room for one more run on a terminal, evicting a disconnected run without unseen review if needed. */
+  private admit(terminalId: string) {
+    const siblings = [...this.entries.values()].filter(e => e.terminalId === terminalId);
+    if (siblings.length < 8) return true;
+    const disposable = siblings.find(e => !e.socket && e.connection !== 'connected' && e.reviewRevision === null);
+    if (disposable) this.entries.delete(disposable.id);
+    return Boolean(disposable);
+  }
+  private hookEvent(socket: Socket, e: HookEvent) {
+    const terminal = [...this.terminals.values()].find(t => t.token === e.token);
+    if (!terminal) { socket.destroy(); return; }
+    let entry = [...this.entries.values()].find(x => x.terminalId === terminal.terminalId && x.harness === e.harness && x.run === e.session);
+    socket.end();
+    if (entry && e.at < entry.at) return; // a racing older hook must not overwrite a newer state
+    if (!entry) {
+      if (e.ended || !this.admit(terminal.terminalId)) return;
+      entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: e.harness, run: e.session, runtime: '', retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown' };
+      this.entries.set(entry.id, entry);
+    }
+    const before = `${entry.connection}/${entry.phase}`;
+    entry.at = e.at; entry.pid = e.pid;
+    // An observed clean end (e.g. Claude /clear starts a new session) is not a lost connection.
+    if (e.ended && entry.reviewRevision === null) { this.entries.delete(entry.id); this.changed(); return; }
+    entry.connection = e.ended ? 'disconnected' : 'connected'; entry.phase = e.phase;
+    if (e.completed) entry.reviewRevision = this.revision + 1;
+    if (e.completed || before !== `${entry.connection}/${entry.phase}`) this.changed();
+  }
   private accept(socket: Socket) {
     if (this.sockets.size >= 64) { socket.destroy(); return; }
     this.sockets.add(socket);
@@ -96,12 +148,14 @@ export class ActivityService {
         let value: unknown;
         try { value = JSON.parse(line.toString('utf8')); } catch { socket.destroy(); return; }
         if (!entry) {
+          const event = hookEvent.safeParse(value);
+          if (event.success) { this.hookEvent(socket, event.data); return; }
           const parsed = hello.safeParse(value);
           if (!parsed.success) { socket.destroy(); return; }
           const h = parsed.data;
           const terminal = [...this.terminals.values()].find(t => t.token === h.token);
           if (!terminal) { socket.destroy(); return; }
-          entry = [...this.entries.values()].find(e => e.terminalId === terminal.terminalId && e.run === h.run);
+          entry = [...this.entries.values()].find(e => e.terminalId === terminal.terminalId && e.harness === 'pi' && e.run === h.run);
           if (entry) {
             if (entry.retired.has(h.runtime)) { entry = undefined; socket.destroy(); return; }
             if (entry.runtime !== h.runtime) {
@@ -112,13 +166,8 @@ export class ActivityService {
             // Reconnection/reload never acknowledges an unseen completion.
             entry.socket?.destroy();
           } else {
-            const siblings = [...this.entries.values()].filter(e => e.terminalId === terminal.terminalId);
-            if (siblings.length >= 8) {
-              const disposable = siblings.find(e => !e.socket && e.reviewRevision === null);
-              if (!disposable) { socket.destroy(); return; }
-              this.entries.delete(disposable.id);
-            }
-            entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, run: h.run, runtime: h.runtime, retired: new Set(), seq: 0, completed: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown' };
+            if (!this.admit(terminal.terminalId)) { socket.destroy(); return; }
+            entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: 'pi', run: h.run, runtime: h.runtime, retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown' };
             this.entries.set(entry.id, entry);
           }
           entry.socket = socket;
@@ -135,7 +184,7 @@ export class ActivityService {
           entry.seq = s.seq;
           const completed = s.completed > entry.completed;
           const changed = completed || s.phase !== entry.phase;
-          entry.completed = s.completed; entry.phase = s.phase as PiPhase;
+          entry.completed = s.completed; entry.phase = s.phase as AgentPhase;
           if (completed) entry.reviewRevision = this.revision + 1;
           if (changed) this.changed();
         }
@@ -144,6 +193,7 @@ export class ActivityService {
     });
   }
   async close() {
+    clearInterval(this.liveness);
     for (const socket of this.sockets) socket.destroy();
     this.terminals.clear(); this.entries.clear();
     if (this.server?.listening) await new Promise<void>(resolve => this.server!.close(() => resolve()));

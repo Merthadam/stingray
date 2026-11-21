@@ -5,12 +5,12 @@ import type { GitStatus, Workspace } from './shared';
 import { usePullRequest } from './usePullRequest';
 import { useSidebarGit } from './useSidebarGit';
 import './workspace-git.css';
-import type { PiActivity } from './activity';
+import type { AgentActivity } from './activity';
 import { WorkspaceActivity } from './WorkspaceActivity';
 
 export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRefresh, onRemove, children }: {
   workspace: Workspace; selected: boolean; status: GitStatus | null; statusBusy: boolean; statusError: string;
-  agents?: PiActivity[]; activityUnavailable?: boolean;
+  agents?: AgentActivity[]; activityUnavailable?: boolean;
   disabled: boolean; running: boolean; onSelect: () => void; onChanges: () => void; onRefresh: () => void; onRemove: () => void; children: ReactNode;
 }) {
   const background = useSidebarGit(workspace.id, !selected);

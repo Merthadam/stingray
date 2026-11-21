@@ -15,7 +15,7 @@ async function fixture(views = '') {
   const record = path.join(root, 'args.json');
   await writeFile(path.join(bin, 'pi'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify({args:process.argv.slice(2), marker:process.env.MARKER, run:process.env.STINGRAY_PI_RUN, zdot:process.env.ZDOTDIR}));`, { mode: 0o700 });
   const extension = path.join(root, "extension '; echo BAD; '.js");
-  const shell = new ActivityShell(); await shell.prepare(bridge, extension, views && path.join(root, views));
+  const shell = new ActivityShell(); await shell.prepare(bridge, { extension, hookClient: path.join(root, 'hook-client.cjs'), execPath: process.execPath, endpoint: path.join(bridge, 'events.sock') }, views && path.join(root, views));
   const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TERM: 'xterm-256color', STINGRAY_PI_RUN: 'inherited-parent', STINGRAY_PI_PID: '1' };
   const run = (command: string, tty = true): Promise<{ stdout: string }> => {
     const options = { env: { ...env, ...shell.environment('/bin/zsh', env) }, cwd: root };
