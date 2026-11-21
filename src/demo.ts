@@ -237,4 +237,7 @@ export const demoAPI: DesktopAPI = {
   resizeTerminal: async () => undefined,
   closeTerminal: async id => { terminalList = terminalList.filter(t => t.id !== id); },
   onTerminal: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+  gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoAPI.gitStatus(id), pr: await demoAPI.pullRequest(id) }),
+  refreshGitState: id => demoAPI.gitState(id),
+  onGitStateChanged: () => () => {},
 };

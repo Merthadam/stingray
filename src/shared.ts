@@ -130,5 +130,12 @@ export interface DesktopAPI {
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>;
   closeTerminal(id: string): Promise<void>;
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Shared Git + PR state of a workspace; starts main-process tracking (watcher, polls) on first use. */
+  gitState(workspaceId: string): Promise<WorkspaceGitState>;
+  /** Re-reads Git now and re-queries GitHub (5s cooldown). */
+  refreshGitState(workspaceId: string): Promise<WorkspaceGitState>;
+  onGitStateChanged(listener: (state: WorkspaceGitState) => void): () => void;
 }
+/** revision increases with every change in the main process, so late responses can be ignored. */
+export type WorkspaceGitState = { workspaceId: string; revision: number; status: GitStatus | null; error: string; pr: PullRequestStatus | null };
 declare global { interface Window { stingray?: DesktopAPI } }

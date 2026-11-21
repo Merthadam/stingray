@@ -95,6 +95,8 @@ export class PullRequestService {
   private pending = new Map<string, Promise<PullRequestStatus>>();
   private lists = new Map<string, { list?: RepoList; result: RepoList | { message: string }; until: number; retryAfter: number }>();
   private listsPending = new Map<string, Promise<RepoList | { message: string }>>();
+  /** Called when a repository list changed (new 200 response), so every branch of it can be re-matched. */
+  onListChange?: () => void;
   constructor(private execute: PRRunner = run, private now = Date.now) {}
 
   async status(cwd: string, refresh = false): Promise<PullRequestStatus> {
@@ -133,6 +135,7 @@ export class PullRequestService {
       this.lists.delete(key);
       this.lists.set(key, { list, result, until: this.now() + ('pulls' in result ? 15000 : 10000), retryAfter: this.now() + 5000 });
       if (this.lists.size > 100) this.lists.delete(this.lists.keys().next().value!);
+      if ('pulls' in result && result.etag !== cached?.list?.etag) this.onListChange?.();
       return result;
     }).finally(() => { this.listsPending.delete(key); });
     this.listsPending.set(key, request);

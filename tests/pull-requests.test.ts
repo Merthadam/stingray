@@ -69,6 +69,7 @@ test('service makes one conditional request per repository for all branches, the
     if (command === 'git') return args.includes('branch') ? 'feature/ui\n' : 'git@github.com:owner/app.git\n';
     return reply();
   }, () => now);
+  let changes = 0; service.onListChange = () => { changes++; };
   const results = await Promise.all([service.status('/repo'), service.resolve('/worktree', 'other', 'https://github.com/owner/app'),
     service.resolve('/worktree2', 'unmatched', 'https://github.com/owner/app.git')]);
   assert.deepEqual(results.map(r => r.kind === 'pr' ? r.number : r.kind), [42, 43, 'none']);
@@ -79,6 +80,7 @@ test('service makes one conditional request per repository for all branches, the
   const forced = await service.resolve('/repo', 'feature/ui', 'https://github.com/owner/app', true);
   assert.deepEqual(gh()[1], apiArgs('"v1"'));
   assert.ok(forced.kind === 'pr' && forced.checkedAt === now);
+  assert.equal(changes, 1, 'a 304 is not a list change');
   now += 10000; await service.resolve('/repo', 'other', 'https://github.com/owner/app'); assert.equal(gh().length, 2);
   now += 6000; await service.resolve('/repo', 'other', 'https://github.com/owner/app'); assert.equal(gh().length, 3);
 });
