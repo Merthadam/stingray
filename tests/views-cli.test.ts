@@ -143,7 +143,7 @@ test('views-cli check --restamp: writes current fingerprints of resolved explain
     const yaml = [
       '# Agent flow', 'version: 1', 'name: Agent flow', 'kind: flow', '',
       'explain:', '  # the planning step', '  plan:', '    text: "Plans the trip, step by step" # keep me',
-      '    fingerprint: 000000000000', '  START: { text: Entry }', '  ghost:', '    text: Nothing', '',
+      '    fingerprint: "000000000000"', '  START: { text: Entry }', '  ghost:', '    text: Nothing', '',
     ].join('\n');
     await writeFile(file, yaml);
     const explain = [{ key: 'plan', text: 'Plans the trip, step by step', fingerprint: '000000000000', line: 8 },
@@ -181,6 +181,47 @@ test('views-cli check --restamp: writes current fingerprints of resolved explain
     assert.match(noGraph.err[0], /^restamp: needs the code graph/);
     assert.equal(await noGraph.run('check', '.stingray/views/flow.yaml', '--restamp', '--json'), 2);
     assert.match(noGraph.err[1], /--restamp cannot be combined with --json/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('views-cli check --restamp: writes nothing when check fails; skips aliased entries and files the index has not caught up with', async () => {
+  const root = await repo();
+  try {
+    const file = path.join(root, '.stingray/views/flow.yaml');
+    const yaml = ['version: 1', 'name: Agent flow', 'kind: flow', 'explain:', '  plan: &p { text: Plans }', '  START: *p',
+      '  verify: { text: Accept }', '  check: { text: Check }', ''].join('\n');
+    await writeFile(file, yaml);
+    await writeFile(path.join(root, 'app.py'), 'def verify():\n    pass\n');
+    await writeFile(path.join(root, 'lib.py'), 'def check():\n    pass\n');
+    const appMtime = (await stat(path.join(root, 'app.py'))).mtimeMs;
+    const explain = [{ key: 'plan', text: 'Plans', fingerprint: null, line: 5 }, { key: 'START', text: 'Plans', fingerprint: null, line: 6 },
+      { key: 'verify', text: 'Accept', fingerprint: null, line: 7 }, { key: 'check', text: 'Check', fingerprint: null, line: 8 }];
+    const symbolNode = (name: string, f: string) => node(name, { symbol: { id: `py:${name}`, name, kind: 'function', file: f, line: 1, endLine: 2 } });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const deps = (errors: boolean): Partial<CliDeps> => ({
+      loadViewPath: async () => ({ summary, view, ruleFiles: [], errors: [], explain }),
+      evaluate: async () => output({ nodes: [node('START', { role: 'start' }), node('plan'), symbolNode('verify', 'app.py'), symbolNode('check', 'lib.py')],
+        diagnostics: { rules: [rule(errors ? { errors: [{ file: 'x.yaml', line: 1, message: 'bad query' }] } : {})], graph: null, unresolved: [], limits: { filesScanned: 2, matches: 3, truncated: false }, ms: 1 } }),
+      createFileProvider: () => ({ list: async () => ({ files: [], truncated: false }), read: async f => readFile(path.join(root, f), 'utf8') }),
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null }, indexedMtime: f => (f === 'app.py' ? appMtime : 1) }),
+    });
+
+    const failed = harness(root, deps(true));
+    assert.equal(await failed.run('check', '.stingray/views/flow.yaml', '--restamp'), 1);
+    assert.deepEqual(failed.err, ['restamp: fix the errors first; nothing was written.']);
+    assert.equal(await readFile(file, 'utf8'), yaml);
+
+    const h = harness(root, deps(false));
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--restamp'), 0);
+    const tail = h.out.slice(h.out.lastIndexOf('') + 1);
+    assert.equal(tail[0], 'restamp: skipped "START" (entry is not a plain mapping; stamp it by hand)');
+    assert.equal(tail[1], 'restamp: skipped "check" (lib.py changed since the code graph indexed it; restamp after Stingray re-indexes)');
+    assert.match(tail[2], /^restamp: stamped "plan" [0-9a-f]{12} /);
+    assert.match(tail[3], /^restamp: stamped "verify" [0-9a-f]{12} /);
+    assert.equal(tail[4], 'restamp: wrote 2 fingerprints to .stingray/views/flow.yaml');
+    const written = await readFile(file, 'utf8');
+    assert.match(written, /  START: \*p\n/);
+    assert.doesNotMatch(written, /check: \{ text: Check, fingerprint/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

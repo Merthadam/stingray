@@ -16,7 +16,10 @@ import { listViewFiles, loadViewPath } from './views/view-file';
 import { explainPair } from './views/rules/schema';
 
 type LoadedView = Awaited<ReturnType<typeof loadViewPath>>;
-export interface OpenedGraph { api: GraphApi | null; status: GraphStatus; close?: () => void }
+export interface OpenedGraph {
+  api: GraphApi | null; status: GraphStatus; close?: () => void;
+  indexedMtime?: (file: string) => number | null; // a file's mtime when the index last read it; null = not indexed
+}
 export interface CliDeps {
   cwd: string;
   out: (text: string) => void;
@@ -127,7 +130,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
     else { deps.err('--depth only applies to kind: flowchart views and views with layers:'); return 2; }
   }
   const graph = await deps.openGraph(root), api = graph.api;
-  let result;
+  let result, lagging = new Set<string>();
   try {
     result = await computeView({ ...loaded, view: loaded.view }, {
       graph: graph.status, readSource: deps.createFileProvider(root).read, sqlalchemy: () => deps.dbSchema(root), sql: () => deps.sqlSchema(root),
@@ -137,6 +140,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
         return s ?? null;
       }),
     });
+    if (restamp && graph.indexedMtime) lagging = await laggingFiles(root, result.diagnostics?.explain ?? [], graph.indexedMtime);
   } finally { graph.close?.(); }
 
   const d = result.diagnostics!;
@@ -179,13 +183,21 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   deps.out(formatText(result));
   deps.out('');
   deps.out(failed ? 'FAILED: fix the errors above and run check again.' : 'OK: no errors. Check that the diagram above matches the code.');
-  if (restamp && !(await restampFile(file, relFile, d.explain ?? [], graph.api !== null, deps))) return 1;
+  if (restamp && failed) { deps.err('restamp: fix the errors first; nothing was written.'); return 1; }
+  if (restamp && !(await restampFile(file, relFile, d.explain ?? [], graph.api !== null, lagging, deps))) return 1;
   return failed ? 1 : 0;
+}
+
+/** Files of `explain:` entries changed on disk since the code graph indexed them: their line ranges may be off. */
+async function laggingFiles(root: string, entries: ExplainDiagnostic[], indexedMtime: (file: string) => number | null): Promise<Set<string>> {
+  const files = [...new Set(entries.flatMap(e => e.files))];
+  const mtimes = await Promise.all(files.map(f => stat(path.join(root, f)).then(s => s.mtimeMs, () => null)));
+  return new Set(files.filter((f, i) => mtimes[i] !== indexedMtime(f)));
 }
 
 /** `--restamp`: write the current fingerprints of resolved `explain:` entries into the view file, keeping comments and
  * formatting. Needs the code graph: without it symbol-backed entries cannot be fingerprinted. */
-async function restampFile(file: string, relFile: string, entries: ExplainDiagnostic[], graphOpen: boolean, deps: CliDeps): Promise<boolean> {
+async function restampFile(file: string, relFile: string, entries: ExplainDiagnostic[], graphOpen: boolean, lagging: Set<string>, deps: CliDeps): Promise<boolean> {
   deps.out('');
   if (!entries.length) { deps.out('restamp: the view has no explain: entries.'); return true; }
   if (!graphOpen) { deps.err('restamp: needs the code graph (open the worktree in Stingray to index it); nothing was written.'); return false; }
@@ -193,7 +205,11 @@ async function restampFile(file: string, relFile: string, entries: ExplainDiagno
   const stamped: string[] = [];
   for (const e of entries) {
     const pair = explainPair(doc, e.key);
-    if (e.fingerprint === null || !isMap(pair?.value)) { deps.out(`restamp: skipped "${e.key}" (${e.matches ? 'could not fingerprint its code' : 'matches nothing in the view'})`); continue; }
+    const changed = e.files.filter(f => lagging.has(f));
+    const skip = !e.matches ? 'matches nothing in the view' : !isMap(pair?.value) ? 'entry is not a plain mapping; stamp it by hand'
+      : changed.length ? `${changed.join(', ')} changed since the code graph indexed it; restamp after Stingray re-indexes`
+      : e.fingerprint === null ? 'could not fingerprint its code' : null;
+    if (skip || !isMap(pair?.value)) { deps.out(`restamp: skipped "${e.key}" (${skip})`); continue; }
     if (pair.value.get('fingerprint') === e.fingerprint) continue;
     pair.value.set('fingerprint', e.fingerprint);
     stamped.push(`restamp: stamped "${e.key}" ${e.fingerprint}${e.line !== null ? ` (${relFile}:${e.line})` : ''}`);
@@ -217,7 +233,8 @@ async function openGraph(root: string): Promise<OpenedGraph> {
     const cg = await lib.CodeGraph.open(root, { readOnly: true });
     try {
       const { createGraphApi } = await import('./views/rules/codegraph-api');
-      return { api: createGraphApi(cg), status: { state: 'read-only', message: null }, close: () => cg.close() };
+      return { api: createGraphApi(cg), status: { state: 'read-only', message: null }, close: () => cg.close(),
+        indexedMtime: file => { try { return cg.getFile(file)?.modifiedAt ?? null; } catch { return null; } } };
     } catch (error) { cg.close(); throw error; }
   } catch (error) { return { api: null, status: { state: 'unavailable', message: `could not open the code graph: ${short(error)}` } }; }
 }
