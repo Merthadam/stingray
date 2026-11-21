@@ -277,7 +277,7 @@ test('corrupt HEAD is unknown rather than misclassified as an unborn branch', as
   const f = await fixture();
   try {
     await writeFile(path.join(f.repo, '.git/refs/heads/main'), 'a'.repeat(40) + '\n');
-    const map = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: ' M' }], lines: { kind: 'unavailable', message: 'Fixture: corrupt HEAD' } });
+    const map = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: ' M' }], lines: { kind: 'unavailable', message: 'Fixture: corrupt HEAD' }, uncommitted: { kind: 'unavailable', message: 'Fixture: corrupt HEAD' }, base: 'HEAD' });
     assert.equal(map.files.find(file => file.path === 'existing.txt')?.lines, null);
     assert.match(map.statsNotice!, /unavailable/);
   } finally { await f.cleanup(); }
@@ -298,7 +298,7 @@ test('grep binary and symlink sizes and conflict counts are explicit unknowns', 
     }
     // grep counts non-NUL text without the inspector's UTF-8 or 512 KiB restrictions.
     for (const name of ['invalid', 'large']) assert.deepEqual(map.files.find(file => file.path === name)?.lines, { added: 1, removed: 0 });
-    const conflict = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: 'UU' }], lines: { kind: 'unavailable', message: 'Fixture: unresolved conflict' } });
+    const conflict = await repoSnapshot(f.repo, { branch: 'main', changes: [{ path: 'existing.txt', status: 'UU' }], lines: { kind: 'unavailable', message: 'Fixture: unresolved conflict' }, uncommitted: { kind: 'unavailable', message: 'Fixture: unresolved conflict' }, base: 'HEAD' });
     assert.equal(conflict.files.find(file => file.path === 'existing.txt')?.lines, null);
     assert.match(conflict.files.find(file => file.path === 'existing.txt')!.lineNotice!, /conflict/);
   } finally { await f.cleanup(); }
@@ -382,7 +382,7 @@ test('staged deletion plus same-path untracked replacement preserves both diff s
 });
 
 test('snapshot reconciliation preserves file identity but not actual Git/count/error changes', () => {
-  const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 },
+  const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, uncommitted: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, base: 'HEAD',
     files: [{ path: 'a', status: '', lines: { added: 0, removed: 0 }, size: { state: 'known', source: 'working tree', textLines: 2 } }] };
   const idle = structuredClone(base);
   assert.equal(reconcileSnapshot(base, idle), base);

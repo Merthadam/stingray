@@ -51,7 +51,9 @@ export const repoPathSchema = z.string().min(1).max(4096).refine(value =>
 export type GitLineStats =
   | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
   | { kind: 'unavailable'; message: string };
-export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+/** lines: tracked working tree vs merge-base(HEAD, local origin/main), like the PR diff; vs HEAD when that base is
+ *  unavailable (see base). uncommitted: tracked working tree vs HEAD. Untracked files are never counted. */
+export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats; uncommitted: GitLineStats; base: 'origin/main' | 'HEAD' };
 export type RemovalReview = {
   branch: string;
   /** Rare states that removal refuses outright (detached HEAD, switched branch, locked worktree). */
