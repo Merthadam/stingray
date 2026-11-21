@@ -122,6 +122,8 @@ export interface DesktopAPI {
   onActivity(listener: (snapshot: ActivitySnapshot) => void): () => void;
   activityView(terminalIds: string[]): Promise<void>;
   acknowledgeActivity(id: string, terminalId: string, reviewRevision: number): Promise<void>;
+  /** Dismiss a workspace's restored (previous session) activity. */
+  dismissActivity(workspaceId: string): Promise<void>;
   terminals(): Promise<TerminalInfo[]>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;

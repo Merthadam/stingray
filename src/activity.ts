@@ -7,10 +7,15 @@ export type AgentActivity = {
   connection: 'connected' | 'disconnected' | 'unsupported';
   phase: AgentPhase;
   reviewRevision: number | null;
+  /** From a previous app session: its terminal is gone, so it is dismissed rather than acknowledged. */
+  restored: boolean;
+  lastEventAt: number;
 };
 export type ActivitySnapshot = { revision: number; agents: AgentActivity[] };
 export type ActivityLabel = 'Working' | 'Waiting for you' | 'Needs review' | 'Idle' | 'Failed' | 'Interrupted' | 'Disconnected' | 'Tracking unavailable';
 export function activityLabel(agent: AgentActivity): ActivityLabel {
+  if (agent.restored) return agent.reviewRevision !== null ? 'Needs review' : agent.phase === 'failed' ? 'Failed'
+    : agent.phase === 'interrupted' ? 'Interrupted' : agent.phase === 'idle' ? 'Idle' : 'Disconnected';
   if (agent.connection === 'connected' && agent.phase === 'waiting') return 'Waiting for you';
   if (agent.connection === 'connected' && agent.phase === 'working') return 'Working';
   if (agent.reviewRevision !== null) return 'Needs review';
@@ -28,6 +33,11 @@ export function aggregateActivity(agents: AgentActivity[]): ActivityLabel | null
 }
 export function newerActivity(current: ActivitySnapshot, incoming: ActivitySnapshot): ActivitySnapshot {
   return incoming.revision > current.revision ? incoming : current;
+}
+/** Coarse age for restored activity, e.g. '5m ago', '3h ago', '2d ago'. */
+export function relativeTime(at: number, now = Date.now()): string {
+  const s = Math.max(0, Math.floor((now - at) / 1000));
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
 }
 /** Display name for a set of agents: the shared harness name, or 'Agents' when mixed. */
 export function harnessLabel(agents: AgentActivity[]): string {

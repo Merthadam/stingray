@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { ActivityService } from '../electron/activity';
-import { activityLabel, aggregateActivity, harnessLabel, newerActivity, type AgentActivity } from '../src/activity';
+import { activityLabel, aggregateActivity, harnessLabel, newerActivity, relativeTime, type AgentActivity } from '../src/activity';
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => unknown) { for (let i = 0; i < 200; i++) { if (fn()) return; await pause(); } assert.fail('Timed out'); }
@@ -22,13 +22,15 @@ async function fixture(lease = 20000, hookWorking?: number) {
 const state = (seq: number, phase = 'idle', completed = 0) => ({ type: 'state', seq, phase, completed });
 
 test('labels do not confuse shell/disconnection/error with idle; deterministic workspace priority', () => {
-  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'pi', connection: 'connected', phase: 'idle', reviewRevision: null };
+  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'pi', connection: 'connected', phase: 'idle', reviewRevision: null, restored: false, lastEventAt: 0 };
   assert.equal(activityLabel(base), 'Idle');
   for (const [phase, label] of [['working','Working'],['waiting','Waiting for you'],['failed','Failed'],['interrupted','Interrupted'],['unknown','Tracking unavailable']] as const) assert.equal(activityLabel({ ...base, phase }), label);
   assert.equal(activityLabel({ ...base, connection: 'disconnected' }), 'Disconnected');
   assert.equal(activityLabel({ ...base, connection: 'unsupported' }), 'Tracking unavailable');
   assert.equal(activityLabel({ ...base, connection: 'disconnected', reviewRevision: 2 }), 'Needs review');
   assert.equal(aggregateActivity([]), null);
+  assert.equal(activityLabel({ ...base, restored: true, phase: 'waiting' }), 'Disconnected', 'restored runs are never live');
+  assert.deepEqual([30e3, 5 * 60e3, 3 * 3600e3, 2 * 86400e3].map(ago => relativeTime(1e10 - ago, 1e10)), ['just now', '5m ago', '3h ago', '2d ago']);
   assert.equal(aggregateActivity([base, { ...base, phase: 'working' }, { ...base, phase: 'waiting' }]), 'Waiting for you');
   const current = { revision: 3, agents: [base] };
   assert.equal(newerActivity(current, { revision: 2, agents: [] }), current);
@@ -46,7 +48,7 @@ test('private socket, metadata-only snapshots, exact acknowledgement and termina
     f.send(s, state(2, 'idle', 1)); await until(() => f.service.snapshot().agents[0]?.reviewRevision);
     const a = f.service.snapshot().agents[0];
     assert.equal(a.workspaceId, f.workspace); assert.equal(a.terminalId, f.terminal);
-    assert.deepEqual(Object.keys(a).sort(), ['connection','harness','id','phase','reviewRevision','terminalId','workspaceId']);
+    assert.deepEqual(Object.keys(a).sort(), ['connection','harness','id','lastEventAt','phase','restored','reviewRevision','terminalId','workspaceId']);
     assert.equal(a.harness, 'pi');
     assert.ok(!JSON.stringify(f.service.snapshot()).includes(f.env.STINGRAY_ACTIVITY_TOKEN));
     f.service.acknowledge(a.id, randomUUID(), a.reviewRevision!);
@@ -254,7 +256,7 @@ test('hook Working without events expires to unknown while the process lives', a
 });
 
 test('sidebar harness label names a single harness, else Agents', () => {
-  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'claude', connection: 'connected', phase: 'idle', reviewRevision: null };
+  const base: AgentActivity = { id: 'a', terminalId: 't', workspaceId: 'w', harness: 'claude', connection: 'connected', phase: 'idle', reviewRevision: null, restored: false, lastEventAt: 0 };
   assert.equal(harnessLabel([base]), 'Claude Code');
   assert.equal(harnessLabel([{ ...base, harness: 'codex' }]), 'Codex');
   assert.equal(harnessLabel([base, { ...base, harness: 'pi' }]), 'Agents');
