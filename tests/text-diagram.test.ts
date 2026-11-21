@@ -56,6 +56,27 @@ test('formatText graph: ungrouped first, then groups; duplicate labels get their
   ].join('\n'));
 });
 
+test('formatText: an explanation follows the node line; nodes without one are unchanged', () => {
+  const text = formatText({ kind: 'graph', truncated: false, groups: [],
+    nodes: [node('auth', { kind: 'function', detail: 'auth.py', explanation: 'Accept only genuine tokens.' }), node('plain', { explanation: null })], edges: [] });
+  assert.equal(text, ['graph: 2 nodes, 0 edges', '  auth (function) · auth.py — Accept only genuine tokens.', '  plain (step)'].join('\n'));
+});
+
+test('formatText: a long explanation is cut at 300 chars with an ellipsis', () => {
+  const long = 'word '.repeat(100).trim();
+  const line = formatText({ kind: 'graph', truncated: false, groups: [], nodes: [node('a', { explanation: long })], edges: [] }).split('\n')[1];
+  const shown = line.split(' — ')[1];
+  assert.equal(shown.length, 300);
+  assert.ok(shown.endsWith('…') && long.startsWith(shown.slice(0, -1)));
+});
+
+test('formatText flowchart: expanded-call group headers and call nodes show their explanation', () => {
+  const text = formatText({ kind: 'flowchart', truncated: false, groups: [{ id: 'g', label: 'identity', source: null, explanation: 'Accept a token.' }],
+    nodes: [node('s', { kind: 'start', role: 'start', label: 'sign_in' }), node('c', { kind: 'call', label: 'verify', group: 'g', explanation: 'Check it.' })],
+    edges: [edge('s', 'c')] });
+  assert.deepEqual(text.split('\n').slice(1), ['  (start) sign_in', '  » identity — Accept a token.', '    [call] verify — Check it.']);
+});
+
 test('formatText caps output lines', () => {
   const nodes = Array.from({ length: 500 }, (_, i) => node(`n${i}`));
   const lines = formatText({ kind: 'graph', groups: [], nodes, edges: [], truncated: false }).split('\n');

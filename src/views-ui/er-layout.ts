@@ -10,6 +10,7 @@ export const CARD_WIDTH = 260;
 export const HEADER_HEIGHT = 44;
 export const ROW_HEIGHT = 22;
 export const MAX_ROWS = 12;
+export const EXPLANATION_HEIGHT = 50; // band under the header: the explanation clamped to 3 lines (er-card-explanation)
 const GAP = 40;
 
 const isKey = (f: DiagramField) => f.badges.includes('PK') || f.badges.includes('FK');
@@ -24,10 +25,13 @@ export function cardRows(node: DiagramNode, expanded: boolean): { rows: DiagramF
   return { rows, more: node.fields.length - rows.length, toggle };
 }
 
+/** Top of the first field row: the header plus the explanation band when the node has one. */
+export const rowsTop = (node: DiagramNode) => HEADER_HEIGHT + (node.explanation ? EXPLANATION_HEIGHT : 0);
+
 /** Card size; a long card has one extra row for "+N more" / "Show less". */
 export function cardSize(node: DiagramNode, expanded: boolean) {
   const { rows, toggle } = cardRows(node, expanded);
-  return { width: CARD_WIDTH, height: HEADER_HEIGHT + (rows.length + (toggle ? 1 : 0)) * ROW_HEIGHT };
+  return { width: CARD_WIDTH, height: rowsTop(node) + (rows.length + (toggle ? 1 : 0)) * ROW_HEIGHT };
 }
 
 /** React Flow handle id for an edge end: the field row, the "+N more" row when the field is collapsed away, else the card. */
@@ -59,9 +63,10 @@ export function elkGraph(result: ViewResult, hidden: Iterable<string>, expanded:
       ports.push({ id: portId(n.id, `${handle}:t`), x: 0, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': 'WEST' } });
       ports.push({ id: portId(n.id, `${handle}:s`), x: CARD_WIDTH - 1, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': 'EAST' } });
     };
+    const top = rowsTop(n);
     add('card', HEADER_HEIGHT / 2);
-    rows.forEach((f, i) => add(`f:${f.id}`, HEADER_HEIGHT + i * ROW_HEIGHT + ROW_HEIGHT / 2));
-    if (toggle) add('more', HEADER_HEIGHT + rows.length * ROW_HEIGHT + ROW_HEIGHT / 2);
+    rows.forEach((f, i) => add(`f:${f.id}`, top + i * ROW_HEIGHT + ROW_HEIGHT / 2));
+    if (toggle) add('more', top + rows.length * ROW_HEIGHT + ROW_HEIGHT / 2);
     return { id: n.id, ...cardSize(n, exp.has(n.id)), ports, layoutOptions: { 'elk.portConstraints': 'FIXED_ORDER' } };
   });
   const edges: ElkExtendedEdge[] = visibleEdges(result, nodes).map(e => ({
@@ -85,7 +90,30 @@ export function storedPositions(result: ViewResult, local: Positions, useFile: b
 }
 
 /**
- * Positions for every visible node. Fixed nodes keep theirs; the rest come from ELK on the full visible graph.
+ * Stored cards moved down, top to bottom, until none overlaps a card above it (a card grows when it gains an
+ * explanation, so a saved layout can overlap). Returns only the moved cards.
+ */
+export function separateCards(nodes: DiagramNode[], positions: Positions, expanded: Set<string>): Positions {
+  const placed: { x: number; y: number; width: number; height: number }[] = [];
+  const moved: Positions = {};
+  const cards = nodes.filter(n => positions[n.id]).sort((a, b) => positions[a.id].y - positions[b.id].y || positions[a.id].x - positions[b.id].x);
+  for (const n of cards) {
+    const p = { ...positions[n.id] }, { width, height } = cardSize(n, expanded.has(n.id));
+    // y only grows past each overlapped card's bottom, so this ends after at most placed.length moves.
+    for (let hit = true; hit;) {
+      hit = false;
+      for (const r of placed) {
+        if (p.x < r.x + r.width && p.x + width > r.x && p.y < r.y + r.height && p.y + height > r.y) { p.y = r.y + r.height + GAP; hit = true; }
+      }
+    }
+    if (p.y !== positions[n.id].y) moved[n.id] = p;
+    placed.push({ ...p, width, height });
+  }
+  return moved;
+}
+
+/**
+ * Positions for every visible node. Fixed nodes keep theirs (moved down only where they overlap, see separateCards); the rest come from ELK on the full visible graph.
  * When some nodes are fixed, each new node keeps its ELK offset to a fixed neighbour (or sits right of the
  * existing cards) and is pushed down until it overlaps no placed card.
  */
@@ -95,6 +123,7 @@ export async function layoutPositions(elk: ElkLayouter, result: ViewResult, hidd
   const nodes = visibleNodes(result, hidden);
   const out: Positions = {};
   for (const n of nodes) if (fixed[n.id]) out[n.id] = { ...fixed[n.id] };
+  Object.assign(out, separateCards(nodes, out, exp));
   const fresh = nodes.filter(n => !out[n.id]);
   if (!fresh.length) return out;
   const laid = await elk.layout(elkGraph(result, hidden, exp));

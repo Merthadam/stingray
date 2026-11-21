@@ -38,6 +38,8 @@ export interface DiagramNode {
   role: 'start' | 'end' | null; // flow entry/exit (e.g. LangGraph START/END)
   order: number | null;        // position on a timeline; null = derive from edges
   detail: string | null;       // secondary text under the label, e.g. a LangGraph step's handler
+  explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
+                               // rule nodes with `symbol:`, tables linked to their model class); absent/null = none, nothing is shown
 }
 
 export interface DiagramEdge {
@@ -58,6 +60,7 @@ export interface DiagramGroup {
   label: string;
   source: SourceRef | null;
   parent?: string | null;      // enclosing DiagramGroup.id (flowchart: a callee expanded inside another expansion)
+  explanation?: string | null; // flowchart expanded call: the callee's docstring summary; absent/null = none
 }
 
 export interface ViewWarning { file: string | null; line: number | null; message: string }

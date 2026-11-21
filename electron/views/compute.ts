@@ -7,11 +7,12 @@
 // to tables resolve inside the engine first, so they need `create: to|from|both` (the placeholder becomes the table) or a rule
 // node with that id.
 import type { DbSchemaResult } from '../../src/db-schema';
-import type { DiagramEdge, DiagramNode, GraphStatus, SymbolRef, ViewResult, ViewWarning } from '../../src/views';
+import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../src/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
 import { TS_EXTRACTORS } from './sets';
-import type { EvaluateOutput, ResolvedView } from './rules/types';
+import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
+import { explanationOf } from './explanation';
 import { tablesView, type ViewFileEntry } from './view-file';
 
 export const MAX_WARNINGS = 200;
@@ -20,7 +21,7 @@ export interface ComputeDeps {
   evaluate: (view: ResolvedView) => Promise<EvaluateOutput>;
   sqlalchemy?: () => Promise<DbSchemaResult>;
   sql?: () => Promise<DbSchemaResult>;
-  findSymbols: (queries: SymbolQuery[]) => Promise<(SymbolRef | null)[]>;
+  findSymbols: (queries: SymbolQuery[]) => Promise<(GraphSymbol | null)[]>;
   graph: GraphStatus;
   workspaceId?: string;
 }
@@ -65,6 +66,7 @@ export function mergeTables(output: Pick<EvaluateOutput, 'nodes' | 'edges'>, tab
     if (!node) { if (!nodes.has(n.id)) nodes.set(n.id, n); ids.set(n.id, n.id); continue; }
     ids.set(n.id, node.id);
     node.detail ??= n.detail; node.role ??= n.role; node.order ??= n.order; node.symbol ??= n.symbol;
+    if (n.explanation && !node.explanation) node.explanation = n.explanation;
     for (const f of n.fields) if (!node.fields.some(x => x.id === f.id)) node.fields.push(f);
   }
   const edges = new Map<string, DiagramEdge>(tables.edges.map(e => [e.id, e]));
@@ -75,13 +77,20 @@ export function mergeTables(output: Pick<EvaluateOutput, 'nodes' | 'edges'>, tab
   return { nodes: [...nodes.values()], edges: [...edges.values()] };
 }
 
-/** Link nodes without a symbol whose subtitle names a class in their file (e.g. a table's model), in one batch. */
+/** Link nodes without a symbol whose subtitle names a class in their file (e.g. a table's model), in one batch.
+ * A node without an explanation takes the class docstring summary as its explanation. */
 export async function linkSymbols(result: ViewResult, findSymbols: ComputeDeps['findSymbols']): Promise<ViewResult> {
   const queries = result.nodes.map(n => (!n.symbol && n.source && n.subtitle ? { file: n.source.file, name: n.subtitle, kinds: ['class'] } : null));
   if (!queries.some(q => q)) return result;
   const symbols = await findSymbols(queries.filter(q => q !== null));
   let found = 0;
-  return { ...result, nodes: result.nodes.map((n, i) => (queries[i] ? { ...n, symbol: symbols[found++] ?? null } : n)) };
+  return { ...result, nodes: result.nodes.map((n, i) => {
+    if (!queries[i]) return n;
+    const s = symbols[found++];
+    if (!s) return { ...n, symbol: null };
+    const { docstring: _, ...symbol } = s;
+    return { ...n, symbol, ...(n.explanation ? {} : explanationOf(s)) };
+  }) };
 }
 
 /** Preserve extractor groups (and their edge identities) when composing the Database view. */

@@ -62,6 +62,14 @@ test('follows directions up to depth with deterministic ids', () => {
   assert.deepEqual(labels(runGraphStep(step({ start: [{ symbol: 'c' }], direction: 'both', depth: 1 }), chain, all)), ['c', 'd', 'a', 'x']);
 });
 
+test('step nodes carry their symbol\'s docstring summary as explanation; symbols without one have none', () => {
+  const g = fakeGraph(['main@app/main.py:1', 'a@app/a.py:2'], ['main>a']);
+  g.findSymbols('a')[0].docstring = 'Do A.\n@returns nothing';
+  const out = runGraphStep(step({}), g, all);
+  assert.deepEqual(out.nodes.map(n => [n.label, n.explanation ?? null]), [['main', null], ['a', 'Do A.']]);
+  assert.ok(!('explanation' in out.nodes[0]));
+});
+
 test('maps follow kinds to CodeGraph edge kinds', () => {
   const g = fakeGraph(['Base@m.py:1/class', 'Iface@m.py:2/interface', 'Child@m.py:3/class', 'make@m.py:4', 'helper@m.py:5', 'mod@m.py:6/module'],
     ['Child>Base:extends', 'Child>Iface:implements', 'make>Child:instantiates', 'make>Base:references', 'make>helper:calls', 'make>mod:imports']);

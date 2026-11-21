@@ -221,7 +221,7 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
     const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
     const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
     const result = (error: string | null) => output({
-      nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }), node('end', { kind: 'end', role: 'end', label: 'done' })],
+      nodes: [node('start', { kind: 'start', role: 'start', label: 'login', explanation: 'Sign a user in.' }), node('end', { kind: 'end', role: 'end', label: 'done' })],
       edges: [{ id: 'e', from: 'start', to: 'end', fromField: null, toField: null, kind: 'next', style: 'solid', certain: true, label: null, source: null }],
       diagnostics: { rules: [], graph: null, flowchart: { start: 'login (a.py:1)', depth: 2, functions: 1, nodes: 2, truncated: false, error }, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1 },
     });
@@ -232,7 +232,10 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
     assert.equal(flowchart.flowchart!.depth, 1); // the loaded definition is not mutated
     const text = h.out.join('\n');
     assert.match(text, /flowchart: start login \(a\.py:1\) {2}depth 2 {2}functions 1 {2}nodes 2/);
-    assert.match(text, /flowchart: 2 nodes, 1 edges\n {2}\(start\) login\n {2}\(end\) done/);
+    assert.match(text, /flowchart: 2 nodes, 1 edges\n {2}\(start\) login — Sign a user in\.\n {2}\(end\) done/);
+    const json = harness(root, { loadViewPath, evaluate: async () => result(null), openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await json.run('check', '.stingray/views/flow.yaml', '--json'), 0);
+    assert.equal(JSON.parse(json.out.join('\n')).result.nodes[0].explanation, 'Sign a user in.');
 
     const failing = harness(root, { loadViewPath, evaluate: async () => result('start symbol not found: login'),
       openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
