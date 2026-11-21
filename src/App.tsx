@@ -89,10 +89,11 @@ export default function App() {
     finally { setInitializing(false); }
   }
   useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
-  // Working-tree edits don't touch .git: re-read the selected workspace when the user comes back.
+  // Working-tree edits don't touch .git: re-read the selected workspace when it is opened or the user comes back.
   useEffect(() => {
     if (!selected) return;
     const update = () => { if (!document.hidden) void api.refreshGitState(selected).catch(() => {}); };
+    update();
     window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
     return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
   }, [selected]);
