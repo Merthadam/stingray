@@ -65,6 +65,7 @@ export function mergeTables(output: Pick<EvaluateOutput, 'nodes' | 'edges'>, tab
     if (!node) { if (!nodes.has(n.id)) nodes.set(n.id, n); ids.set(n.id, n.id); continue; }
     ids.set(n.id, node.id);
     node.detail ??= n.detail; node.role ??= n.role; node.order ??= n.order; node.symbol ??= n.symbol;
+    if (n.explanation && !node.explanation) node.explanation = n.explanation;
     for (const f of n.fields) if (!node.fields.some(x => x.id === f.id)) node.fields.push(f);
   }
   const edges = new Map<string, DiagramEdge>(tables.edges.map(e => [e.id, e]));

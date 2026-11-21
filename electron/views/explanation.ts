@@ -8,7 +8,7 @@ export const MAX_EXPLANATION = 300;
 export function docstringSummary(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const text = raw.trim()
-    .replace(/^[rRuUbB]{0,2}("""|'''|"|')([\s\S]*?)\1?$/, '$2')
+    .replace(/^[rRuUbB]{0,2}("""|''')([\s\S]*?)\1$/, '$2')
     .replace(/^\/\*\*?/, '').replace(/\*\/$/, '');
   const paragraph: string[] = [];
   for (const line of text.split(/\r?\n/)) {

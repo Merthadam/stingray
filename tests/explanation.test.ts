@@ -9,6 +9,10 @@ test('docstringSummary: first paragraph of a Python triple-quoted docstring, whi
   // CodeGraph already strips the quotes: only the paragraph is cut
   assert.equal(docstringSummary('Accept a token.\n\nMore text.'), 'Accept a token.');
   assert.equal(docstringSummary('Returns "x"'), 'Returns "x"');
+  // text that merely starts with a quote keeps it
+  assert.equal(docstringSummary('"a" or "b" are accepted'), '"a" or "b" are accepted');
+  assert.equal(docstringSummary("'x' is the key"), "'x' is the key");
+  assert.equal(docstringSummary('"a" or "b"'), '"a" or "b"');
 });
 
 test('docstringSummary: JSDoc and line comments lose their markers; @tags end the summary', () => {
