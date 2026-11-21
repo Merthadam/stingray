@@ -187,6 +187,7 @@ export interface ExplainDiagnostic {
   line: number | null;         // 1-based line of the key in the view file
   matches: number;             // nodes and groups it applies to (0 = unresolved)
   fingerprint: string | null;  // current; null when unresolved or not computable (code graph not ready, source unreadable)
+  files: string[];             // source files of the symbols it is anchored to (restamp skips them when the index lags)
 }
 
 export interface ViewDiagnostics {

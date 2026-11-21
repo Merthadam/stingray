@@ -21,11 +21,14 @@ export function bodyFingerprint(source: string, symbol: SymbolRef): string | nul
 }
 
 /** Fingerprint of a node or group without a symbol, as drawn: label, kind, subtitle, detail and fields (label, type, badges),
- * so e.g. a table's changes when its columns do. */
-export function drawnFingerprint(t: Target): string {
-  const n = t as Partial<DiagramNode>;
+ * so e.g. a table's changes when its columns do. A group's also covers its member nodes and nested groups, as drawn. */
+export function drawnFingerprint(t: Target, nodes: DiagramNode[] = [], groups: DiagramGroup[] = [], seen = new Set<string>()): string {
+  const n = t as Partial<DiagramNode>, group = n.kind === undefined;
+  if (group) seen.add(t.id);
+  const members = group ? [...nodes.filter(m => m.group === t.id).map(m => drawnFingerprint(m)),
+    ...groups.filter(g => g.parent === t.id && !seen.has(g.id)).map(g => drawnFingerprint(g, nodes, groups, seen))].sort() : [];
   return hash(JSON.stringify([squash(t.label), squash(n.kind ?? 'group'), squash(n.subtitle), squash(n.detail),
-    (n.fields ?? []).map(f => [squash(f.label), squash(f.type), f.badges.map(squash)])]));
+    (n.fields ?? []).map(f => [squash(f.label), squash(f.type), f.badges.map(squash)]), ...(members.length ? [members] : [])]));
 }
 
 /** Nodes/groups an `explain:` key names: node id, group id, alias (rule node aliases; a table's name or model class), then
@@ -48,22 +51,34 @@ export async function applyExplain(result: ViewResult, entries: ExplainEntry[], 
   const nodes = result.nodes.map(n => ({ ...n })), groups = result.groups.map(g => ({ ...g })), file = result.file ?? '';
   const sources = new Map<string, Promise<string | null>>();
   const read = (f: string) => sources.get(f) ?? sources.set(f, options.readSource ? options.readSource(f) : Promise.resolve(null)).get(f)!;
-  const fingerprint = async (t: Target) => {
-    if (!t.symbol) return drawnFingerprint(t);
+  // One fingerprint per target; an entry naming several (e.g. same-named functions) hashes them all, so any one changing counts.
+  const fingerprint = async (t: Target): Promise<{ fp: string | null; why?: string }> => {
+    if (!t.symbol) return { fp: drawnFingerprint(t, nodes, groups) };
     const source = await read(t.symbol.file);
-    return source === null ? null : bodyFingerprint(source, t.symbol);
+    if (source === null) return { fp: null, why: `${t.symbol.file} could not be read (missing, too large or unreadable)` };
+    const fp = bodyFingerprint(source, t.symbol);
+    return fp !== null ? { fp } : { fp: null, why: t.symbol.endLine ? `${t.symbol.file} is shorter than the code graph says (re-index)` : `the code graph has no end line for ${t.symbol.name}` };
+  };
+  const combined = async (targets: Target[]): Promise<{ fp: string | null; why?: string }> => {
+    const each = await Promise.all(targets.map(fingerprint)), missing = each.find(f => f.fp === null);
+    if (missing) return missing;
+    const unique = [...new Set(each.map(f => f.fp!))].sort();
+    return { fp: unique.length === 1 ? unique[0] : hash(unique.join('\n')) };
   };
   const warnings: ViewWarning[] = [], unresolved: UnresolvedLink[] = [], diagnostics: ExplainDiagnostic[] = [];
   for (const e of entries) {
     const targets = explainTargets(e.key, nodes, groups);
-    const current = options.verify && targets.length ? await fingerprint(targets[0]) : null;
-    diagnostics.push({ key: e.key, line: e.line, matches: targets.length, fingerprint: current });
+    const current = options.verify && targets.length ? await combined(targets) : { fp: null };
+    const files = [...new Set(targets.flatMap(t => (t.symbol ? [t.symbol.file] : [])))].sort();
+    diagnostics.push({ key: e.key, line: e.line, matches: targets.length, fingerprint: current.fp, files });
     if (!targets.length) { unresolved.push({ rule: 'explain', value: e.key, file, line: e.line ?? 0 }); continue; }
-    const status: ExplanationStatus = !e.fingerprint ? 'unstamped' : current !== null && current !== e.fingerprint ? 'stale' : 'view';
+    const status: ExplanationStatus = !e.fingerprint ? 'unstamped' : current.fp !== null && current.fp !== e.fingerprint ? 'stale' : 'view';
     for (const t of targets) Object.assign(t, { explanation: e.text, explanationStatus: status });
     if (status === 'stale') warnings.push({ file, line: e.line,
       message: `explanation for "${e.key}" may be outdated (code changed since it was written) — review it and run stingray-views check --restamp` });
-    if (status === 'unstamped') warnings.push({ file, line: e.line, message: `explanation for "${e.key}" has no fingerprint — run stingray-views check --restamp to stamp it` });
+    if (status === 'unstamped') warnings.push({ file, line: e.line, message: current.why
+      ? `explanation for "${e.key}" has no fingerprint and cannot be checked: ${current.why}`
+      : `explanation for "${e.key}" has no fingerprint — run stingray-views check --restamp to stamp it` });
   }
   return {
     ...result, nodes, groups, warnings: [...warnings, ...result.warnings],

@@ -26,6 +26,7 @@ test('parseViewYaml reads explain: entries with key lines; bad fingerprints and 
   assert.deepEqual(parseViewYaml('version: 1\nname: V\nkind: flow\nuse: [langgraph]\n', F).explain, []);
   const error = (extra: string) => { try { parseViewYaml(`version: 1\nname: V\nkind: flow\nuse: [langgraph]\n${extra}`, F); } catch (e) { assert.ok(e instanceof YamlError); return e.message; } return null; };
   assert.match(error('explain:\n  plan: { text: x, fingerprint: XYZ }')!, /fingerprint must be 12 hex characters/);
+  assert.match(error('explain:\n  plan: { text: x, fingerprint: 012345678901 }')!, /^explain\.plan\.fingerprint: fingerprint must be a quoted string/);
   assert.match(error('explain:\n  plan: { text: "  " }')!, /^explain\.plan\.text:/);
   assert.match(error(`explain:\n  plan: { text: ${'x'.repeat(501)} }`)!, /^explain\.plan\.text:/);
   assert.match(error('explain:\n  plan: { text: x, note: y }')!, /Unrecognized key: "note"/);
@@ -86,8 +87,8 @@ test('applyExplain overrides docstrings, flags stale and unstamped entries, list
     [null, 'engine warning']]);
   assert.deepEqual(out.diagnostics!.unresolved, [{ rule: 'explain', value: 'ghost', file: F, line: 12 }]);
   assert.deepEqual(out.diagnostics!.explain, [
-    { key: 'verify', line: 6, matches: 1, fingerprint: fp }, { key: 'users', line: 8, matches: 1, fingerprint: drawnFingerprint(table) },
-    { key: 'plan', line: 10, matches: 1, fingerprint: drawnFingerprint(node('plan')) }, { key: 'ghost', line: 12, matches: 0, fingerprint: null }]);
+    { key: 'verify', line: 6, matches: 1, fingerprint: fp, files: ['app.py'] }, { key: 'users', line: 8, matches: 1, fingerprint: drawnFingerprint(table), files: [] },
+    { key: 'plan', line: 10, matches: 1, fingerprint: drawnFingerprint(node('plan')), files: [] }, { key: 'ghost', line: 12, matches: 0, fingerprint: null, files: [] }]);
   assert.deepEqual(reads, ['app.py']);
   assert.match(formatText(out), /\n {2}users \(table\) — Everyone who signed up \(may be outdated\)\n {2}plan \(step\) — Plans$/);
 });
@@ -117,4 +118,44 @@ test('computeView applies explain: after symbols are linked and verifies only wi
   const plain = await computeView({ ...entry, explain: undefined }, deps('ready'));
   assert.equal(plain.nodes[0].explanation, undefined);
   assert.equal(plain.diagnostics!.explain, undefined);
+});
+
+test('applyExplain fingerprints every target of a key: editing either of two same-named functions turns it stale', async () => {
+  const two = `${SOURCE}\ndef verify(token):\n    return True\n`;
+  const first = sym('verify'), second = { ...sym('verify', 5, 6), id: 'py:verify2' };
+  const run = (source: string, fingerprint: string | null) => applyExplain(result([node('a', { symbol: first }), node('b', { symbol: second })]),
+    [{ key: 'verify', text: 'Accept', fingerprint, line: 6 }], { verify: true, readSource: async () => source });
+  const fp = (await run(two, null)).diagnostics!.explain![0].fingerprint!;
+  assert.match(fp, /^[0-9a-f]{12}$/);
+  assert.notEqual(fp, bodyFingerprint(two, first));
+  assert.deepEqual((await run(two, fp)).nodes.map(n => n.explanationStatus), ['view', 'view']);
+  assert.deepEqual((await run(two.replace('return True', 'return False'), fp)).nodes.map(n => n.explanationStatus), ['stale', 'stale']);
+  const same = await applyExplain(result([node('c', { symbol: first })], [{ id: 'call:py:verify', label: 'verify', source: null, symbol: first }]),
+    [{ key: 'verify', text: 'Accept', fingerprint: null, line: 6 }], { verify: true, readSource: async () => SOURCE });
+  assert.equal(same.diagnostics!.explain![0].fingerprint, bodyFingerprint(SOURCE, first), 'one body linked twice keeps its own fingerprint');
+  const short = await applyExplain(result([node('a', { symbol: first }), node('b', { symbol: second })]),
+    [{ key: 'verify', text: 'Accept', fingerprint: null, line: 6 }], { verify: true, readSource: async () => SOURCE });
+  assert.equal(short.diagnostics!.explain![0].fingerprint, null, 'null when any target cannot be fingerprinted');
+});
+
+test('drawnFingerprint of a group without a symbol covers its member nodes and nested groups', async () => {
+  const groups: DiagramGroup[] = [{ id: 'g', label: 'Agents', source: null }, { id: 'inner', label: 'Inner', source: null, parent: 'g' }];
+  const nodes = [node('plan', { group: 'g' }), node('act', { group: 'inner' }), node('other')];
+  const fp = drawnFingerprint(groups[0], nodes, groups);
+  assert.notEqual(fp, drawnFingerprint(groups[0]));
+  assert.equal(drawnFingerprint(groups[0], [...nodes.slice(0, 2), node('other', { label: 'changed' })], groups), fp, 'non-members do not count');
+  assert.notEqual(drawnFingerprint(groups[0], [nodes[0], node('act', { group: 'inner', label: 'act!' }), nodes[2]], groups), fp, 'nested members count');
+  assert.notEqual(drawnFingerprint(groups[0], [...nodes, node('new', { group: 'g' })], groups), fp);
+  const out = await applyExplain(result([...nodes.slice(0, 1), node('act', { group: 'inner', detail: 'x' })], groups),
+    [{ key: 'g', text: 'The agents', fingerprint: fp, line: 6 }], { verify: true });
+  assert.equal(out.groups[0].explanationStatus, 'stale');
+});
+
+test('applyExplain says why an unstamped entry cannot be checked instead of asking for a restamp', async () => {
+  const warn = async (symbol: ReturnType<typeof sym>, source: string | null) => (await applyExplain(result([node('c', { symbol })]),
+    [{ key: 'verify', text: 'Accept', fingerprint: null, line: 6 }], { verify: true, readSource: async () => source })).warnings[0].message;
+  assert.equal(await warn({ ...sym('verify'), endLine: undefined } as never, SOURCE), 'explanation for "verify" has no fingerprint and cannot be checked: the code graph has no end line for verify');
+  assert.equal(await warn(sym('verify'), null), 'explanation for "verify" has no fingerprint and cannot be checked: app.py could not be read (missing, too large or unreadable)');
+  assert.equal(await warn(sym('verify', 1, 99), SOURCE), 'explanation for "verify" has no fingerprint and cannot be checked: app.py is shorter than the code graph says (re-index)');
+  assert.doesNotMatch(await warn(sym('verify', 1, 99), SOURCE), /--restamp/);
 });

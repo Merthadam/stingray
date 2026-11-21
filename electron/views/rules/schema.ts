@@ -95,7 +95,8 @@ export const FINGERPRINT = /^[0-9a-f]{12}$/, MAX_EXPLAIN = 200;
  * Entries are objects so planning keys (e.g. a future `note:`) can be added next to `text` later. */
 export const explainSchema = z.record(z.string().min(1).max(300), z.strictObject({
   text: z.string().trim().min(1).max(500),
-  fingerprint: z.string().regex(FINGERPRINT, { error: 'fingerprint must be 12 hex characters (written by stingray-views check --restamp)' }).optional(),
+  // An unquoted all-digit fingerprint reads as a YAML number.
+  fingerprint: z.string({ error: 'fingerprint must be a quoted string of 12 hex characters, e.g. fingerprint: "012345678901"' }).regex(FINGERPRINT, { error: 'fingerprint must be 12 hex characters (written by stingray-views check --restamp)' }).optional(),
 })).refine(e => Object.keys(e).length <= MAX_EXPLAIN, { error: `At most ${MAX_EXPLAIN} explain entries` });
 
 export const viewSchema = z.strictObject({
