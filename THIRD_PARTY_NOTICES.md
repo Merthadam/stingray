@@ -145,3 +145,7 @@ no endorsement is implied.
   represent another product.
 - `gcp/`: Google Cloud product icons (the "legacy" product icon set, consistent across the products covered), from
   https://cloud.google.com/icons, provided by Google for architecture diagrams and technical documentation. © Google LLC.
+
+## xterm.js serializer
+
+`electron/terminal-serialize.ts` is adapted from `@xterm/addon-serialize` 0.14.0 (`src/SerializeAddon.ts`, HTML output removed, OSC 8 hyperlinks added). MIT License, Copyright (c) 2019 The xterm.js authors; the license text is the MIT text above.

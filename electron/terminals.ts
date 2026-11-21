@@ -1,7 +1,8 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import type { TerminalEvent, TerminalInfo } from '../src/shared';
+import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/shared';
+import { TerminalMirror } from './terminal-mirror';
 import type { ActivityService } from './activity';
 import type { ActivityShell } from './activity-shell';
 
@@ -9,13 +10,13 @@ import type { ActivityShell } from './activity-shell';
 export const prependPath = (value: string | undefined, dir: string) =>
   dir ? [dir, ...(value ?? '').split(':').filter(p => p && p !== dir)].join(':') : value ?? '';
 
-type Entry = TerminalInfo & { process: pty.IPty };
+type Entry = TerminalInfo & { process: pty.IPty; mirror: TerminalMirror; exitCode?: number };
 export class Terminals {
   private entries = new Map<string, Entry>();
   viewsBin = ''; // directory of the `stingray-views` launcher, set by main once installed
   constructor(private send: (event: TerminalEvent) => void, private activity?: ActivityService, private activityShell?: ActivityShell) {}
   list(): TerminalInfo[] {
-    return [...this.entries.values()].map(({ process: _, ...info }) => info);
+    return [...this.entries.values()].map(({ process: _, mirror: __, exitCode: ___, ...info }) => info);
   }
   portRoots() {
     return [...this.entries.values()].filter(t => !t.exited).map(t => ({ id: t.id, workspaceId: t.workspaceId, title: t.title, pid: t.process.pid }));
@@ -38,22 +39,28 @@ export class Terminals {
     try {
       child = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: 100, rows: 30, cwd, env: { ...env, ...shellEnv, ...activityEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' } });
     } catch (error) { this.activity?.unbind(id, true); throw error; }
-    const entry: Entry = { id, workspaceId, title: 'Terminal ' + (this.entries.size + 1), exited: false, buffer: '', sequence: 0, cols: 100, rows: 30, piTracking: attached ? 'available' : 'unavailable', process: child };
+    const entry: Entry = { id, workspaceId, title: 'Terminal ' + (this.entries.size + 1), exited: false, sequence: 0, cols: 100, rows: 30, piTracking: attached ? 'available' : 'unavailable', process: child, mirror: new TerminalMirror(100, 30) };
     this.entries.set(entry.id, entry);
     child.onData(data => {
-      entry.buffer = (entry.buffer + data).slice(-128 * 1024);
-      this.send({ id: entry.id, data, sequence: ++entry.sequence });
+      entry.mirror.write(data, ++entry.sequence);
+      this.send({ id: entry.id, data, sequence: entry.sequence });
     });
-    child.onExit(({ exitCode }) => { entry.exited = true; this.activity?.unbind(entry.id); this.send({ id: entry.id, exitCode }); });
-    const { process: _, ...info } = entry; return info;
+    child.onExit(({ exitCode }) => { entry.exited = true; entry.exitCode = exitCode; this.activity?.unbind(entry.id); this.send({ id: entry.id, exitCode }); });
+    const { process: _, mirror: __, ...info } = entry; return info;
   }
   private get(id: string) { const t = this.entries.get(id); if (!t) throw new Error('Terminal not found.'); return t; }
   write(id: string, data: string) { const t = this.get(id); if (t.exited) throw new Error('This terminal has exited. Open a new one.'); t.process.write(data); }
   resize(id: string, cols: number, rows: number) {
     const t = this.get(id);
     if (t.exited || (t.cols === cols && t.rows === rows)) return;
-    t.process.resize(cols, rows); t.cols = cols; t.rows = rows;
+    t.process.resize(cols, rows); t.mirror.resize(cols, rows); t.cols = cols; t.rows = rows;
   }
-  close(id: string) { const t = this.get(id); this.activity?.unbind(id, true); if (!t.exited) t.process.kill(); this.entries.delete(id); }
+  /** Restorable state for a newly mounted pane; output after `sequence` arrives as terminal events. */
+  async snapshot(id: string): Promise<TerminalSnapshot> {
+    const t = this.get(id);
+    const { data, sequence } = await t.mirror.snapshot();
+    return { id, data, sequence, cols: t.cols ?? 100, rows: t.rows ?? 30, exitCode: t.exitCode };
+  }
+  close(id: string) { const t = this.get(id); this.activity?.unbind(id, true); if (!t.exited) t.process.kill(); t.mirror.dispose(); this.entries.delete(id); }
   closeAll() { for (const id of this.entries.keys()) this.close(id); }
 }

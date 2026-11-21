@@ -1,10 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
-import type { TerminalInfo, TerminalEvent } from './shared';
+import { terminalScrollback, type TerminalInfo, type TerminalEvent } from './shared';
 import { api } from './api';
 import { installTerminalLinks } from './terminal-links';
+
+const exitMessage = (code: number) => '\r\n[Process exited: ' + code + ']\r\n';
+/** How far each disposed pane was scrolled back, so returning to a project restores the reading position. */
+const scrolledBack = new Map<string, number>();
+/** `localStorage['stingray.terminalRenderer'] = 'dom'` keeps panes off WebGL (GPU issues, DOM-based tests). */
+const domRenderer = () => { try { return localStorage.getItem('stingray.terminalRenderer') === 'dom'; } catch { return false; } };
 
 export function TerminalPane({ info, visible, onError, onObserve }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void; onObserve: (id: string, stillObserved: () => boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
@@ -13,13 +21,14 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
   const visibleRef = useRef(visible); visibleRef.current = visible;
   const onObserveRef = useRef(onObserve); onObserveRef.current = onObserve;
   const errorRef = useRef(onError); errorRef.current = onError;
+  const rendererRef = useRef({ attach: () => {}, detach: () => {} });
   useEffect(() => {
     // Start at the PTY's size, not xterm's 80x24 default: a pane mounted hidden (background tab/workspace)
     // cannot be fitted, and output written into a grid of a different size than the PTY garbles TUIs.
     const terminal = new Terminal({
       cols: info.cols ?? 80, rows: info.rows ?? 24,
       cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", Menlo, Consolas, monospace',
-      scrollback: 3000, allowProposedApi: false, macOptionClickForcesSelection: true,
+      scrollback: terminalScrollback, allowProposedApi: true, macOptionClickForcesSelection: true,
       theme: { background: '#151110', foreground: '#eae8e6', cursor: '#e07850', selectionBackground: '#e0785040',
         black: '#151110', red: '#dc6b6b', green: '#7ec699', yellow: '#e5c07b', blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#eae8e6',
         brightBlack: '#a8a5a3', brightRed: '#e88888', brightGreen: '#98d1a8', brightYellow: '#ecd08f', brightBlue: '#7ec0f5', brightMagenta: '#d494e6', brightCyan: '#73c7d3', brightWhite: '#ffffff' },
@@ -27,16 +36,31 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
     const removeLinks = installTerminalLinks(terminal, element.current!, uri => {
       void api.openTerminalLink(info.id, uri).catch(e => errorRef.current(e.message));
     });
+    // Emoji and other wide glyphs take two cells, as in Pi and modern terminals; xterm's default (Unicode 6)
+    // counts them as one, which shifts every TUI line that contains them.
+    terminal.loadAddon(new Unicode11Addon()); terminal.unicode.activeVersion = '11';
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current!);
-    let fitted = false;
+    // WebGL draws box-drawing glyphs seamlessly and keeps up with fast TUIs. Only visible panes hold a context
+    // (browsers cap them); after repeated context losses the pane stays on the DOM renderer.
+    let webgl: WebglAddon | undefined, losses = 0;
+    const detach = () => { webgl?.dispose(); webgl = undefined; };
+    const attach = () => {
+      if (webgl || disposed || losses >= 3 || domRenderer()) return;
+      try {
+        webgl = new WebglAddon();
+        webgl.onContextLoss(() => { losses++; detach(); });
+        terminal.loadAddon(webgl);
+      } catch { losses = 3; webgl = undefined; }
+    };
+    rendererRef.current = { attach, detach };
     const fitNow = () => {
-      if (disposed || !element.current?.clientWidth || !element.current?.clientHeight) return;
+      // Never before the snapshot is parsed: it was serialized at the PTY's size.
+      if (disposed || !ready || !visibleRef.current || !element.current?.clientWidth || !element.current?.clientHeight) return;
       const dims = fit.proposeDimensions();
       // Unmeasurable (e.g. fonts/renderer not ready): keep xterm and the PTY at their shared size.
       if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return;
       const cols = Math.min(500, Math.max(2, dims.cols)), rows = Math.min(300, Math.max(1, dims.rows));
-      if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows);
-      fitted = true;
+      if (cols !== terminal.cols || rows !== terminal.rows) { terminal.resize(cols, rows); terminal.refresh(0, rows - 1); }
       void api.resizeTerminal(info.id, cols, rows).catch(e => errorRef.current(e.message));
     };
     // Reflow once the layout settles. Panel animations, drags and returning to a workspace otherwise resize
@@ -69,32 +93,45 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
     for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.addEventListener(name, interaction);
     window.addEventListener('focus', interaction);
     const pending: TerminalEvent[] = [];
+    let exitShown = false;
+    const showExit = (code: number) => { if (!exitShown) { exitShown = true; terminal.write(exitMessage(code)); } };
     const consume = (event: TerminalEvent) => {
       if (event.data && (event.sequence ?? 0) > sequence) { write(event.data); sequence = event.sequence!; }
-      if (event.exitCode !== undefined) terminal.write('\\r\\n[Process exited: ' + event.exitCode + ']\\r\\n');
+      if (event.exitCode !== undefined) showExit(event.exitCode);
     };
     const off = api.onTerminal(event => {
       if (event.id !== info.id) return;
       if (ready) consume(event); else pending.push(event);
     });
-    void api.terminals().then(items => {
+    // Restore the main-process mirror (screen, scrollback, alternate screen and input modes) at the PTY's size,
+    // then apply newer output and only then fit, so nothing is parsed into a grid of another size.
+    void api.terminalSnapshot(info.id).then(snapshot => {
       if (disposed) return;
-      const snapshot = items.find(t => t.id === info.id) ?? info;
-      // Not fitted yet (hidden): replay and render at the PTY's current size.
-      if (!fitted && snapshot.cols && snapshot.rows && (snapshot.cols !== terminal.cols || snapshot.rows !== terminal.rows)) terminal.resize(snapshot.cols, snapshot.rows);
-      write(snapshot.buffer, true); sequence = snapshot.sequence; ready = true;
-      pending.forEach(consume); pending.length = 0;
+      if (snapshot.cols !== terminal.cols || snapshot.rows !== terminal.rows) terminal.resize(snapshot.cols, snapshot.rows);
+      sequence = snapshot.sequence;
+      write(snapshot.data, true);
+      if (snapshot.exitCode !== undefined) showExit(snapshot.exitCode);
+      terminal.write('', () => {
+        if (disposed) return;
+        ready = true;
+        pending.forEach(consume); pending.length = 0;
+        const back = scrolledBack.get(info.id); scrolledBack.delete(info.id);
+        if (back && terminal.buffer.active.type === 'normal') terminal.scrollLines(-back);
+        fitNow();
+      });
     }).catch(e => { if (!disposed) errorRef.current(e.message); });
-    fitNow();
     return () => {
-      disposed = true; removeLinks();
+      const buffer = terminal.buffer.active;
+      if (ready && buffer.type === 'normal' && buffer.baseY > buffer.viewportY) scrolledBack.set(info.id, buffer.baseY - buffer.viewportY);
+      disposed = true; removeLinks(); detach();
       for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.removeEventListener(name, interaction);
       window.removeEventListener('focus', interaction);
       clearTimeout(fitTimer); observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();
     };
   }, [info.id]);
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) { rendererRef.current.detach(); return; }
+    rendererRef.current.attach();
     const frame = requestAnimationFrame(() => { fitRef.current(); observeRef.current(); });
     return () => cancelAnimationFrame(frame);
   }, [visible]);
