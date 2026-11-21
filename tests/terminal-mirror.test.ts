@@ -73,3 +73,18 @@ test('a pending snapshot fails instead of hanging when the terminal closes', asy
   mirror.dispose();
   await assert.rejects(pending, /closed/);
 });
+
+test('keeps OSC 8 hyperlinks in a restored pane', async () => {
+  const mirror = new TerminalMirror(40, 5);
+  mirror.write('see \x1b]8;;file:///tmp/x.txt\x07LINK\x1b]8;;\x07 done\r\n', 1);
+  const { data } = await mirror.snapshot();
+  assert.doesNotMatch(data, /\x1b\[4m/, "link cells are not given a real underline");
+  assert.match(data, /\x1b\]8;[^;]*;file:\/\/\/tmp\/x\.txt(\x07|\x1b\\)LINK\x1b\]8;;(\x07|\x1b\\) done/);
+  const { t } = await restore(data, 40, 5);
+  assert.equal(text(t, 0), 'see LINK done');
+  // Re-serialising the restored pane must produce the same link again.
+  const again = new TerminalMirror(40, 5);
+  again.write(data, 1);
+  assert.match((await again.snapshot()).data, /file:\/\/\/tmp\/x\.txt/);
+  mirror.dispose(); again.dispose(); t.dispose();
+});

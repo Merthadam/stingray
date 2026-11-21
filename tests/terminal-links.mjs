@@ -63,6 +63,8 @@ try {
     };
   });
   await page.evaluate(async repo => { await window.stingray.openRepository(repo); }, repo);
+  // These checks locate link text in the DOM renderer's rows; the WebGL renderer draws to a canvas.
+  await page.evaluate(() => localStorage.setItem('stingray.terminalRenderer', 'dom'));
   await page.reload(); await page.getByRole('button', { name: 'Open project link-fixture', exact: true }).click();
   await page.getByRole('button', { name: 'Open terminal', exact: true }).click();
   await wait(() => page.evaluate(async () => (await window.stingray.terminals()).length === 1), 'terminal');
