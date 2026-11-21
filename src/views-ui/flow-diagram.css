@@ -38,3 +38,5 @@
 .flow-fields{margin:0;padding:0;list-style:none;font:10.5px/18px ui-monospace,SFMono-Regular,Menlo,monospace;color:#cbb9aa}
 .flow-fields li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .flow-fields li::before{content:'· ';color:#94775f}
+.flow-fields li.flow-fields-more{color:#94775f}
+.flow-fields li.flow-fields-more::before{content:none}

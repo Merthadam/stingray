@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -148,4 +148,13 @@ test('edges entering an explained frame from above route around its explanation 
   assert.ok(entry.labelY - label.h / 2 >= sy && entry.labelY + label.h / 2 <= a.y, 'label sits between the source and the frame');
   assert.equal(route('active', 'fail'), undefined, 'edges inside the frame keep their path');
   assert.equal(route('done', 'write'), undefined, 'frames without an explanation keep their path');
+});
+
+test('step cards list at most 8 fields plus a +N more row, and size for exactly that', () => {
+  const fields = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `f${i}`, label: `f${i}`, detail: null })) as DiagramNode['fields'];
+  const card = (n: number) => ({ ...node('x', null), fields: fields(n) });
+  assert.deepEqual(cardFields(card(8)), { fields: fields(8), more: 0 });
+  assert.deepEqual(cardFields(card(20)), { fields: fields(8), more: 12 });
+  assert.equal(flowSize(card(8)).height + 18, flowSize(card(9)).height, '9 fields: 8 rows + the more row');
+  assert.equal(flowSize(card(9)).height, flowSize(card(500)).height);
 });
