@@ -4,20 +4,25 @@ import type { GraphSymbol } from './rules/types';
 export const MAX_EXPLANATION = 300;
 
 /** First paragraph of a docstring (up to a blank line or the first JSDoc `@tag`), comment markers and quotes stripped,
- * whitespace collapsed, capped at MAX_EXPLANATION with an ellipsis; null when nothing is left. */
+ * whitespace collapsed, capped at MAX_EXPLANATION with an ellipsis; null when nothing is left. Without any blank line
+ * the paragraph ends at the first line ending a sentence: CodeGraph drops the blank lines of JSDoc and `//` comments. */
 export function docstringSummary(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const text = raw.trim()
     .replace(/^[rRuUbB]{0,2}("""|''')([\s\S]*?)\1$/, '$2')
     .replace(/^\/\*\*?/, '').replace(/\*\/$/, '');
-  const paragraph: string[] = [];
+  const lines: string[] = [];
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim().replace(/^(\*(?!\/)|\/\/[/!]?|#+)/, '').trim();
     if (t.startsWith('@')) break;
-    if (!t) { if (paragraph.length) break; continue; }
-    paragraph.push(t);
+    lines.push(t);
   }
-  const summary = paragraph.join(' ').replace(/\s+/g, ' ').trim();
+  while (lines.length && !lines.at(-1)) lines.pop();
+  const start = lines.findIndex(Boolean);
+  const blank = lines.indexOf('', start + 1);
+  const sentenceEnd = lines.findIndex((t, i) => i >= start && /[.!?]["')\]]?$/.test(t));
+  const end = blank >= 0 ? blank : sentenceEnd >= 0 ? sentenceEnd + 1 : lines.length;
+  const summary = (start < 0 ? [] : lines.slice(start, end)).join(' ').replace(/\s+/g, ' ').trim();
   if (!summary) return null;
   return summary.length > MAX_EXPLANATION ? summary.slice(0, MAX_EXPLANATION - 1).trimEnd() + '…' : summary;
 }

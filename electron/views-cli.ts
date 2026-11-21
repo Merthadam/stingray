@@ -129,7 +129,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
       evaluate: view => deps.evaluate({ view, files: deps.createFileProvider(root), graph: api, graphStatus: graph.status, grammarDir: deps.grammarDir() }),
       findSymbols: async queries => queries.map(q => {
         const s = api?.findSymbols(q.name, q.file).find(s => !q.kinds || q.kinds.includes(s.kind));
-        return s ? { id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line } : null;
+        return s ?? null;
       }),
     });
   } finally { graph.close?.(); }

@@ -17,10 +17,21 @@ test('docstringSummary: first paragraph of a Python triple-quoted docstring, whi
 
 test('docstringSummary: JSDoc and line comments lose their markers; @tags end the summary', () => {
   assert.equal(docstringSummary('/**\n * Reconcile the email\n * with the profile.\n * @param x the x\n */'), 'Reconcile the email with the profile.');
-  assert.equal(docstringSummary('Reconcile the email.\nSecond line.\n@param x the x'), 'Reconcile the email. Second line.');
+  assert.equal(docstringSummary('Reconcile the email.\nSecond line.\n@param x the x'), 'Reconcile the email.');
   assert.equal(docstringSummary('/** One liner. */'), 'One liner.');
   assert.equal(docstringSummary('// first\n// second'), 'first second');
   assert.equal(docstringSummary('# Ruby or shell\n# comment'), 'Ruby or shell comment');
+});
+
+test('docstringSummary: without blank lines (CodeGraph strips them from JSDoc) the first sentence-ending line ends the summary', () => {
+  // CodeGraph's text for "/** Probe: first paragraph only.\n *\n * Second paragraph.\n * @param x */"
+  assert.equal(docstringSummary('Probe: first paragraph only.\nSecond paragraph must not show.\n@param {string} x a value'), 'Probe: first paragraph only.');
+  assert.equal(docstringSummary('Read the current session, refreshing\nthe token once when asked.\nMore detail.'), 'Read the current session, refreshing the token once when asked.');
+  assert.equal(docstringSummary('Ends with a quote "x."\nNext.'), 'Ends with a quote "x."');
+  assert.equal(docstringSummary('Is it done?\nNext.'), 'Is it done?');
+  // a Python docstring with a blank line keeps its whole first paragraph, even across sentences
+  assert.equal(docstringSummary('Accept a token.\nVerify its claims.\n\nRaises: 401.'), 'Accept a token. Verify its claims.');
+  assert.equal(docstringSummary('"""Accept a token.\n    Verify its claims.\n    """'), 'Accept a token.');
 });
 
 test('docstringSummary: empty is null; long text is capped with an ellipsis', () => {

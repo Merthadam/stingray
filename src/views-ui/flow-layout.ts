@@ -84,6 +84,28 @@ function orderBranches(result: ViewResult, positions: Positions) {
   }
 }
 
+export type FlowFrame = ReturnType<typeof flowFrames>[number];
+
+/** Detour for an edge entering an explained frame from above, so neither the line nor its label crosses the frame's
+ * explanation: down to `aboveY`, across to a lane beside the frame, down to `belowY` (under the band), across to the target.
+ * The label sits on the lane just above the frame, at `labelY`. Undefined for edges that need no detour. */
+export function bandEntry(result: ViewResult, frames: FlowFrame[], positions: Positions, from: DiagramNode, to: DiagramNode) {
+  const chain = (id: string | null | undefined) => {
+    const ids: string[] = [];
+    for (let g = id; g && !ids.includes(g); g = result.groups.find(x => x.id === g)?.parent) ids.push(g);
+    return ids;
+  };
+  const outside = new Set(chain(from.group));
+  // The outermost explained frame the edge enters; frames nested in it start below its band.
+  const frame = chain(to.group).reverse().filter(id => !outside.has(id)).map(id => frames.find(f => f.group.id === id))
+    .find(f => f?.group.explanation);
+  const p = positions[from.id], size = flowSize(from, result.kind === 'flowchart');
+  if (!frame || !p || p.y + size.height >= frame.y) return undefined;
+  const sx = p.x + size.width / 2, sy = p.y + size.height, aboveY = (sy + frame.y) / 2;
+  return { laneX: sx < frame.x + frame.width / 2 ? frame.x - 20 : frame.x + frame.width + 20, aboveY,
+    belowY: frame.y + 50 + FRAME_EXPLANATION_HEIGHT - 13, labelY: (aboveY + frame.y) / 2 };
+}
+
 /** Group frames around their nodes and nested groups' frames, in `result.groups` order (flowchart: parents first). */
 export function flowFrames(result: ViewResult, positions: Positions) {
   const chart = result.kind === 'flowchart';

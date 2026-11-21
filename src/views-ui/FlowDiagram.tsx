@@ -8,7 +8,7 @@ import type { ErDiagramProps } from './types';
 import type { DiagramNode, ViewLocalState } from '../views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
-import { flowFrames, flowPositions, flowSize } from './flow-layout';
+import { bandEntry, flowFrames, flowPositions, flowSize } from './flow-layout';
 import { FlowGroup, FlowNode, FlowchartNode } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
@@ -84,7 +84,8 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
         selected: selected?.kind === 'edge' && selected.id === e.id,
         className: `flow-edge${e.style === 'dashed' || e.kind === 'branch' || !e.certain ? ' dashed' : ''}`,
         ariaLabel: `${source.label} to ${target.label}${e.label ? `: ${e.label}` : ''}`,
-        data: { returnX: returning ? right + 30 + lane * 24 : undefined, onSelect: () => setSelected({ kind: 'edge', id: e.id }) },
+        data: { returnX: returning ? right + 30 + lane * 24 : undefined,
+          entry: returning ? undefined : bandEntry(result, frames, positions, source, target), onSelect: () => setSelected({ kind: 'edge', id: e.id }) },
       };
     });
   }, [result, positions, byId, frames, selected, size]);

@@ -1,4 +1,4 @@
-/* ER diagram. Row and header heights must match HEADER_HEIGHT / ROW_HEIGHT in er-layout.ts. */
+/* ER diagram. Row, header and explanation heights must match HEADER_HEIGHT / ROW_HEIGHT / EXPLANATION_HEIGHT in er-layout.ts. */
 .er-diagram{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden;background:#141210;outline:none}
 .er-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:45px;padding:7px 12px;border-bottom:1px solid var(--border);flex-shrink:0;font-size:11px;color:#c7beb7}
 .er-toolbar button,.er-toolbar select{font-size:11px;padding:5px 8px;color:#d3c8bf;border:1px solid #3a3029;border-radius:5px;background:none}
@@ -30,6 +30,8 @@
 .er-card-header{position:relative;height:44px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 10px;background:#2b231d;border-radius:6px 6px 0 0;border-bottom:1px solid #3d322a;min-width:0}
 .er-card-header strong{font-weight:600;font-size:12px;color:#efe4da;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .er-card-header span{font-size:10px;color:#a99a8f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.er-card-explanation{height:50px;flex-shrink:0;padding:4px 10px 3px;border-bottom:1px solid #3d322a;background:#241e1a}
+.er-card-explanation span{overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere;font:11px/14px system-ui,-apple-system,sans-serif;color:#cbb9aa}
 .er-row{position:relative;height:22px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 10px;font:10.5px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}
 .er-row:hover,.er-row.active{background:#30271f}.er-row.active{box-shadow:inset 2px 0 var(--accent)}
 .er-row-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex-shrink:1}
