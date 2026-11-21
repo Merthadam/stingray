@@ -10,42 +10,41 @@ export type SequenceEvent =
   | { type: 'note'; note: SequenceNote; depth: number }
   | { type: 'close'; fragment: SequenceFragment; depth: number };
 
-/** Per row: fragments opening (outer first), branches starting, the message, notes after it, fragments closing (inner first).
- * A branch with no message of its own (first > last: e.g. an `else` holding only an error note) is drawn when its fragment
- * closes, and the notes after that row go into it. Fragments starting past the last message are dropped; ones ending past it
- * or after their parent close with the innermost fragment around them. */
+/** Fragments as a tree (`parent`), each arm holding its rows [arm.first, next arm.first - 1], its child fragments (by their
+ * first row) and the notes placed in it (`note.fragment`/`note.arm`; notes without go to the top level). Arms without rows
+ * (only notes: `first` = the next arm's first, or `fragment.last + 1` for the last) are still drawn. Inside an arm, a note
+ * after row r comes after row r's message and before a fragment opening at r + 1. Fragments past the last message are
+ * dropped; ones with an unknown parent count as top level. */
 export function sequenceEvents({ messages, fragments, notes }: SequenceData): SequenceEvent[] {
-  const byId = new Map(fragments.map(f => [f.id, f]));
-  const nesting = (f: SequenceFragment, seen = new Set<string>()): number => {
-    const parent = f.parent ? byId.get(f.parent) : undefined;
-    return parent && !seen.has(parent.id) ? 1 + nesting(parent, seen.add(f.id)) : 0;
+  const ids = new Set(fragments.map(f => f.id));
+  const notesIn = new Map<string, SequenceNote[]>(); // "<fragment id>#<arm>", "" = top level
+  for (const n of notes) {
+    const f = n.fragment && ids.has(n.fragment) ? fragments.find(x => x.id === n.fragment)! : null;
+    const key = f ? `${f.id}#${Math.min(Math.max(0, n.arm ?? 0), f.branches.length)}` : '';
+    notesIn.set(key, [...notesIn.get(key) ?? [], n]);
+  }
+  const events: SequenceEvent[] = [];
+  const range = (from: number, to: number, parent: string | null, key: string, depth: number) => {
+    const items: { at: number; emit: () => void }[] = [];
+    const children = fragments.filter(f => (f.parent !== null && ids.has(f.parent) ? f.parent : null) === parent && f.first >= from && f.first <= to && f.first < messages.length);
+    for (const f of children) items.push({ at: f.first - 0.25, emit: () => fragment(f, depth) });
+    for (const note of notesIn.get(key) ?? []) items.push({ at: note.after + 0.5, emit: () => events.push({ type: 'note', note, depth }) });
+    for (let row = from; row <= Math.min(to, messages.length - 1); row++) {
+      if (children.some(f => row >= f.first && row <= f.last)) continue;
+      const message = messages[row];
+      items.push({ at: row, emit: () => events.push({ type: 'message', message, row, depth }) });
+    }
+    items.sort((a, b) => a.at - b.at).forEach(i => i.emit()); // stable: notes keep their order
   };
-  const outerFirst = (a: SequenceFragment, b: SequenceFragment) => nesting(a) - nesting(b) || (b.last - b.first) - (a.last - a.first);
-  const events: SequenceEvent[] = [], open: SequenceFragment[] = [];
-  const notesAfter = (row: number) => notes.filter(n => n.after === row).forEach(note => events.push({ type: 'note', note, depth: open.length }));
-  notesAfter(-1);
-  messages.forEach((message, row) => {
-    for (const fragment of fragments.filter(f => f.first === row && f.last >= row).sort(outerFirst)) {
-      events.push({ type: 'open', fragment, depth: open.length });
-      open.push(fragment);
-    }
-    for (const fragment of open) for (const b of fragment.branches) {
-      if (b.first === row && row > fragment.first) events.push({ type: 'branch', fragment, label: b.label, depth: open.indexOf(fragment) });
-    }
-    events.push({ type: 'message', message, row, depth: open.length });
-    const empty = (f: SequenceFragment) => f.branches.filter(b => b.first > f.last);
-    let noted = false;
-    const note = () => { if (!noted) notesAfter(row); noted = true; };
-    if (!open.some(f => f.last <= row && empty(f).length)) note();
-    while (open.length && open[open.length - 1].last <= row) {
-      const fragment = open[open.length - 1];
-      for (const b of empty(fragment)) events.push({ type: 'branch', fragment, label: b.label, depth: open.length - 1 });
-      if (empty(fragment).length) note();
-      open.pop();
-      events.push({ type: 'close', fragment, depth: open.length });
-    }
-    note();
-  });
-  while (open.length) events.push({ type: 'close', fragment: open.pop()!, depth: open.length });
+  const fragment = (f: SequenceFragment, depth: number) => {
+    const arms = [{ label: f.label, first: f.first }, ...f.branches];
+    events.push({ type: 'open', fragment: f, depth });
+    arms.forEach((arm, i) => {
+      if (i) events.push({ type: 'branch', fragment: f, label: arm.label, depth });
+      range(arm.first, Math.min(f.last, (arms[i + 1]?.first ?? f.last + 1) - 1), f.id, `${f.id}#${i}`, depth + 1);
+    });
+    events.push({ type: 'close', fragment: f, depth });
+  };
+  range(0, messages.length - 1, null, '', 0);
   return events;
 }

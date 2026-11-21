@@ -17,12 +17,13 @@ export const SEQ = {
   minGap: 36, labelPad: 18,
   charWidth: 6.6,     // 11px monospace (message labels, notes, fragment labels)
   headerChar: 7.4,    // 12px participant labels, semibold
+  subtitleChar: 6.1,  // 10px monospace participant subtitles
   minBox: 104, maxBox: 230, boxPad: 30,
   maxLabel: 56,
 };
 export const UNCERTAIN = ' (uncertain)';
 
-export interface LaidParticipant { participant: SequenceParticipant; x: number; width: number; label: string } // x = lifeline
+export interface LaidParticipant { participant: SequenceParticipant; x: number; width: number; label: string; subtitle: string | null } // x = lifeline
 export interface LaidMessage {
   message: SequenceMessage; row: number;
   y: number;                   // arrow
@@ -41,6 +42,8 @@ export interface SequenceLayout {
 
 export const textWidth = (text: string, char = SEQ.charWidth) => Math.ceil(text.length * char);
 export const clip = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+/** Keeps the end (a file path's name). */
+const clipStart = (text: string, max: number) => text.length > max ? `…${text.slice(text.length - max + 1)}` : text;
 const labelWidth = (m: SequenceMessage) => textWidth(clip(m.label, SEQ.maxLabel) + (m.certain ? '' : UNCERTAIN));
 const noteText = (n: SequenceNote) => clip(n.text, Math.floor((SEQ.noteMax - 20) / SEQ.charWidth));
 export const tabWidth = (kind: string) => textWidth(kind) + 18;
@@ -49,9 +52,11 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
   const S = SEQ, events = sequenceEvents(data);
   const columns = [...data.participants].sort((a, b) => a.column - b.column);
   const col = new Map(columns.map((p, i) => [p.id, i]));
+  const actors = new Set(columns.filter(p => p.kind === 'actor').map(p => p.id));
   const n = columns.length;
-  const boxChars = Math.floor((S.maxBox - S.boxPad) / S.headerChar);
-  const width = columns.map(p => Math.min(S.maxBox, Math.max(S.minBox, textWidth(p.label, S.headerChar) + S.boxPad)));
+  const boxChars = Math.floor((S.maxBox - S.boxPad) / S.headerChar), subtitleChars = Math.floor((S.maxBox - S.boxPad) / S.subtitleChar);
+  const width = columns.map(p => Math.min(S.maxBox, Math.max(S.minBox, textWidth(p.label, S.headerChar) + S.boxPad,
+    textWidth(p.subtitle ?? '', S.subtitleChar) + S.boxPad)));
 
   // Columns: each lifeline as far right as its box, the labels of the arrows ending at it and the notes around it need.
   const half = width.map(w => w / 2);
@@ -130,7 +135,8 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
         while (stack.length && stack[stack.length - 1].level > L) end(lastArrow);
         if (stack[stack.length - 1]?.participant !== m.from) push(m.from, L, arrow);
         x1 = edge(m.from, from);
-        push(m.to, L + 1, arrow + (self ? S.selfDrop : 0));
+        // The trigger enters the entry function, whose own calls have the trigger's level (0) too.
+        push(m.to, actors.has(m.from) ? L : L + 1, arrow + (self ? S.selfDrop : 0));
         x2 = edge(m.to, to);
       }
       const label = clip(m.label, S.maxLabel);
@@ -147,7 +153,69 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
     ...messages.map(m => m.message.from === m.message.to || m.message.kind === 'self' ? m.labelX + labelWidth(m.message) : 0));
   return {
     width: Math.ceil(right + S.side), height: Math.ceil(y + S.bottom),
-    participants: columns.map((participant, i) => ({ participant, x: x[i], width: width[i], label: clip(participant.label, boxChars) })),
+    participants: columns.map((participant, i) => ({ participant, x: x[i], width: width[i], label: clip(participant.label, boxChars),
+      subtitle: participant.subtitle === null ? null : clipStart(participant.subtitle, subtitleChars) })),
     messages, activations, fragments, notes,
   };
+}
+
+/** A participant can fold into its caller when another (non-actor) participant calls it. */
+export const collapsible = (data: SequenceData, id: string) => data.messages.some(m => m.to === id && m.from !== id && m.kind !== 'return'
+  && data.participants.find(p => p.id === m.from)?.kind !== 'actor');
+
+/** The diagram with `collapsed` participants folded into their callers' lifelines (spec: "collapse a participant"): the messages
+ * they send are drawn from the caller, calls between the two vanish (like `internal: collapse`), notes move with them.
+ * Fragments left without a message are dropped; their notes go to the nearest kept enclosing fragment. */
+export function collapseParticipants(data: SequenceData, collapsed: ReadonlySet<string>): SequenceData {
+  const folding = new Set([...collapsed].filter(id => collapsible(data, id)));
+  if (!folding.size) return data;
+  const actors = new Set(data.participants.filter(p => p.kind === 'actor').map(p => p.id));
+  // Per call level: the lifeline of the function running there and the one it is drawn on.
+  const actual: string[] = [], shown: string[] = [];
+  const messages: SequenceMessage[] = [], before: number[] = []; // before[row] = messages kept before that row
+  const noteOn = new Map<SequenceNote, string | null>();
+  const place = (row: number) => data.notes.filter(n => n.after === row).forEach(n => {
+    const i = actual.lastIndexOf(n.participant);
+    noteOn.set(n, i >= 0 ? shown[i] : folding.has(n.participant) ? null : n.participant);
+  });
+  place(-1);
+  data.messages.forEach((m, row) => {
+    before[row] = messages.length;
+    const L = m.level;
+    let from = m.from, to = m.to;
+    if (m.kind === 'return') {
+      if (actual[L + 1] === m.from) from = shown[L + 1];
+      if (actual[L] === m.to) to = shown[L];
+      actual.length = shown.length = L + 1;
+    } else if (actors.has(m.from)) {
+      actual.length = shown.length = 0; actual[L] = shown[L] = m.to; // the trigger enters the entry, which calls at the same level
+    } else {
+      if (actual[L] !== m.from) actual[L] = shown[L] = m.from;
+      actual.length = shown.length = L + 1;
+      from = shown[L];
+      actual[L + 1] = m.to; shown[L + 1] = to = folding.has(m.to) ? from : m.to;
+    }
+    // A call or return between a folded participant and its caller vanishes.
+    if (from !== to || (from === m.from && to === m.to)) messages.push({ ...m, id: `m${messages.length}`, from, to, kind: from === to && m.kind !== 'return' ? 'self' : m.kind });
+    place(row);
+  });
+  before[data.messages.length] = messages.length;
+  const after = (r: number) => before[Math.min(r + 1, data.messages.length)] - 1;
+  const moved = data.fragments.map(f => ({ ...f, first: before[Math.min(f.first, data.messages.length)], last: after(f.last),
+    branches: f.branches.map(b => ({ ...b, first: before[Math.min(b.first, data.messages.length)] })) }));
+  const fragments = moved.filter(f => f.first <= f.last);
+  const kept = new Set(fragments.map(f => f.id)), byId = new Map(moved.map(f => [f.id, f]));
+  const notes = data.notes.flatMap(n => {
+    const participant = noteOn.get(n);
+    if (!participant) return [];
+    let fragment = n.fragment ?? null, arm = n.arm;
+    if (fragment && !kept.has(fragment)) {
+      const at = byId.get(fragment)?.first ?? 0;
+      do fragment = byId.get(fragment)?.parent ?? null; while (fragment && !kept.has(fragment));
+      const f = fragment ? byId.get(fragment)! : null;
+      arm = f ? [f.first, ...f.branches.map(b => b.first)].reduce((a, first, i) => first <= at ? i : a, 0) : undefined;
+    }
+    return [{ ...n, participant, after: after(n.after), fragment, arm }];
+  });
+  return { participants: data.participants.filter(p => !folding.has(p.id)), messages, fragments, notes };
 }

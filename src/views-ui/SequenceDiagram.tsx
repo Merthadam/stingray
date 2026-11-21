@@ -1,12 +1,12 @@
 // Sequence diagram (kind: sequence) as plain SVG: sticky participant header, lifelines, activation bars, message arrows,
 // fragment frames and notes. Geometry comes from sequence-layout.ts; this file only draws and handles input.
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { ExternalLink, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ExternalLink, FoldHorizontal, Maximize2, UnfoldHorizontal, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './er-diagram.css';
 import './sequence-diagram.css';
 import type { ErDiagramProps } from './types';
 import type { SequenceMessage, SequenceParticipant } from '../views';
-import { SEQ, UNCERTAIN, clip, sequenceLayout, tabWidth, type LaidMessage, type LaidParticipant } from './sequence-layout';
+import { SEQ, UNCERTAIN, clip, collapseParticipants, collapsible, sequenceLayout, tabWidth, type LaidMessage, type LaidParticipant } from './sequence-layout';
 import { StaleMark } from './FlowNode';
 
 const MIN_ZOOM = 0.3, MAX_ZOOM = 2;
@@ -17,9 +17,12 @@ const describe = (m: SequenceMessage, name: (id: string) => string) =>
 const activate = (run: () => void) => (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); run(); } };
 
 export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagramProps) {
-  const data = result.sequence!;
+  const full = result.sequence!;
+  // Participants folded into their callers' lifelines from the inspector: this session only.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const data = useMemo(() => collapseParticipants(full, folded), [full, folded]);
   const layout = useMemo(() => sequenceLayout(data), [data]);
-  const names = useMemo(() => new Map(data.participants.map(p => [p.id, p.label])), [data]);
+  const names = useMemo(() => new Map(full.participants.map(p => [p.id, p.label])), [full]);
   const name = (id: string) => names.get(id) ?? id;
   const [zoom, setZoom] = useState(1);
   const [hover, setHover] = useState<number | null>(null);
@@ -60,6 +63,7 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
       <button aria-label="Reset zoom" title="Reset zoom" className="seq-zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
       <button aria-label="Zoom in" title="Zoom in (Ctrl/⌘ + scroll)" onClick={() => setZoom(z => clampZoom(z * 1.2))}><ZoomIn size={13} /></button>
       <button aria-label="Fit width" onClick={fit}><Maximize2 size={13} />Fit</button>
+      {folded.size > 0 && <button title={[...folded].map(name).join(', ')} onClick={() => setFolded(new Set())}><UnfoldHorizontal size={13} />Unfold {folded.size}</button>}
       <div className="er-toolbar-extra">{toolbarExtra}</div>
     </div>
     <div className="er-body">
@@ -96,7 +100,7 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
             {layout.fragments.map(f => <g key={f.fragment.id} className={`seq-fragment-head ${f.fragment.kind}`}>
               <path className="seq-fragment-tab" d={`M${f.x} ${f.y + 4} q0 -4 4 -4 H${f.x + tabWidth(f.fragment.kind)} v12 l-6 7 H${f.x} z`} />
               <text className="seq-fragment-kind" x={f.x + 7} y={f.y + 14}>{f.fragment.kind}</text>
-              {f.fragment.label && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>[{clip(f.fragment.label, SEQ.maxLabel)}]<title>{f.fragment.label}</title></text>}
+              {f.fragment.label && f.fragment.label !== f.fragment.kind && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>[{clip(f.fragment.label, SEQ.maxLabel)}]<title>{f.fragment.label}</title></text>}
               {f.branches.map((b, i) => <g key={i}>
                 <line className="seq-branch" x1={f.x} x2={f.x + f.width} y1={b.y} y2={b.y} />
                 <text className="seq-fragment-label" x={f.x + 8} y={b.y + 16}>[{clip(b.label, SEQ.maxLabel)}]<title>{b.label}</title></text></g>)}
@@ -112,7 +116,8 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
         </div>
       </div>
       {participant && <ParticipantInspector participant={participant} explanationStatus={node?.explanationStatus} messages={data.messages} name={name}
-        onClose={() => setSelected(null)} onOpenSource={onOpenSource} />}
+        onClose={() => setSelected(null)} onOpenSource={onOpenSource}
+        onFold={collapsible(full, participant.id) ? () => { setFolded(f => new Set([...f, participant.id])); setSelected(null); } : undefined} />}
     </div>
   </div>;
 }
@@ -129,7 +134,7 @@ function Participant({ laid, selected, onSelect }: { laid: LaidParticipant; sele
     </g> : <>
       <rect x={x - width / 2} y={10} width={width} height={46} rx={6} />
       <text className="seq-participant-label" x={x} y={p.subtitle ? 30 : 37}>{laid.label}</text>
-      {p.subtitle && <text className="seq-participant-subtitle" x={x} y={45}>{p.subtitle}</text>}
+      {laid.subtitle && <text className="seq-participant-subtitle" x={x} y={45}>{laid.subtitle}</text>}
     </>}
   </g>;
 }
@@ -146,9 +151,9 @@ function Message({ laid: lm, hot, marker }: { laid: LaidMessage; hot: boolean; m
   </g>;
 }
 
-function ParticipantInspector({ participant: p, explanationStatus, messages, name, onClose, onOpenSource }: {
+function ParticipantInspector({ participant: p, explanationStatus, messages, name, onClose, onOpenSource, onFold }: {
   participant: SequenceParticipant; explanationStatus?: Parameters<typeof StaleMark>[0]['status']; messages: SequenceMessage[];
-  name(id: string): string; onClose(): void; onOpenSource: ErDiagramProps['onOpenSource'];
+  name(id: string): string; onClose(): void; onOpenSource: ErDiagramProps['onOpenSource']; onFold?: () => void;
 }) {
   const own = messages.filter(m => m.from === p.id || m.to === p.id);
   return <aside className="er-inspector" aria-label={`Participant ${p.label}`}>
@@ -156,6 +161,8 @@ function ParticipantInspector({ participant: p, explanationStatus, messages, nam
       <button className="icon" aria-label="Close inspector" onClick={onClose}><X size={14} /></button></header>
     {p.source && <div className="er-inspector-source"><code title={`${p.source.file}:${p.source.line}`}>{p.source.file}:{p.source.line}</code>
       <button aria-label={`Open ${p.label} in editor`} onClick={() => onOpenSource(p.source!.file, p.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
+    {onFold && <div className="er-inspector-source"><button onClick={onFold} title="Draw its calls on the caller's lifeline (this session only)">
+      <FoldHorizontal size={12} />Fold into caller</button></div>}
     {p.explanation && <p className="flow-inspector-explanation"><StaleMark status={explanationStatus} />{p.explanation}</p>}
     <h4>Messages <span>{own.length}</span></h4>
     {!own.length && <p className="er-inspector-empty">No messages.</p>}
