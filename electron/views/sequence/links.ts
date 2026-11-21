@@ -31,6 +31,7 @@ export interface LinkContext {
   files: FileProvider;
   followable: (file: string) => boolean;
   memo: Map<string, unknown>; // per-walk cache of the providers, keys prefixed with the set name
+  halted: () => boolean;      // the evaluation's deadline passed or it was aborted: stop scanning
 }
 
 /** A link set. `call` set: hops at that call site of `fn`, drawn instead of the plain call; `call` null: hops entered before
@@ -98,7 +99,9 @@ export const httpLinks: LinkProvider = {
     return routes.flatMap(r => {
       const route = found.get(r.to);
       if (!route) return [];
-      const handlers = ctx.symbols(ctx.graph.outgoing([route.id], ['references']).map(x => x.to));
+      const key = `http:handlers:${route.id}`;
+      if (!ctx.memo.has(key)) ctx.memo.set(key, ctx.graph.outgoing([route.id], ['references']).map(x => x.to));
+      const handlers = ctx.symbols(ctx.memo.get(key) as string[]);
       const handler = [...handlers.values()].find(s => FUNCTION_KINDS.has(s.kind));
       const { method, href } = r.meta as { method?: unknown; href?: unknown };
       const label = typeof href === 'string' ? `${typeof method === 'string' ? method + ' ' : ''}${href}` : route.name;

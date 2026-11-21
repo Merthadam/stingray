@@ -306,3 +306,44 @@ test('sequence link rules: a call to an unresolved `from` and entering a functio
   assert.deepEqual(out.diagnostics.sequence!.links, { 'rule:rpc': 1, 'rule:jobs': 1 });
   assert.ok(!out.warnings.some(w => /not applied/.test(w.message)));
 });
+
+const SHARED = {
+  'services/api/views.py': `from fastapi import Depends
+
+CurrentUser = Annotated[dict, Depends(get_user)]
+
+
+def get_user():
+    return 1
+
+
+def shared(user: CurrentUser):
+    return user
+
+
+def a():
+    return shared()
+
+
+def b():
+    return shared()
+
+
+def handler():
+    a()
+    b()
+`,
+};
+
+test('sequence walk: a function entered again reuses its calls relations and auth hops (no new graph queries)', async () => {
+  const graph = fakeGraph(SHARED, ['handler>a', 'handler>b', 'a>shared', 'b>shared']);
+  const queries = { outgoing: new Map<string, number>(), alias: 0 };
+  const counting = { ...graph,
+    outgoing: (ids: string[], kinds: string[]) => { for (const id of ids) queries.outgoing.set(id, (queries.outgoing.get(id) ?? 0) + 1); return graph.outgoing(ids, kinds); },
+    findSymbols: (name: string, file?: string) => { if (name === 'CurrentUser') queries.alias++; return graph.findSymbols(name, file); } };
+  const out = await run(SHARED, counting, { start: { symbol: 'handler' }, participants: 'file', internal: 'show', returns: false });
+  // Both entries still draw shared's dependency.
+  assert.equal(out.seq.messages.filter(m => m.label === 'get_user' && m.link === 'auth').length, 2);
+  assert.equal(queries.outgoing.get('services/api/views.py#shared'), 1);
+  assert.equal(queries.alias, 1);
+});

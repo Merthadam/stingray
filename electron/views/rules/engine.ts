@@ -354,7 +354,8 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         try {
           // Link rules (schema: rules of a sequence emit only `kind: link` edges) teach the walker extra hops.
           const ruleLinks = edges.filter(e => e.kind === 'link').map(e => ({ rule: e.rule.slice(e.rule.indexOf('#') + 1), from: e.from, to: e.to, label: e.label, certain: e.certain, source: e.source }));
-          const out = await runSequence(step, graph, files, parseText, f => inScope(f, view.scope), view.exclude, ruleLinks);
+          const out = await runSequence(step, graph, files, parseText, f => inScope(f, view.scope), view.exclude, ruleLinks,
+            () => !!signal?.aborted || performance.now() > deadline);
           sequenceDiag = out.diagnostic;
           sequence = out.sequence;
           warnings.push(...out.warnings);

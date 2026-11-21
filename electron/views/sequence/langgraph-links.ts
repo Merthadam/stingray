@@ -137,6 +137,7 @@ async function graphFor(receiver: string, fn: GraphSymbol, ctx: LinkContext): Pr
     const { files } = await ctx.files.list(f => f.endsWith('.py') && ctx.followable(f));
     const all: StateGraph[] = [];
     for (const file of files) {
+      if (ctx.halted()) break;
       if (!(await ctx.files.read(file))?.includes('StateGraph')) continue;
       all.push(...(await graphsOf(file, ctx))?.graphs.filter(g => g.nodes.size) ?? []);
     }

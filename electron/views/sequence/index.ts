@@ -28,7 +28,7 @@ type Granularity = 'service' | 'module' | 'file' | 'class';
 type Lifeline = Omit<SequenceParticipant, 'column'>;
 
 export async function runSequence(step: SequenceStep, graph: GraphApi, files: FileProvider, parse: ParseText,
-  inScope: (file: string) => boolean, exclude: string[] = [], rules: RuleLink[] = []): Promise<SequenceOutput> {
+  inScope: (file: string) => boolean, exclude: string[] = [], rules: RuleLink[] = [], halted: () => boolean = () => false): Promise<SequenceOutput> {
   const warnings: ViewWarning[] = [];
   const diagnostic: SequenceDiagnostic = { start: null, depth: step.depth, participants: step.participants === 'auto' ? 'file' : step.participants,
     functions: 0, messages: 0, links: {}, truncated: false, error: null };
@@ -50,7 +50,7 @@ export async function runSequence(step: SequenceStep, graph: GraphApi, files: Fi
     const followable = (file: string) => (step.include ? matches(step.include, file) : inScope(file)) && !matches(step.exclude ?? [], file);
     const importsOf = async (file: string) => { const t = await loader.tree(file); return t ? fileImports(t.rootNode) : new Map<string, string>(); };
     const providers = [...step.links.map(l => LINK_PROVIDERS[l]), ...ruleLinks(rules)];
-    const walker = new SequenceWalker(step, graph, loader.load, providers, followable, importsOf, { tree: loader.tree, files });
+    const walker = new SequenceWalker(step, graph, loader.load, providers, followable, importsOf, { tree: loader.tree, files, halted });
     await walker.entry(entry.symbol, body.constructs);
 
     const lifelines = new Lifelines(step, graph, walker.events);

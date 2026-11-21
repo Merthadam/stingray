@@ -33,18 +33,26 @@ function dependsNames(node: Node | null): string[] {
   return out;
 }
 
-/** Value of the assignment `name = …` in `root` closest before `before` (else the first one). */
-function assigned(root: Node, name: string, before = Infinity): Node | null {
-  let best: Node | null = null;
-  const visit = (n: Node) => {
-    if (n.type === 'assignment' && n.childForFieldName('left')?.text === name) {
-      const value = n.childForFieldName('right');
-      if (value && (!best || line(n) < before)) best = value;
-    }
-    named(n).forEach(visit);
-  };
-  visit(root);
-  return best;
+/** Per-walk cache of something derived from a whole file's tree. */
+function perFile<T>(key: string, file: string, ctx: LinkContext, make: () => T): T {
+  const k = `auth:${key}:${file}`;
+  if (!ctx.memo.has(k)) ctx.memo.set(k, make());
+  return ctx.memo.get(k) as T;
+}
+
+/** Value of the assignment `name = …` in `file` closest before `before` (else the first one). */
+function assigned(file: string, root: Node, name: string, ctx: LinkContext, before = Infinity): Node | null {
+  const all = perFile('assignments', file, ctx, () => {
+    const out = new Map<string, { line: number; value: Node }[]>();
+    const visit = (n: Node) => {
+      const left = n.type === 'assignment' ? n.childForFieldName('left')?.text : undefined, value = n.childForFieldName('right');
+      if (left !== undefined && value) out.set(left, [...out.get(left) ?? [], { line: line(n), value }]);
+      named(n).forEach(visit);
+    };
+    visit(root);
+    return out;
+  }).get(name) ?? [];
+  return (all.filter(a => a.line < before).at(-1) ?? all[0])?.value ?? null;
 }
 
 async function pythonDependencies(fn: GraphSymbol, def: Node, ctx: LinkContext): Promise<string[]> {
@@ -56,7 +64,7 @@ async function pythonDependencies(fn: GraphSymbol, def: Node, ctx: LinkContext):
     else if (call && target?.type === 'attribute') {
       // A route decorator: the router's dependencies (`router = APIRouter(dependencies=[…])`), then the route's own.
       const owner = target.childForFieldName('object');
-      const made = owner?.type === 'identifier' ? assigned(root, owner.text, line(d)) : null;
+      const made = owner?.type === 'identifier' ? assigned(fn.file, root, owner.text, ctx, line(d)) : null;
       if (made?.type === 'call') names.push(...dependsNames(keyword(made, 'dependencies')));
       names.push(...dependsNames(keyword(call, 'dependencies')));
     }
@@ -69,7 +77,7 @@ async function pythonDependencies(fn: GraphSymbol, def: Node, ctx: LinkContext):
       const elsewhere = ctx.graph.findSymbols(alias).filter(s => !FUNCTION_KINDS.has(s.kind) && s.kind !== 'class' && s.file !== fn.file && path.posix.extname(s.file) === '.py');
       for (const file of [fn.file, ...new Set(elsewhere.map(s => s.file))]) {
         const tree = file === fn.file ? def.tree : await ctx.tree(file);
-        const value = tree && assigned(tree.rootNode, alias);
+        const value = tree && assigned(file, tree.rootNode, alias, ctx);
         if (value?.type === 'subscript' && /^(?:typing\.)?Annotated$/.test(value.childForFieldName('value')?.text ?? '')) { found.push(...dependsNames(value)); break; }
       }
     }
@@ -83,51 +91,64 @@ const FUNCTION_VALUES = new Set(['arrow_function', 'function_expression', 'funct
 const middlewareName = (n: Node) => n.type === 'call_expression' ? lastName(n.childForFieldName('function'))
   : n.type === 'identifier' || n.type === 'member_expression' ? lastName(n) : null;
 
-function expressMiddleware(fn: GraphSymbol, root: Node): string[] {
-  const calls: Node[] = [];
-  const visit = (n: Node) => { if (n.type === 'call_expression') calls.push(n); named(n).forEach(visit); };
-  visit(root);
-  const member = (c: Node) => { const f = c.childForFieldName('function'); return f?.type === 'member_expression' ? f : null; };
-  const isHandler = (a: Node | undefined) => !!a && (a.type === 'identifier' ? a.text === fn.name : FUNCTION_VALUES.has(a.type) && line(a) === fn.line);
-  const skipPath = (list: Node[]) => list[0] && /string/.test(list[0].type) ? list.slice(1) : list;
-  const out: string[] = [];
-  for (const c of calls) {
-    const m = member(c), list = args(c);
-    if (!m || !ROUTE_METHODS.has(m.childForFieldName('property')?.text ?? '') || !isHandler(list.at(-1))) continue;
-    const owner = m.childForFieldName('object')!.text;
-    // `owner.use(mw)` registered before the route applies to it.
-    for (const u of calls) {
-      const um = member(u);
-      if (um?.childForFieldName('property')?.text === 'use' && um.childForFieldName('object')!.text === owner && line(u) < line(c)) {
-        out.push(...skipPath(args(u)).flatMap(a => middlewareName(a) ?? []));
+const member = (c: Node) => { const f = c.childForFieldName('function'); return f?.type === 'member_expression' ? f : null; };
+const skipPath = (list: Node[]) => list[0] && /string/.test(list[0].type) ? list.slice(1) : list;
+
+/** A TS/JS file's calls, read once per walk: route registrations (`x.get(…)`), `x.use(mw)` by object, other plain calls. */
+interface ExpressCalls { routes: Node[]; uses: Map<string, { line: number; names: string[] }[]>; plain: Node[] }
+
+function expressCalls(file: string, root: Node, ctx: LinkContext): ExpressCalls {
+  return perFile('calls', file, ctx, () => {
+    const out: ExpressCalls = { routes: [], uses: new Map(), plain: [] };
+    const visit = (n: Node) => {
+      if (n.type === 'call_expression') {
+        const m = member(n), method = m?.childForFieldName('property')?.text ?? '';
+        if (!m) out.plain.push(n);
+        else if (ROUTE_METHODS.has(method)) out.routes.push(n);
+        else if (method === 'use') {
+          const owner = m.childForFieldName('object')!.text;
+          out.uses.set(owner, [...out.uses.get(owner) ?? [], { line: line(n), names: skipPath(args(n)).flatMap(a => middlewareName(a) ?? []) }]);
+        }
       }
-    }
-    out.push(...skipPath(list).slice(0, -1).flatMap(a => middlewareName(a) ?? []));
+      named(n).forEach(visit);
+    };
+    visit(root);
     return out;
+  });
+}
+
+function expressMiddleware(fn: GraphSymbol, root: Node, ctx: LinkContext): string[] {
+  const { routes, uses, plain } = expressCalls(fn.file, root, ctx);
+  const isHandler = (a: Node | undefined) => !!a && (a.type === 'identifier' ? a.text === fn.name : FUNCTION_VALUES.has(a.type) && line(a) === fn.line);
+  const route = routes.find(c => isHandler(args(c).at(-1)));
+  if (route) {
+    // `owner.use(mw)` registered before the route applies to it.
+    const owner = member(route)!.childForFieldName('object')!.text;
+    return [...(uses.get(owner) ?? []).filter(u => u.line < line(route)).flatMap(u => u.names),
+      ...skipPath(args(route)).slice(0, -1).flatMap(a => middlewareName(a) ?? [])];
   }
   // Next-style wrappers at the top level: `export default withAuth(handler)`, `export const GET = withAuth(handler)`.
-  for (const c of calls) {
-    let top = c.parent;
-    while (top && top.parent && top.parent.type !== 'program') top = top.parent;
-    if (top?.parent?.type !== 'program' || member(c) || !args(c).some(a => a.type === 'identifier' && a.text === fn.name)) continue;
-    const name = lastName(c.childForFieldName('function'));
-    if (name) out.push(name);
-  }
-  return out;
+  if (root.type !== 'program') return [];
+  return plain.filter(c => args(c).some(a => a.type === 'identifier' && a.text === fn.name)).flatMap(c => lastName(c.childForFieldName('function')) ?? []);
 }
 
 export const authLinks: LinkProvider = {
   name: 'auth',
-  async hops(fn, call, ctx) {
+  hops(fn, call, ctx) {
     if (call) return [];
-    const def = await functionNode(fn, ctx);
-    if (!def) return [];
-    const names = path.posix.extname(fn.file) === '.py' ? await pythonDependencies(fn, def, ctx) : expressMiddleware(fn, def.tree.rootNode);
-    const hops: Hop[] = [];
-    for (const name of new Set(names)) {
-      const to = await symbolNamed(name, fn.file, ctx);
-      if (to && to.id !== fn.id) hops.push({ to, kind: 'link', label: name, link: 'auth', certain: true });
-    }
-    return hops;
+    // A function entered again (a shared dependency, a helper called from many places) reuses its hops.
+    const key = `auth:hops:${fn.id}`;
+    if (!ctx.memo.has(key)) ctx.memo.set(key, (async () => {
+      const def = await functionNode(fn, ctx);
+      if (!def) return [];
+      const names = path.posix.extname(fn.file) === '.py' ? await pythonDependencies(fn, def, ctx) : expressMiddleware(fn, def.tree.rootNode, ctx);
+      const hops: Hop[] = [];
+      for (const name of new Set(names)) {
+        const to = await symbolNamed(name, fn.file, ctx);
+        if (to && to.id !== fn.id) hops.push({ to, kind: 'link', label: name, link: 'auth', certain: true });
+      }
+      return hops;
+    })());
+    return ctx.memo.get(key) as Promise<Hop[]>;
   },
 };
