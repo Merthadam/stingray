@@ -87,3 +87,31 @@ test('unborn repository and real merge conflict report unavailable instead of fa
     } finally { await rm(storeRoot, { recursive: true, force: true }); }
   } finally { await f.cleanup(); }
 });
+test('line counts compare against the merge base with local origin/main, with uncommitted counts and a HEAD fallback', async () => {
+  const f = await fixture();
+  const storeRoot = await mkdtemp(path.join(tmpdir(), 'stingray-base-store-'));
+  try {
+    await writeFile(path.join(f.repo, 'text'), 'one\n'); await git(f.repo, ['add', '.']); await commit(f.repo);
+    await git(f.repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    await git(f.repo, ['checkout', '-b', 'feature']);
+    await writeFile(path.join(f.repo, 'text'), 'one\ntwo\nthree\n'); await git(f.repo, ['add', '.']); await commit(f.repo);
+    await writeFile(path.join(f.repo, 'text'), 'one\ntwo\nthree\nfour\n');
+    await writeFile(path.join(f.repo, 'untracked'), 'never counted\n');
+    const service = new GitService(new Store(storeRoot));
+    const id = (await service.openRepository(f.repo)).workspaces[0].id;
+    const seen: string[] = []; service.onStatus = observed => { seen.push(observed); };
+    let status = await service.status(id);
+    assert.deepEqual([status.base, status.lines, status.uncommitted], ['origin/main', available(3, 0), available(1, 0)]);
+    assert.deepEqual(seen, [id]);
+    // origin/main moving on with unrelated work does not change the PR-style diff (merge base, not two-dot).
+    const upstream = path.join(storeRoot, 'upstream');
+    await git(f.repo, ['worktree', 'add', '--detach', upstream, 'origin/main']);
+    await writeFile(path.join(upstream, 'text'), 'upstream rewrite\n'); await git(upstream, ['add', '.']); await commit(upstream);
+    await git(f.repo, ['update-ref', 'refs/remotes/origin/main', (await git(upstream, ['rev-parse', 'HEAD'])).trim()]);
+    status = await service.status(id);
+    assert.deepEqual([status.base, status.lines, status.uncommitted], ['origin/main', available(3, 0), available(1, 0)]);
+    await git(f.repo, ['update-ref', '-d', 'refs/remotes/origin/main']);
+    status = await service.status(id);
+    assert.deepEqual([status.base, status.lines, status.uncommitted], ['HEAD', available(1, 0), available(1, 0)]);
+  } finally { await rm(storeRoot, { recursive: true, force: true }); await f.cleanup(); }
+});

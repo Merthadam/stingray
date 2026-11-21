@@ -80,9 +80,11 @@ try {
   await page.getByRole('button', { name: 'main: 0 lines added, 0 lines deleted', exact: true }).waitFor();
   check('Git details and ports live in compact sidebar cards; large cards are removed', await page.locator('.workspace-overview,.container-card').count() === 0);
   await writeFile(path.join(repo, 'README.md'), '# Edited\n'); await writeFile(path.join(repo,'new.txt'),'new');
+  // Unstaged edits don't touch .git: they appear on focus (or the one-minute fallback poll); commits/staging update via the .git watcher.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   const gitChip = page.getByRole('button',{name:'main: 1 lines added, 1 lines deleted',exact:true});
   await gitChip.waitFor();
-  check('Git line counts refresh automatically with honest exclusions in the tooltip', (await gitChip.getAttribute('title')).includes('Excludes untracked'));
+  check('Git line counts refresh on focus with honest exclusions in the tooltip', (await gitChip.getAttribute('title')).includes('Excludes untracked'));
   await gitChip.click(); await page.getByRole('button',{name:'New file new.txt',exact:true}).waitFor(); check('Git line counts open Repo Map including untracked files');
   const state = await page.evaluate(() => window.stingray.state());
   const main = state.workspaces[0];

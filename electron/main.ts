@@ -11,6 +11,7 @@ import { openTerminalLink } from './terminal-links';
 import { ContainerService } from './containers';
 import { PortService } from './ports';
 import { PullRequestService } from './pull-requests';
+import { GitStateService } from './git-state';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
 import { extractDbSchema } from './db-schema';
@@ -50,6 +51,10 @@ const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
 const pullRequests = new PullRequestService();
+const gitState = new GitStateService(git, pullRequests, state => { if (win && !win.isDestroyed()) win.webContents.send('git-state-changed', state); },
+  () => Boolean(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()));
+git.onStatus = (id, status) => gitState.observe(id, status);
+pullRequests.onListChange = () => gitState.listChanged();
 const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
 const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
   emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
@@ -125,6 +130,7 @@ app.whenReady().then(async () => {
   handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
   handle('remove-workspace', z.tuple([idSchema, removalConsentSchema]), async (id, consent) => {
     const result = await git.removeWorkspace(id, consent);
+    gitState.forget(id);
     await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
     return result;
   });
@@ -202,6 +208,8 @@ app.whenReady().then(async () => {
   });
   handle('resize-terminal', z.tuple([idSchema, z.number().int().min(2).max(500), z.number().int().min(1).max(300)]), (id, cols, rows) => terminals.resize(id, cols, rows));
   handle('close-terminal', z.tuple([idSchema]), id => terminals.close(id));
+  handle('git-state', z.tuple([idSchema]), id => gitState.get(id));
+  handle('refresh-git-state', z.tuple([idSchema]), id => gitState.refresh(id, true));
   win.on('close', event => {
     if (cloning) {
       event.preventDefault();
@@ -224,6 +232,6 @@ app.on('window-all-closed', () => app.quit());
 let cleanedUp = false;
 app.on('will-quit', event => {
   if (cleanedUp) return;
-  event.preventDefault(); terminals.closeAll();
+  event.preventDefault(); terminals.closeAll(); gitState.dispose();
   void Promise.allSettled([activity.close(), views.dispose()]).finally(() => { closeDatabase(app.getPath('userData')); cleanedUp = true; app.quit(); });
 });

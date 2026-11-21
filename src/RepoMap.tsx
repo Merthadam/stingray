@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, FileCode2, RefreshCw, X, Maximize2, Minimize2 } from 'lucide-react';
 import { api } from './api';
-import type { FileInspection, GitStatus, RepoFile, RepoSnapshot, Workspace } from './shared';
-import { fileKind, kindBadges, reconcileSnapshot, sameGitStatus } from './repo-map-model';
+import type { FileInspection, RepoFile, RepoSnapshot, Workspace } from './shared';
+import { fileKind, kindBadges, reconcileSnapshot } from './repo-map-model';
 import { RepoMapCanvas } from './RepoMapCanvas';
 import { LineCounts } from './LineCounts';
 import { CodeView } from './RepoMapCodeView';
 import './repo-map.css';
 
-type Props = { workspace: Workspace; onStatus: (status: GitStatus) => void; reveal: { path: string; line: number | null; nonce: number } | null };
-export function RepoMap({ workspace, onStatus, reveal }: Props) {
+// Snapshot status reads also update the main process's shared Git state (GitService.onStatus), which the sidebar shows.
+type Props = { workspace: Workspace; reveal: { path: string; line: number | null; nonce: number } | null };
+export function RepoMap({ workspace, reveal }: Props) {
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
   const snapshotRef = useRef<RepoSnapshot | null>(null);
   const [error, setError] = useState('');
@@ -44,7 +45,6 @@ export function RepoMap({ workspace, onStatus, reveal }: Props) {
   const inFlight = useRef(false);
   const refreshFile = useRef<() => void>(() => {});
   const alive = useRef(false);
-  const onStatusRef = useRef(onStatus); onStatusRef.current = onStatus;
   const refresh = useCallback(async (manual = false) => {
     if (inFlight.current || !alive.current) return;
     const foreground = manual || !snapshotRef.current;
@@ -58,7 +58,6 @@ export function RepoMap({ workspace, onStatus, reveal }: Props) {
         snapshotRef.current = reconciled;
         if (reconciled !== previous) setSnapshot(reconciled);
         setError('');
-        if (!previous || !sameGitStatus(previous, next)) onStatusRef.current(next);
         // File contents can change without changing Git status or line counts.
         // Keep checking the reader, but don't flash loading UI on idle polls.
         refreshFile.current();

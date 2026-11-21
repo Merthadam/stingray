@@ -138,6 +138,7 @@ let state = structuredClone(initial);
 try { const saved = localStorage.getItem('stingray-demo-v1'); if (saved) { const { stateSchema } = await import('./shared'); state = stateSchema.parse(JSON.parse(saved)); } } catch { /* Invalid demo data is disposable; desktop data never uses this adapter. */ }
 let terminalList: TerminalInfo[] = [];
 const listeners = new Set<(event: TerminalEvent) => void>();
+const demoUncommitted = { kind: 'available' as const, added: 6, deleted: 2, binaryFiles: 0 };
 const snapshot = () => structuredClone(state);
 const save = () => { localStorage.setItem('stingray-demo-v1', JSON.stringify(state)); return snapshot(); };
 export const demoAPI: DesktopAPI = {
@@ -164,9 +165,10 @@ export const demoAPI: DesktopAPI = {
     terminalList = terminalList.filter(t => t.workspaceId !== id);
     state.workspaces = state.workspaces.filter(w => w.id !== id); return { state: save() };
   },
-  gitStatus: async id => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
+  gitStatus: async id => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, uncommitted: demoUncommitted, base: 'origin/main' as const, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
   repoSnapshot: async id => ({
     lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 },
+    uncommitted: demoUncommitted, base: 'origin/main' as const,
     branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown',
     changes: demoFiles.filter(file => file.status),
     files: demoFiles,
@@ -235,4 +237,7 @@ export const demoAPI: DesktopAPI = {
   resizeTerminal: async () => undefined,
   closeTerminal: async id => { terminalList = terminalList.filter(t => t.id !== id); },
   onTerminal: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+  gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoAPI.gitStatus(id), pr: await demoAPI.pullRequest(id) }),
+  refreshGitState: id => demoAPI.gitState(id),
+  onGitStateChanged: () => () => {},
 };

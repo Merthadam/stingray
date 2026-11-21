@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAPI, TerminalEvent } from '../src/shared';
+import type { DesktopAPI, TerminalEvent, WorkspaceGitState } from '../src/shared';
 import type { ActivitySnapshot } from '../src/activity';
 import type { ViewsChangedEvent } from '../src/views';
 const api: DesktopAPI = {
@@ -54,6 +54,13 @@ const api: DesktopAPI = {
     const handler = (_event: unknown, payload: TerminalEvent) => listener(payload);
     ipcRenderer.on('terminal-event', handler);
     return () => ipcRenderer.removeListener('terminal-event', handler);
+  },
+  gitState: id => ipcRenderer.invoke('git-state', id),
+  refreshGitState: id => ipcRenderer.invoke('refresh-git-state', id),
+  onGitStateChanged: listener => {
+    const handler = (_event: unknown, payload: WorkspaceGitState) => listener(payload);
+    ipcRenderer.on('git-state-changed', handler);
+    return () => ipcRenderer.removeListener('git-state-changed', handler);
   },
 };
 contextBridge.exposeInMainWorld('stingray', api);

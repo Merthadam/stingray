@@ -51,7 +51,9 @@ export const repoPathSchema = z.string().min(1).max(4096).refine(value =>
 export type GitLineStats =
   | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
   | { kind: 'unavailable'; message: string };
-export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+/** lines: tracked working tree vs merge-base(HEAD, local origin/main), like the PR diff; vs HEAD when that base is
+ *  unavailable (see base). uncommitted: tracked working tree vs HEAD. Untracked files are never counted. */
+export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats; uncommitted: GitLineStats; base: 'origin/main' | 'HEAD' };
 export type RemovalReview = {
   branch: string;
   /** Rare states that removal refuses outright (detached HEAD, switched branch, locked worktree). */
@@ -128,5 +130,12 @@ export interface DesktopAPI {
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>;
   closeTerminal(id: string): Promise<void>;
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Shared Git + PR state of a workspace; starts main-process tracking (watcher, polls) on first use. */
+  gitState(workspaceId: string): Promise<WorkspaceGitState>;
+  /** Re-reads Git now and re-queries GitHub (5s cooldown). */
+  refreshGitState(workspaceId: string): Promise<WorkspaceGitState>;
+  onGitStateChanged(listener: (state: WorkspaceGitState) => void): () => void;
 }
+/** revision increases with every change in the main process, so late responses can be ignored. */
+export type WorkspaceGitState = { workspaceId: string; revision: number; status: GitStatus | null; error: string; pr: PullRequestStatus | null };
 declare global { interface Window { stingray?: DesktopAPI } }
