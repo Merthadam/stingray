@@ -17,8 +17,8 @@ export function viewDepth(result: ViewResult | null, override: number | undefine
   return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, layers };
 }
 
-/** Views drawn as a flow diagram (nodes, transitions, nested frames); other non-table kinds fall back to text. */
-export const isFlowDiagram = (result: ViewResult) => result.kind === 'flow' || result.kind === 'flowchart' || !!result.diagnostics?.layers;
+/** Views drawn as a flow diagram (nodes, transitions, nested frames; graph includes layers); timeline falls back to text. */
+export const isFlowDiagram = (result: ViewResult) => result.kind === 'flow' || result.kind === 'flowchart' || result.kind === 'graph';
 
 /** The stored selection if it still exists, else the first view (Database). */
 export function pickView(list: ViewSummary[], stored: string | null): string | null {

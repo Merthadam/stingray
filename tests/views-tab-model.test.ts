@@ -46,7 +46,8 @@ test('viewDepth prefers the session override, else the computed depth; layers st
   assert.deepEqual(viewDepth(layers, 3), { value: 3, min: 1, layers: true });
   assert.equal(viewDepth(result(), 3), null);
   assert.equal(viewDepth(null, 3), null);
-  assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && !isFlowDiagram(result()) && !isFlowDiagram(result({ kind: 'graph' })));
+  assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && isFlowDiagram(result({ kind: 'graph' })) && isFlowDiagram(result({ kind: 'flow' })));
+  assert.ok(!isFlowDiagram(result()) && !isFlowDiagram(result({ kind: 'timeline' })), 'tables draw as ER, timeline falls back to text');
 });
 
 test('pickView keeps a stored view that still exists, else the first', () => {

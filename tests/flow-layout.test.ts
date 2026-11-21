@@ -88,6 +88,13 @@ test('flowchart layout nests expanded callees as frames inside their caller and 
   assert.ok(a.x < b.x && a.y < b.y && a.x + a.width > b.x + b.width && a.y + a.height > b.y + b.height);
 });
 
+test('step cards grow by one row per field (graph views: collapsed helpers), explanation room on top', () => {
+  const helper = (name: string) => ({ id: `helper:${name}`, label: name, type: null, badges: [], detail: 'helper', source: null });
+  const handle = { ...node('handle', null), fields: [helper('clean'), helper('log')] };
+  assert.deepEqual(flowSize(handle), { width: 220, height: 100 });
+  assert.deepEqual(flowSize({ ...handle, explanation: 'Handle a request.' }), { width: 260, height: 148 });
+});
+
 test('explained nodes and frames get room for the explanation; others keep their size', async () => {
   const chartNode = (id: string, kind: string, group: string | null, explanation?: string): DiagramNode => ({ ...node(id, group), kind, explanation });
   const why = 'Accept a Cognito access token and return the signed-in user.';

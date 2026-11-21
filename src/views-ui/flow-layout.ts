@@ -11,11 +11,14 @@ const CHART_SIZES: Record<string, { width: number; height: number }> = {
 // Room for an explanation (docstring summary) clamped to 3 lines: in a box (wider, taller) and under a frame title.
 const EXPLAINED_WIDTH = 260, EXPLANATION_HEIGHT = 48;
 export const FRAME_EXPLANATION_HEIGHT = 52;
+// One row per field in a step card (graph views: collapsed helpers of a function).
+const FIELD_HEIGHT = 18;
 /** Whether the node's card shows its explanation (never diamonds or the plain flow's tiny start/end pills). */
 export const showsExplanation = (node: DiagramNode, flowchart = false) =>
   !!node.explanation && (flowchart ? node.kind !== 'decision' && node.kind !== 'loop' : !node.role);
 export const flowSize = (node: DiagramNode, flowchart = false) => {
-  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 } : { width: 220, height: 64 };
+  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 }
+    : { width: 220, height: 64 + node.fields.length * FIELD_HEIGHT };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };
 const BRANCH_KINDS = new Set(['branch', 'yes', 'no', 'case', 'except']);
