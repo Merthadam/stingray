@@ -75,6 +75,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
 }
 
 if (process.argv[1]?.endsWith('hook-client.cjs')) {
+  // Node resets inherited signal dispositions, so a shell `trap '' HUP` does not survive: ignore SIGHUP here.
+  // The terminal (or a short-lived agent) may close before this cold-started process has reported.
+  process.on('SIGHUP', () => {});
   setTimeout(() => process.exit(0), 1500).unref();
   main().catch(() => {}).finally(() => process.exit(0));
 }

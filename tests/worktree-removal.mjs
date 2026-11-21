@@ -46,7 +46,7 @@ try {
   await selected('main');
   // Synthetic metadata, not a provider invocation; exercise the actual Idle component.
   await app.evaluate(({ BrowserWindow }, w) => BrowserWindow.getAllWindows()[0].webContents.send('activity-event', {
-    revision: 100000, agents: [{ id: 'fixture-agent', terminalId: 'fixture-terminal', workspaceId: w.id, connection: 'connected', phase: 'idle', reviewRevision: null }],
+    revision: 100000, agents: [{ id: 'fixture-agent', terminalId: 'fixture-terminal', workspaceId: w.id, harness: 'pi', connection: 'connected', phase: 'idle', reviewRevision: null }],
   }), worktree);
   await card('feature/remove').getByRole('status', { name: 'Pi: Idle', exact: true }).waitFor();
   for (const size of [[1200, 800], [760, 540]]) {
