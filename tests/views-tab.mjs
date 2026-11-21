@@ -34,9 +34,13 @@ const models = [
 await put('app/models.py', models);
 await put('agent/graph/builder.py', await readFile(fileURLToPath(new URL('./fixtures/views/langgraph/agent/graph/builder.py', import.meta.url)), 'utf8'));
 await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind: flow\nuse: [langgraph]\n');
-await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: graph\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
+await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: timeline\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
 await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
   + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
+await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a value."""\n    return value.strip().lower()\n\n\n'
+  + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(name)\n\n\n'
+  + 'def handle(request):\n    """Handle a request end to end."""\n    record = load(request)\n    return clean(record)\n');
+await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
@@ -119,10 +123,24 @@ try {
   check('raising the layers depth draws files inside service frames', await services.getByRole('group', { name: 'Step App service' }).count() === 0
     && (await services.locator('.flow-frame').allInnerTexts()).some(t => t.includes('App service')));
 
+  // A graph view: functions reached through calls; clean (called by both, calls nothing) collapses into a helper field.
+  await list.getByRole('button', { name: 'Handler calls' }).click();
+  const calls = page.getByTestId('flow-diagram');
+  await calls.getByRole('group', { name: 'Step load' }).waitFor({ timeout: 60000 });
+  check('graph view draws its functions as flow cards with explanations',
+    await calls.getByRole('group', { name: 'Step handle' }).count() === 1 && await calls.getByRole('group', { name: 'Step clean' }).count() === 0
+    && await calls.getByRole('group', { name: 'Step load' }).locator('.flow-explanation').innerText() === 'Load a record by its cleaned name.');
+  check('collapsed helpers show as fields of their callers', (await calls.getByRole('list', { name: 'Fields of handle' }).innerText()).includes('clean'));
+  await calls.getByRole('group', { name: 'Step handle' }).click();
+  check('selecting a graph node opens its symbol and helpers in the inspector',
+    await calls.getByRole('button', { name: 'Open handle in editor' }).isVisible()
+    && await calls.getByRole('button', { name: 'Open handle.clean in editor' }).isVisible());
+  await page.screenshot({ path: process.env.VIEWS_SCREENSHOT ?? path.join(root, 'graph-view.png') });
+
   await list.getByRole('button', { name: 'Steps text' }).click();
   await page.getByText("This view type isn't drawn in the app yet").waitFor();
   const text = page.getByLabel('Text diagram');
-  check('graph view shows its text form', /^graph: \d+ nodes/.test(await text.innerText()) && (await text.innerText()).includes('plan'));
+  check('timeline view shows its text form', /^timeline: \d+ nodes/.test(await text.innerText()) && (await text.innerText()).includes('plan'));
   await page.getByLabel('Search the text').fill('plan');
   check('text search highlights matches', await text.locator('mark').count() > 0);
   await page.getByRole('button', { name: /Diagnostics/ }).click();
