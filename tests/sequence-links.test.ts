@@ -2,7 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SourcedRule } from '../electron/views/rules/types';
-import { fakeGraph, run } from './sequence-helpers';
+import { evaluate } from '../electron/views/rules/engine';
+import { codegraphGrammarDir } from '../electron/views/rules/grammars';
+import { fakeGraph, run, step } from './sequence-helpers';
 
 const FASTAPI = {
   'services/api/routes.py': `from typing import Annotated
@@ -346,4 +348,68 @@ test('sequence walk: a function entered again reuses its calls relations and aut
   assert.equal(out.seq.messages.filter(m => m.label === 'get_user' && m.link === 'auth').length, 2);
   assert.equal(queries.outgoing.get('services/api/views.py#shared'), 1);
   assert.equal(queries.alias, 1);
+});
+
+const CELERY = {
+  'services/jobs/tasks.py': `from celery import shared_task
+from services.jobs.celery import app
+
+
+@app.task(name="reports.build")
+def build_report(rid):
+    return rid
+
+
+@shared_task(autoretry_for=(ConnectionError,), retry_kwargs={"max_retries": max(3, 5)}, name="mail.send")
+def send_mail(to):
+    return to
+
+
+def kick(rid, to):
+    build_report.delay(rid)
+    app.send_task("mail.send", args=[to])
+    send_mail.apply_async((to,))
+`,
+};
+
+test('sequence events: Celery tasks with an explicit name still link from .delay; decorator args with nested parens', async () => {
+  const out = await run(CELERY, fakeGraph(CELERY, []), { start: { symbol: 'kick' }, participants: 'file', internal: 'show' });
+  assert.deepEqual(out.seq.messages.map(m => [m.label, m.symbol!.name, m.link]), [
+    ['build_report', 'build_report', 'events'], ['mail.send', 'send_mail', 'events'], ['send_mail', 'send_mail', 'events']]);
+});
+
+const SENDS = {
+  'web/server.js': `const queue = require('./queue');
+
+function onOk(msg) { return msg; }
+queue.on('ok', onOk);
+
+function reply(req, res) {
+  res.send('ok');
+  ws.send('ok');
+}
+
+function forward(msg) { queue.send('ok', msg); }
+`,
+};
+
+test('sequence events: `send` links only on a bus/queue-like receiver (Express res.send, ws.send stay unlinked)', async () => {
+  const graph = fakeGraph(SENDS, []);
+  assert.deepEqual((await run(SENDS, graph, { start: { symbol: 'reply' }, participants: 'file', internal: 'show' })).seq.messages, []);
+  const forward = await run(SENDS, graph, { start: { symbol: 'forward' }, participants: 'file', internal: 'show' });
+  assert.deepEqual(forward.seq.messages.map(m => [m.label, m.symbol!.name]), [['ok', 'onOk']]);
+});
+
+test('sequence events: the registry scan stops when the evaluation is aborted', async () => {
+  const files: Record<string, string> = { ...EVENTS };
+  for (let i = 0; i < 50; i++) files[`services/more/m${i}.py`] = `def h${i}(e):\n    return e\n`;
+  const controller = new AbortController();
+  let scanned = 0;
+  const out = await evaluate({ view: { id: 'seq', kind: 'sequence', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [],
+    include: [], exclude: [], sequence: step({ start: { symbol: 'register' }, participants: 'file' }) }, graph: fakeGraph(EVENTS, []),
+  graphStatus: { state: 'ready', message: null }, grammarDir: codegraphGrammarDir(), signal: controller.signal,
+  files: { list: async () => ({ files: Object.keys(files), truncated: false }),
+    read: async f => { if (f.startsWith('services/more/')) { scanned++; controller.abort(); } return files[f] ?? null; } } });
+  assert.equal(scanned, 1);
+  assert.equal(out.diagnostics.sequence!.truncated, true);
 });
