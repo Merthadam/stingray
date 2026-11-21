@@ -1,6 +1,7 @@
 // Right-hand panel for the selected table: all fields, relations (both directions) and source links.
 import { ExternalLink, X } from 'lucide-react';
 import type { DiagramEdge, DiagramNode, SourceRef } from '../views';
+import { StaleMark } from './FlowNode';
 
 interface Props {
   node: DiagramNode;
@@ -30,7 +31,7 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource,
       <code>{node.source.file}:{node.source.line}</code>
       <button aria-label={`Open ${node.label} in editor`} onClick={() => onOpenSource(node.source!.file, node.source!.line)}><ExternalLink size={12} />Open in editor</button>
     </div>}
-    {node.explanation && <p className="flow-inspector-explanation">{node.explanation}</p>}
+    {node.explanation && <p className="flow-inspector-explanation"><StaleMark status={node.explanationStatus} />{node.explanation}</p>}
     {variant === 'flow' && node.detail && <p className="flow-inspector-detail">{node.detail}</p>}
     {variant === 'tables' && <><h4>Columns <span>{node.fields.length}</span></h4>
     <ul className="er-inspector-fields">

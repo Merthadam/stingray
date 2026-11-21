@@ -9,7 +9,7 @@ import type { DiagramNode, ViewLocalState } from '../views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
 import { flowFrames, flowPositions, flowSize } from './flow-layout';
-import { FlowGroup, FlowNode, FlowchartNode } from './FlowNode';
+import { FlowGroup, FlowNode, FlowchartNode, StaleMark } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
 
@@ -59,7 +59,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
-      data: { label: f.group.label, explanation: f.group.explanation, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
+      data: { label: f.group.label, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1,
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
@@ -143,7 +143,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
           <button className="icon" aria-label="Close inspector" onClick={() => setSelected(null)}><X size={14} /></button></header>
         {group.source && <div className="er-inspector-source"><code title={`${group.source.file}:${group.source.line}`}>{group.source.file}:{group.source.line}</code>
           <button aria-label="Open function in editor" onClick={() => onOpenSource(group.source!.file, group.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
-        {group.explanation && <p className="flow-inspector-explanation">{group.explanation}</p>}
+        {group.explanation && <p className="flow-inspector-explanation"><StaleMark status={group.explanationStatus} />{group.explanation}</p>}
       </aside>}
     </div>
   </div>;

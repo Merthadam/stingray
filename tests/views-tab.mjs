@@ -37,7 +37,8 @@ await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind
 await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: graph\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
 await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
   + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
-await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
+await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n'
+  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: "000000000000" }\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
@@ -89,6 +90,10 @@ try {
     && (await chart.locator('.flow-chart-call').innerText()).includes('+3 steps'));
   check('a call box shows its callee docstring summary as a visible explanation',
     await chart.locator('.flow-chart-call .flow-explanation').innerText() === 'Reject inactive users, then verify the password.');
+  const startExplanation = chart.locator('.flow-pill.start .flow-explanation');
+  check('a stale explain: entry replaces the explanation and is marked "may be outdated"',
+    await startExplanation.locator('.flow-explanation-stale').innerText() === 'may be outdated'
+    && (await startExplanation.innerText()).endsWith('Sign a user in by email'));
   check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
   const depth = page.getByRole('slider', { name: 'Flowchart depth' });
