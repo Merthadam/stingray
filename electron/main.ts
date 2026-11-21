@@ -138,7 +138,6 @@ app.whenReady().then(async () => {
     await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
     return result;
   });
-  handle('git-status', z.tuple([idSchema]), id => git.status(id));
   handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
   // Static parse only; concurrent requests for the same workspace share one scan.
@@ -173,7 +172,6 @@ app.whenReady().then(async () => {
   });
   handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
     editors.openSource((await git.workspace(id)).path, file, line));
-  handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));
   handle('containers', z.tuple([]), () => containers.list());
   handle('container-stop', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.stop(id));
   handle('container-logs', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.logs(id));

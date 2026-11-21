@@ -1,4 +1,4 @@
-import type { DesktopAPI, State, TerminalInfo, TerminalEvent, RepoFile } from './shared';
+import type { DesktopAPI, GitStatus, PullRequestStatus, State, TerminalInfo, TerminalEvent, RepoFile } from './shared';
 import type { DbColumn, DbSchemaResult } from './db-schema';
 import type { DiagramEdge, DiagramNode, EditorSettings, SaveViewInput, ViewDiagnostics, ViewLocalState, ViewResult, ViewSummary } from './views';
 import { DATABASE_VIEW, databaseView } from './views-database';
@@ -142,6 +142,12 @@ const listeners = new Set<(event: TerminalEvent) => void>();
 const demoUncommitted = { kind: 'available' as const, added: 6, deleted: 2, binaryFiles: 0 };
 const snapshot = () => structuredClone(state);
 const save = () => { localStorage.setItem('stingray-demo-v1', JSON.stringify(state)); return snapshot(); };
+const demoGitStatus = async (id: string): Promise<GitStatus> => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, uncommitted: demoUncommitted, base: 'origin/main' as const, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) });
+const demoPullRequest = async (id: string): Promise<PullRequestStatus> => {
+  await new Promise(resolve => setTimeout(resolve, 700));
+  const branch = state.workspaces.find(w => w.id === id)?.branch || 'unknown';
+  return { kind: 'pr', branch, repository: 'demo/stingray', checkedAt: Date.now(), number: id === mainId ? 41 : 42, state: id === mainId ? 'merged' : 'open' };
+};
 export const demoAPI: DesktopAPI = {
   mode: 'demo',
   state: async () => snapshot(),
@@ -166,7 +172,6 @@ export const demoAPI: DesktopAPI = {
     terminalList = terminalList.filter(t => t.workspaceId !== id);
     state.workspaces = state.workspaces.filter(w => w.id !== id); return { state: save() };
   },
-  gitStatus: async id => ({ lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 }, uncommitted: demoUncommitted, base: 'origin/main' as const, branch: state.workspaces.find(w => w.id === id)?.branch || 'unknown', changes: demoFiles.filter(file => file.status) }),
   repoSnapshot: async id => ({
     lines: { kind: 'available' as const, added: id === mainId ? 8 : 124, deleted: id === mainId ? 2 : 36, binaryFiles: 0 },
     uncommitted: demoUncommitted, base: 'origin/main' as const,
@@ -208,11 +213,6 @@ export const demoAPI: DesktopAPI = {
   setCodegraphSharedBase: async () => ({ sharedBase: false }),
   codegraphConflicts: async () => null,
   openSource: async (id, file, line) => { console.info('Demo: would open', file, line, 'in', editor.selected, 'for workspace', id); },
-  pullRequest: async id => {
-    await new Promise(resolve => setTimeout(resolve, 700));
-    const branch = state.workspaces.find(w => w.id === id)?.branch || 'unknown';
-    return { kind: 'pr', branch, repository: 'demo/stingray', checkedAt: Date.now(), number: id === mainId ? 41 : 42, state: id === mainId ? 'merged' : 'open' };
-  },
   ports: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return []; },
   containers: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return [{ id: 'demo-web', name: 'demo-web', image: 'node:24', state: 'running', health: 'healthy', paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 3000, target: '3000/tcp', url: 'http://127.0.0.1:3000' }] }, { id: 'demo-db', name: 'demo-db', image: 'postgres:17', state: 'running', health: '', paths: [], ports: [] },
     ...(demoTestEnvStopped ? [] : [{ id: 'demo-test-env', name: 'stingray-test-demo', image: 'stingray-test-env:demo', state: 'running', health: '', testEnv: true, paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 9223, target: '9223/tcp', url: 'http://127.0.0.1:9223', cdp: true as const }] }])]; },
@@ -242,7 +242,7 @@ export const demoAPI: DesktopAPI = {
   resizeTerminal: async () => undefined,
   closeTerminal: async id => { terminalList = terminalList.filter(t => t.id !== id); },
   onTerminal: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },
-  gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoAPI.gitStatus(id), pr: await demoAPI.pullRequest(id) }),
+  gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoGitStatus(id), pr: await demoPullRequest(id) }),
   refreshGitState: id => demoAPI.gitState(id),
   onGitStateChanged: () => () => {},
   liveViewStart: async () => { throw new Error('Live view is unavailable in the browser demo. It needs the desktop app and a running test instance.'); },

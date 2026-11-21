@@ -98,7 +98,6 @@ export interface DesktopAPI {
   createWorkspace(repoId: string, branch: string): Promise<State>;
   reviewRemoval(id: string): Promise<RemovalReview>;
   removeWorkspace(id: string, consent: RemovalConsent): Promise<RemovalResult>;
-  gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;
   dbSchema(workspaceId: string): Promise<DbSchemaResult>;
@@ -120,7 +119,6 @@ export interface DesktopAPI {
   codegraphConflicts(workspaceId: string): Promise<OverlayConflicts | null>;
   /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
-  pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
   containers(): Promise<ContainerInfo[]>;
   /** docker stop; test-env containers only. */
   stopContainer(id: string): Promise<void>;
