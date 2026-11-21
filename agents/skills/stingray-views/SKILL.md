@@ -202,7 +202,7 @@ for nodes without a symbol (tables, LangGraph steps, infra), write it in the vie
 explain:
   identity:                        # node id, group id, alias (rule `aliases`, a table's name or model class) or symbol name
     text: Accept only genuine, unrevoked tokens of verified travelers   # 1-500 chars; replaces the docstring explanation
-    fingerprint: 3f9a0c1d2b4e      # written by --restamp; do not edit by hand
+    fingerprint: "3f9a0c1d2b4e"    # written by --restamp; do not edit by hand; keep it quoted
   users:
     text: Everyone who signed up, including invited but unconfirmed users
 ```
@@ -212,13 +212,17 @@ explain:
   is listed under "unresolved links" as `explain: "<key>"` (a warning, not an error).
 - The fingerprint is a hash of the code the text was written for: a symbol's own body (its lines, not its callees;
   trailing whitespace and line endings ignored), or for a node without a symbol the node as drawn (label, kind,
-  subtitle, detail, fields with types and badges — a table's changes when its columns do).
+  subtitle, detail, fields with types and badges — a table's changes when its columns do; a group's also covers its
+  member nodes and nested groups). A key matching several nodes or groups (e.g. same-named functions) covers all of them.
 - When the code changes, check warns `explanation for "<key>" may be outdated …`, the text diagram appends
   `(may be outdated)` and the Views tab marks the explanation. Entries without a fingerprint warn too.
 - Workflow: write or update the texts, run `check`, read each flagged explanation against the code and fix it, then
   run `stingray-views check <file> --restamp`. It writes the current fingerprints of entries that resolve into the file
   (comments kept) and prints what it stamped; plain `check` never writes. Restamping needs the code graph; without it
-  fingerprints are not checked at all. `diagnostics.explain` in `--json` has each entry's matches and current fingerprint.
+  fingerprints are not checked at all. It writes nothing while `check` fails, and skips entries whose source file
+  changed since the code graph indexed it (line ranges come from the index): restamp once Stingray has re-indexed.
+  An entry whose code cannot be fingerprinted (unreadable or too large file, no end line) warns with the reason.
+  `diagnostics.explain` in `--json` has each entry's matches, current fingerprint and source files.
 
 ## Layers
 
