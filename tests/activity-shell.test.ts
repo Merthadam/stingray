@@ -146,7 +146,8 @@ test('codex wrapper attaches notify per invocation, reports start, and never ove
     assert.match(nonce, /^[a-f0-9]{64}$/); assert.notEqual(nonce, f.env.STINGRAY_ACTIVITY_TOKEN);
     notify.splice(7, 0, nonce);
     // The wrapper's background start event registers the run (by pid) without claiming any phase.
-    await (async () => { for (let i = 0; i < 200 && !f.service.snapshot().agents.length; i++) await new Promise(r => setTimeout(r, 10)); })();
+    // The start event comes from a cold background process; CI runners can take several seconds.
+    await (async () => { for (let i = 0; i < 1500 && !f.service.snapshot().agents.length; i++) await new Promise(r => setTimeout(r, 10)); })();
     const [codex] = f.service.snapshot().agents;
     assert.deepEqual([codex?.harness, codex?.phase], ['codex', 'unknown']);
     // Running the notify argv exactly as Codex would (JSON appended) marks the completion for review.
