@@ -4,18 +4,24 @@ import type { SaveViewInput, ViewLocalState, ViewResult, ViewSummary } from './v
 /** Errors + warnings shown on the Diagnostics toggle. */
 export function diagnosticCount(result: ViewResult): number {
   const d = result.diagnostics;
-  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) + (d.flowchart?.error ? 1 : 0) + (d.layers?.error ? 1 : 0) : 0);
+  return result.warnings.length + (d ? d.rules.reduce((sum, r) => sum + r.errors.length + r.warnings.length, 0) + (d.graph?.error ? 1 : 0) + (d.flowchart?.error ? 1 : 0) + (d.layers?.error ? 1 : 0) + (d.sequence?.error ? 1 : 0) : 0);
 }
 
 export const LAYER_NAMES = ['', 'services', 'modules', 'files', 'symbols'];
 
-/** Depth slider of a flowchart (call levels 0-4) or layers view (1 services … 4 symbols): the session override, else the
- * effective depth it was computed with; null for other views (no slider). */
-export function viewDepth(result: ViewResult | null, override: number | undefined): { value: number; min: number; layers: boolean } | null {
+/** Depth slider of a flowchart (call levels 0-4), sequence (call levels 0-6) or layers view (1 services … 4 symbols): the
+ * session override, else the effective depth it was computed with; null for other views (no slider). */
+export function viewDepth(result: ViewResult | null, override: number | undefined): { value: number; min: number; max: number; layers: boolean } | null {
   const d = result?.diagnostics, layers = !!d?.layers;
-  const computed = result?.kind === 'flowchart' ? d?.flowchart?.depth : d?.layers?.depth;
-  return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, layers };
+  const computed = result?.kind === 'flowchart' ? d?.flowchart?.depth : result?.kind === 'sequence' ? d?.sequence?.depth : d?.layers?.depth;
+  return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, max: result?.kind === 'sequence' ? 6 : 4, layers };
 }
+
+/** The effective depth a result was computed with (flowchart, sequence or layers), e.g. to remount its diagram when it changes. */
+export const computedDepth = (result: ViewResult) => result.diagnostics?.flowchart?.depth ?? result.diagnostics?.sequence?.depth ?? result.diagnostics?.layers?.depth;
+
+/** Sequence views with a computed sequence draw as a sequence diagram; without one (an error) they show as text. */
+export const isSequenceDiagram = (result: ViewResult) => result.kind === 'sequence' && !!result.sequence;
 
 // One ELK pass over more nodes than this is slow and the result unreadable; rule views can reach 2000 nodes.
 export const MAX_FLOW_NODES = 400;
@@ -24,9 +30,10 @@ const flowKind = (result: ViewResult) => result.kind === 'flow' || result.kind =
  * MAX_FLOW_NODES fall back to text. */
 export const isFlowDiagram = (result: ViewResult) => flowKind(result) && result.nodes.length <= MAX_FLOW_NODES;
 
-/** Why a view shows as text: a kind without a drawn diagram, or too many nodes to draw. */
+/** Why a view shows as text: a kind without a drawn diagram, too many nodes to draw, or a sequence that failed. */
 export const textViewNote = (result: ViewResult) => flowKind(result)
   ? `This view has ${result.nodes.length} nodes, more than the ${MAX_FLOW_NODES} the diagram draws — here is its text form.`
+  : result.kind === 'sequence' ? 'No sequence was computed — see Diagnostics.'
   : 'This view type isn\'t drawn in the app yet — here is its text form.';
 
 /** The stored selection if it still exists, else the first view (Database). */

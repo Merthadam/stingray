@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_FLOW_NODES, diagnosticCount, isFlowDiagram, textViewNote, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
+import { MAX_FLOW_NODES, computedDepth, diagnosticCount, isFlowDiagram, isSequenceDiagram, textViewNote, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
 import type { DiagramNode, ViewResult, ViewSummary } from '../src/views';
 
 const node = (id: string, label: string): DiagramNode => ({ id, label, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });
@@ -38,12 +38,12 @@ test('diagnosticCount counts a flowchart error', () => {
 
 test('viewDepth prefers the session override, else the computed depth; layers start at 1; null without a depth', () => {
   const chart = result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) });
-  assert.deepEqual(viewDepth(chart, undefined), { value: 2, min: 0, layers: false });
-  assert.deepEqual(viewDepth(chart, 0), { value: 0, min: 0, layers: false });
+  assert.deepEqual(viewDepth(chart, undefined), { value: 2, min: 0, max: 4, layers: false });
+  assert.deepEqual(viewDepth(chart, 0), { value: 0, min: 0, max: 4, layers: false });
   const layers = result({ kind: 'graph', diagnostics: { ...chartDiagnostics(null), flowchart: null,
     layers: { config: null, depth: 1, services: 2, files: 3, nodes: 2, error: null } } });
-  assert.deepEqual(viewDepth(layers, undefined), { value: 1, min: 1, layers: true });
-  assert.deepEqual(viewDepth(layers, 3), { value: 3, min: 1, layers: true });
+  assert.deepEqual(viewDepth(layers, undefined), { value: 1, min: 1, max: 4, layers: true });
+  assert.deepEqual(viewDepth(layers, 3), { value: 3, min: 1, max: 4, layers: true });
   assert.equal(viewDepth(result(), 3), null);
   assert.equal(viewDepth(null, 3), null);
   assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && isFlowDiagram(result({ kind: 'graph' })) && isFlowDiagram(result({ kind: 'flow' })));
@@ -53,6 +53,22 @@ test('viewDepth prefers the session override, else the computed depth; layers st
   assert.ok(isFlowDiagram(result({ kind: 'graph', nodes: nodes(MAX_FLOW_NODES) })) && !isFlowDiagram(big), 'too many nodes fall back to text');
   assert.match(textViewNote(big), /401 nodes, more than the 400/);
   assert.match(textViewNote(result({ kind: 'timeline' })), /isn't drawn in the app yet/);
+});
+
+const sequenceDiagnostics = (error: string | null) => ({ ...chartDiagnostics(null), flowchart: null,
+  sequence: { start: 'submit (web/Login.tsx:3)', depth: 3, participants: 'service', functions: 4, messages: 9, links: { http: 1 }, truncated: false, error } });
+
+test('sequence views: depth slider 0-6 from the sequence diagnostic, error counted, drawn only with a computed sequence', () => {
+  const ok = result({ kind: 'sequence', diagnostics: sequenceDiagnostics(null), sequence: { participants: [], messages: [], fragments: [], notes: [] } });
+  assert.deepEqual(viewDepth(ok, undefined), { value: 3, min: 0, max: 6, layers: false });
+  assert.deepEqual(viewDepth(ok, 6), { value: 6, min: 0, max: 6, layers: false });
+  assert.equal(computedDepth(ok), 3);
+  assert.equal(computedDepth(result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) })), 2);
+  assert.ok(isSequenceDiagram(ok) && !isFlowDiagram(ok));
+  const failed = result({ kind: 'sequence', diagnostics: sequenceDiagnostics('start symbol not found: submit'), sequence: null });
+  assert.ok(!isSequenceDiagram(failed) && !isSequenceDiagram(result()));
+  assert.equal(diagnosticCount(failed), 1);
+  assert.match(textViewNote(failed), /No sequence was computed/);
 });
 
 test('pickView keeps a stored view that still exists, else the first', () => {

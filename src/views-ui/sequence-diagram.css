@@ -1,0 +1,61 @@
+/* Sequence diagram (SequenceDiagram.tsx). Geometry lives in sequence-layout.ts; text sizes here must match its charWidth/headerChar. */
+.seq-diagram .er-toolbar-extra{margin-left:auto}
+.seq-diagram .er-toolbar .seq-zoom{min-width:48px;font-variant-numeric:tabular-nums}
+.seq-canvas{flex:1;min-width:0;overflow:auto;position:relative;background:#141210;cursor:grab}
+.seq-canvas:active{cursor:grabbing}
+.seq-sheet{margin:0 auto;min-height:100%}
+.seq-header{position:sticky;top:0;z-index:1;background:#141210;border-bottom:1px solid #2c241f}
+.seq-header svg,.seq-body{display:block;overflow:visible}
+.seq-diagram svg text{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#d9c3b1}
+.seq-status{height:auto;padding:30px 0}
+.seq-participant{cursor:pointer;outline:none}
+.seq-participant>rect{fill:#2b231d;stroke:#594333;stroke-width:1}
+.seq-participant.external>rect{fill:#1f2427;stroke:#4f6b78;stroke-dasharray:4 3}
+.seq-participant text.seq-participant-label{font:600 12px system-ui,-apple-system,sans-serif;fill:#efe4da;text-anchor:middle}
+.seq-participant text.seq-participant-subtitle{font-size:10px;fill:#a99a8f;text-anchor:middle}
+.seq-participant.external text.seq-participant-subtitle{fill:#8fb0bf}
+.seq-participant:hover>rect,.seq-participant:hover .seq-actor circle{stroke:#b9a28f}
+.seq-participant.selected>rect,.seq-participant:focus-visible>rect{stroke:var(--accent);stroke-width:1.5}
+.seq-actor circle,.seq-actor path{fill:none;stroke:#d9a86c;stroke-width:1.6;stroke-linecap:round}
+.seq-actor .seq-actor-hit{fill:transparent;stroke:none}
+.seq-participant.actor.selected .seq-actor-hit,.seq-participant.actor:focus-visible .seq-actor-hit{stroke:var(--accent);stroke-width:1.5}
+.seq-lifeline{stroke:#4a3a30;stroke-dasharray:4 5;pointer-events:none}
+.seq-lifeline.selected{stroke:var(--accent);opacity:.7}
+.seq-bar{fill:#3a2f27;stroke:#94775f;stroke-width:1;pointer-events:none}
+.seq-bar.selected{stroke:var(--accent)}
+.seq-row{fill:transparent;cursor:pointer;outline:none}
+.seq-row.hover{fill:#ffffff09}
+.seq-row:focus-visible{fill:#e0785014;stroke:var(--accent);stroke-width:1}
+.seq-message{pointer-events:none}
+.seq-message text{paint-order:stroke;stroke:#141210;stroke-width:4px;stroke-linejoin:round}
+.seq-message line,.seq-message path{fill:none;stroke:#a28b78;stroke-width:1.4}
+.seq-message.return line,.seq-message.return path{stroke:#8a7666;stroke-dasharray:6 4}
+.seq-message.uncertain line,.seq-message.uncertain path{stroke-dasharray:2 3}
+.seq-message.http text{fill:#9cc3e6}
+.seq-message.link text{fill:#c9b5e8}
+.seq-message.return text{fill:#a99a8f}
+.seq-message.hot line,.seq-message.hot path{stroke:var(--accent);stroke-width:1.8}
+.seq-message.hot text{fill:#f5dbc5}
+.seq-message .seq-uncertain{fill:#a99a8f;font-style:italic}
+.seq-head{fill:#a28b78;stroke:none}
+.seq-head.open{fill:none;stroke:#8a7666;stroke-width:1.4}
+.seq-head.hot{fill:var(--accent)}
+.seq-fragment,.seq-fragment-head{pointer-events:none}
+.seq-fragment{fill:#a59cc80a;stroke:#5d5878;stroke-width:1}
+.seq-fragment.loop{fill:#7fb2c808;stroke:#4f6b78}
+.seq-fragment-head .seq-fragment-tab{fill:#2f2b3d;stroke:#5d5878;stroke-width:1}
+.seq-fragment-head text{paint-order:stroke;stroke:#141210;stroke-width:4px;stroke-linejoin:round}
+.seq-fragment-head text.seq-fragment-kind{font-weight:700;fill:#c9c0e6;stroke:none}
+.seq-fragment-head text.seq-fragment-label{fill:#b3abcf}
+.seq-fragment-head .seq-branch{stroke:#5d5878;stroke-dasharray:5 4}
+.seq-fragment-head.loop .seq-fragment-tab,.seq-fragment-head.loop .seq-branch{stroke:#4f6b78}
+.seq-fragment-head.loop .seq-fragment-tab{fill:#24313a}
+.seq-fragment-head.loop text.seq-fragment-kind{fill:#a9cbd9}
+.seq-fragment-head.loop text.seq-fragment-label{fill:#93b4c2}
+.seq-note{outline:none}
+.seq-note[role=button]{cursor:pointer}
+.seq-note rect{fill:#3a3424;stroke:#8a7a4a}
+.seq-note text{text-anchor:middle;fill:#e8d9a8}
+.seq-note.error rect{fill:#3d2224;stroke:#9a4a4f}
+.seq-note.error text{fill:#f0b9bb}
+.seq-note:hover rect,.seq-note:focus-visible rect{stroke:var(--accent)}

@@ -1,6 +1,6 @@
 ---
 name: stingray-views
-description: Create and check Stingray views — diagrams (tables, flows, timelines, graphs, flowcharts) computed statically from this repository via tree-sitter rules and the code graph. Use when the user wants to see or understand how parts of the code relate, e.g. an agent/workflow flow, a migration history, DB tables, infrastructure, or call graphs, or asks to add or fix a view in .stingray/views.
+description: Create and check Stingray views — diagrams (tables, flows, timelines, graphs, flowcharts, sequence diagrams) computed statically from this repository via tree-sitter rules and the code graph. Use when the user wants to see or understand how parts of the code relate, e.g. an agent/workflow flow, what happens behind a button click, HTTP route or login, a migration history, DB tables, infrastructure, or call graphs, or asks to add or fix a view in .stingray/views.
 ---
 
 # Stingray views
@@ -16,6 +16,8 @@ A view produces nodes (optionally in groups, with fields), and edges between the
   modules, files and symbols as a drill-down (see [Layers](#layers)).
 - `flowchart` — the control flow of one function (decisions, loops, calls, returns), computed from its code; see
   [Flowcharts](#flowcharts).
+- `sequence` — what happens behind the scenes when something starts (a button click, an HTTP route, a login, an agent
+  run): participants as lifelines, calls between them in order; see [Sequence diagrams](#sequence-diagrams).
 
 Create a view when the user wants to understand relations, flows, history or infrastructure that is spread over many
 files. Prefer a builtin set (`use:`) when one fits; write rules for the project's own patterns.
@@ -25,7 +27,7 @@ files. Prefer a builtin set (`use:`) when one fits; write rules for the project'
 1. Look at the code you want to show (which files, which calls/assignments define nodes and edges).
 2. Run `stingray-views sets` and check whether a builtin set already covers it.
 3. Write `.stingray/views/<slug>.yaml` (slug: `a-z`, `0-9`, `-`, 1-64 chars).
-4. Run `stingray-views check .stingray/views/<slug>.yaml` (`--depth N` for flowcharts). It prints per-rule diagnostics (files, matches, emitted,
+4. Run `stingray-views check .stingray/views/<slug>.yaml` (`--depth N` for flowcharts, layers and sequences). It prints per-rule diagnostics (files, matches, emitted,
    skipped, errors with `file:line`), the graph step result, unresolved links, warnings and a text diagram.
    Exit code 1 means errors.
 5. Fix until there are no errors **and** the diagram matches the code (right nodes, no missing edges, no unresolved
@@ -42,7 +44,7 @@ Other commands: `stingray-views list` (views of this worktree, with errors), `st
 version: 1
 name: Trip planner agent flow          # 1-80 chars
 description: LangGraph steps of the planner   # optional, ≤500 chars
-kind: flow                             # tables | flow | timeline | graph | flowchart
+kind: flow                             # tables | flow | timeline | graph | flowchart | sequence
 scope:                                 # files the rules read (default **/*)
   include: ["services/agent/**/*.py"]
   exclude: ["**/tests/**"]
@@ -50,6 +52,7 @@ use: [langgraph]                       # builtin sets and/or .stingray/rules/<na
 rules: []                              # inline rules (schema below); max 50
 graph: { ... }                         # optional graph step (below)
 flowchart: { ... }                     # kind: flowchart only (below)
+sequence: { ... }                      # kind: sequence only (below)
 layers: { ... }                        # kind: graph only (below)
 include: [AuditLog]                    # node ids/labels always kept
 exclude: [Base]                        # node ids/labels always dropped (wins over include)
@@ -57,7 +60,7 @@ layout: {}                             # reserved for the UI
 explain: { ... }                       # optional prose per node/group (below)
 ```
 
-At least one of `use`, `rules`, `graph`, `flowchart`, `layers` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
+At least one of `use`, `rules`, `graph`, `flowchart`, `layers`, `sequence` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
 `**` (at most 3), `?`, `[...]`; no `{}`, `()`, `!`, `+`, `@`, `\`.
 
 `use` names a builtin set (see `stingray-views sets`; `sqlalchemy` extracts SQLAlchemy models; `sql` extracts SQL DDL from `.sql` files and literal strings in TS/JS/Python) or a
@@ -193,6 +196,124 @@ flowchart:
 - Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
 - Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
   Without a code graph the flowchart is skipped.
+
+## Sequence diagrams
+
+What happens behind the scenes when something starts — a button click, an HTTP request, a login, an agent run: one
+lifeline per participant (actor, services/modules/files/classes of the repo, external systems), the calls between them
+as ordered arrows, `alt`/`opt`/`loop`/`try` frames from the code's control flow and error notes. Use it to show a flow
+that crosses functions, files or services; use a flowchart for the branches inside one function. Like flowcharts: code
+graph + tree-sitter bodies (Python, TypeScript/TSX/JavaScript), no `use`/`graph`/`flowchart`/`layers`.
+
+```yaml
+version: 1
+name: Login
+kind: sequence                          # requires sequence:
+scope: { include: ["frontend/**", "services/**"], exclude: ["**/tests/**"] }
+sequence:
+  start: { symbol: submit, file: frontend/src/AccountApp.jsx }  # exactly one of symbol | route; file optional if unique
+  # start: { route: "POST /auth/sign-in" }   # an HTTP route of the code graph ("METHOD /path"); its handler is the entry
+  trigger: click Sign in   # optional: a first arrow actor -> entry with this label
+  actor: User              # default User; drawn only with trigger
+  depth: 2                 # 0-6, default 3: call levels followed (CLI --depth / Views tab slider override)
+  participants: auto       # auto (default) | service | module | file | class
+  internal: collapse       # collapse (default) | show: calls that stay inside one participant
+  returns: true            # default true: dashed return arrows
+  links: [http, auth, langgraph, events]   # link sets, default all; [] = plain calls only
+  externals: { self.client: Cognito }      # extra external systems: import/call prefix -> lifeline label (max 50)
+  include: ["services/**"] # files whose functions are followed (default: the view scope)
+  exclude: []
+```
+
+- **Participants**, left to right: the actor, then one lifeline per unit of the reached functions, then external
+  systems; units and externals each in order of first appearance. `auto` = `service` when the reached files span ≥ 2
+  services of the code graph's layers, else `module` when they span ≥ 2 modules, else `file`. `file` lifelines are
+  labelled with the file name, `class` with the enclosing class (functions outside a class: their file). Ids:
+  `actor`, `p:<service|module|file|class>:<key>`, `ext:<label>`. Files outside every service land in `(unassigned)`.
+- **Externals**: a call that does not resolve into the repo is drawn to an external lifeline when the module its
+  receiver/callee is imported from (or else the call text, e.g. `self.client.get_user`) starts with a known prefix:
+  `sqlalchemy`/`psycopg`/`prisma`/`pg`/`mongoose` → Database, `redis` → Redis, `boto3`/`@aws-sdk` → AWS, `cognito` →
+  Cognito, `jwt`/`jose`/`jsonwebtoken` → JWT, `passlib`/`bcrypt` → Password hashing, `openai`, `anthropic`,
+  `langchain*`, `fetch`/`axios`/`requests`/`httpx` → External HTTP. A prefix matches the module and its submodules
+  (`.` or `/`); `*` = any suffix; `externals:` win over the builtins, longest prefix first. One arrow per system and
+  statement, labelled with the outer call (`conn.execute(text(…))` → "execute"); no return arrows from externals.
+  Other unresolved calls (stdlib, untracked helpers) are not drawn. Relative imports are never external.
+- **Messages**, top to bottom: each function's call sites in source order, depth-first (a callee's messages come right
+  after the call that entered it). In the text: `A -> B: label` = call, `B --> A: label` = return, indent = call level.
+  - call: label = callee in words ("get_user" → "get user"); `(recursive)` = already on the stack, not followed.
+  - http (`POST /auth/sign-in`): a client call the code graph matched to a route; continues in the route's handler.
+  - link (`[link auth]`, `[link langgraph]`, `[link events]`, `[link rule:<id>]`): a hop from a link set or rule.
+  - return: after a followed call whose callee is on another lifeline; label = the returned value when all returns
+    agree and it is ≤ 24 chars, `response` for http, else empty.
+  - self: a call inside one participant, only with `internal: show`; with `collapse` the arrow is left out but the
+    callee's own calls are still drawn. Link hops inside one lifeline are always drawn.
+  - `(uncertain)`: heuristically resolved (dashed in the Views tab). A called repo function outside `include` is drawn
+    but not followed.
+- **Fragments** around call sites: `alt` (if/elif/else, match/switch: one arm per branch, "else" arms; the first case
+  is labelled `subject: case`), `opt` (an if, or an alt with one arm left), `loop` ("for each x", "while cond"), `try`
+  (arms "try", `except E` in Python, `catch` in TS/JS). Conditions are tidied like flowchart labels. Fragments
+  without a message and arms without a message or note are dropped; nesting is kept.
+- **Notes**: `raise`/`throw` in the entry or in a function whose call is drawn becomes `note <participant>: error:
+  <Type>` (`error: re-raise` for a bare `raise`) after the message before it, inside its fragment arm. Raises of
+  collapsed same-lifeline helpers are left out; the same note twice in a row is shown once.
+- Explanations: a participant carries the docstring summary of its first function; `explain:` keys are participant ids
+  (`p:file:services/auth/api.py`) or symbol names. View-level `exclude:` drops participants by id or label, with their
+  messages.
+
+**Link sets** (`links:`) — hops the code graph's `calls` edges do not have:
+
+| set | covers | does not cover |
+| --- | --- | --- |
+| `http` | client calls the code graph matched to a repo route (`fetch`/`axios`/… with a literal path): drawn as `METHOD /path` (certain), then the route's handler; a second call to the same URL in one function by its literal path | URLs the code graph did not match (built at runtime, other repos); unmatched clients go to External HTTP |
+| `auth` | before a handler's body, in the handler's file: FastAPI `Depends`/`Security` in parameters (also `Annotated[…]` aliases, even imported ones), the route decorator's and the router's `dependencies=[…]`, decorators resolving to repo functions (`@login_required`); Express middleware before the handler and earlier `router.use(mw)` of the same router; top-level wrappers (`export default withAuth(handler)`). Dependencies of dependencies follow | class dependencies (`Depends(SomeClass)`), library decorators, `include_router(…, dependencies=)`, middleware registered in other files (Next.js `middleware.ts`, app-wide ASGI middleware) |
+| `langgraph` | Python `x.invoke/ainvoke/stream/astream(…)` on a compiled StateGraph (`x = flow.compile()` in the file or imported, `build_graph().invoke`, else the only StateGraph in the followable files when the receiver reads like a graph — not `chain` —, uncertain): START → nodes in edge order, conditional edges as `alt` (path-map key or router return), END stops, a node already on the path once as `name (loop)` (not followed); node classes run `__call__`. Max 60 node visits | LangGraph JS, `Send`/`Command(goto=)` routing, graphs built in loops or from data, subgraphs as nodes |
+| `events` | literal names: `emit/publish/send/send_task/enqueue("name", …)` (`send` only on bus/queue-like receivers, not `res.send`) → handlers of `on/once/subscribe("name", h)`, `@x.on("name")`, `@app.task(name="name")`; `task.delay/apply_async(…)` → the `@app.task`/`@shared_task` function (named or not); RQ `queue.enqueue(fn, …)` → fn. Always uncertain; registrations are text-matched in the followable files | names from variables/constants, handlers outside the followable files, calls that resolve into the repo (an own `publish` method stays a call) |
+
+**Link rules** teach the view its own dispatchers (RPC, job queues, DI). `rules:` of a sequence view may only emit
+`edge: { from, to, kind: link, label?, certain? }`; `from`/`to` are symbol names or `name@file`. A call to `from` that
+does not resolve into the repo is drawn as a hop to `to`; entering a function named `from` (`name@file`: that one)
+continues at `to` before its body. Rules apply whatever `links:` says; the result shows them as `[link rule:<id>]`.
+
+```yaml
+# api.py: dispatch("charge", cart) -> charge() in the repo
+rules:
+  - id: rpc
+    language: python
+    query: |
+      (call function: (attribute attribute: (identifier) @m (#eq? @m "dispatch"))
+            arguments: (argument_list . (string (string_content) @name)))
+    emit: { edge: { from: dispatch, to: "@name", kind: link, label: "rpc @name" } }
+```
+
+A call-site hop is keyed by the callee name only: every `dispatch(…)` hops to every `to` the rule found. When each
+function dispatches to one target, key it by the enclosing function instead: `from: "@function@@@file"` (`@@` = a
+literal `@`); the hop is then drawn when that function is entered, before its body.
+
+- `stingray-views check <file> --depth N` (0-6) overrides `depth`. The CLI prints a
+  `sequence: start … depth … participants … functions … messages … links …` line, then the diagram:
+  `sequence: N participants, M messages`, `participants: …` (kinds in parentheses), the arrows, frames as
+  `alt|opt|loop|try <label>` … `else <label>` … `end`, and `note <participant>: <text>`. `--json` has
+  `sequence` (participants, messages, fragments, notes) and `diagnostics.sequence` (resolved start, effective
+  depth and granularity, counts, messages per link set).
+- Views tab: click an arrow or note to open its source, a participant for its inspector ("Fold into caller" draws its
+  calls on the caller's lifeline; "Unfold" in the toolbar), depth slider; both session-only.
+- Limits: 400 messages, 30 participants, 150 distinct functions followed, then the sequence is marked truncated
+  ("lower the depth or exclude files").
+- Errors (exit 1): start symbol/route not found or ambiguous (add `file:`), start is not a function, route without a
+  handler, language not supported or function not found in its file, `kind: sequence` without `sequence:` (or the reverse), `use`/`graph`/`flowchart`/
+  `layers` in a sequence view, a rule emitting anything but a `kind: link` edge, `start` with both or neither of
+  `symbol`/`route`. Without a code graph the sequence is skipped with an error diagnostic.
+- Tips:
+  - Start with `depth: 2`-`3`; deeper levels mostly add helpers and DB calls. Raise it with `--depth` only for a
+    branch you need.
+  - A frontend handler (`start: { symbol: submit, file: … }` + `trigger: click …`) shows the requests it makes and,
+    through `http`, what each route does. For one backend flow, start at the route
+    (`start: { route: "POST /auth/sign-in" }`) with `participants: file`: one service would otherwise be one lifeline.
+  - Clients injected into objects are not imports: name them, e.g. `externals: { self.client: Cognito }`; SDKs with
+    unusual names likewise (`externals: { claude_agent_sdk: Claude }`).
+  - Many `(unassigned)` or helper lifelines: narrow `sequence.include` (they stay drawn but are not followed) or drop
+    them with view-level `exclude:`. Too much noise inside one lifeline: keep `internal: collapse`.
+  - Check notes against the code: an `error:` note marks a raise on that path, not that the step always fails.
 
 ## Explanations (`explain:`)
 
