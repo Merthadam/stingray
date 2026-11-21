@@ -352,7 +352,9 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       else {
         const { parseText, dispose } = bodyParsers();
         try {
-          const out = await runSequence(step, graph, files, parseText, f => inScope(f, view.scope), view.exclude);
+          // Link rules (schema: rules of a sequence emit only `kind: link` edges) teach the walker extra hops.
+          const ruleLinks = edges.filter(e => e.kind === 'link').map(e => ({ rule: e.rule.slice(e.rule.indexOf('#') + 1), from: e.from, to: e.to, label: e.label, certain: e.certain, source: e.source }));
+          const out = await runSequence(step, graph, files, parseText, f => inScope(f, view.scope), view.exclude, ruleLinks);
           sequenceDiag = out.diagnostic;
           sequence = out.sequence;
           warnings.push(...out.warnings);
@@ -362,9 +364,6 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
           sequenceDiag = failed((e as Error).message);
         } finally { dispose(); }
       }
-      // shortcut: link rules (rules: emitting kind: link edges) are validated but not followed yet; Phase 2 feeds them to
-      // the walker as a LinkProvider (docs/sequence-view-plan.md).
-      if (view.rules.some(r => r.source === 'view')) warnings.push({ file: null, line: null, message: 'Link rules of sequence views are not applied yet' });
       edges.length = 0; // their from/to are symbol names, not nodes: never joined as diagram edges
     }
     // ---- layers ----
