@@ -10,31 +10,32 @@ Updated for `feat/multi-harness-activity`: **Pi is implemented and verified as b
 | --- | --- | --- | --- |
 | Attach | PATH wrapper adds `--extension` | PATH wrapper adds `--settings <app file>` | PATH wrapper adds `-c notify=[…]` and sends a background `start` |
 | Identity | run/runtime UUIDs | hook `session_id` | codex process pid |
-| Working | `agent_start` … `agent_settled` | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | **not observable**: phase stays `unknown` |
-| Waiting for you | blocking extension UI span | `Notification` with `permission_prompt`, `idle_prompt` or `elicitation_dialog` | **not observable** |
+| Working | `agent_start` … `agent_settled` | `UserPromptSubmit`; async `PostToolUse` only leaves Waiting | **not observable**: phase stays `unknown` |
+| Waiting for you | blocking extension UI span | `Notification` with `permission_prompt` or `elicitation_dialog` | **not observable** |
 | Needs review (completion) | `agent_settled` completed | `Stop` | `agent-turn-complete` |
 | Failed | settled with error | `StopFailure` | not observable |
 | Interrupted | aborted settle | **not observable** (Esc fires no Stop hook) | not observable |
 | Clean end | socket close after `session_shutdown` | `SessionEnd`, which removes the entry or keeps it Disconnected while a review is unseen | none; process exit means Disconnected |
 | Crash / exit | socket close or lease | agent pid gone → Disconnected | agent pid gone → Disconnected |
-| Liveness | 5 s heartbeat, 20 s lease | pid poll ≤5 s | pid poll ≤5 s |
+| Liveness | 5 s heartbeat, 20 s lease | pid poll ≤5 s; Working with no event for 5 min → `unknown` | pid poll ≤5 s |
+| Authentication | terminal token (env) | terminal token (env) | `start`: terminal token (env) + per-run nonce; notify: nonce only (argv) |
 
-Pass-through (unattached) invocations: non-TTY stdin/stdout for all three. Pi: as before. Claude: `--help/-h/--version/-v/--print/-p/--bare`, an explicit `--settings` (the user's own; how two flag files combine is unverified), and `config/mcp/plugin(s)/install/update/upgrade/doctor/setup-token/migrate-installer/auth/agents`. Codex: `--help/-h/--version/-V/--remote`, any `…notify=…` argument, maintenance and non-interactive subcommands (`exec/e/review/login/logout/mcp/mcp-server/plugin/app-server/remote-control/app/completion/update/doctor/sandbox/debug/apply/a/queue/archive/delete/migrate-*/unarchive/cloud/exec-server/features/help/agents`), any `notify =` line in `$CODEX_HOME/config.toml` or `*.config.toml` (a user notify is never overridden), and a missing or invalid terminal token. Interactive `codex`, `codex resume` and `codex fork` attach.
+Pass-through (unattached) invocations: non-TTY stdin/stdout for all three. Pi: as before. Flag matching stops at `--`. Claude: `--help/-h/--version/-v/--print/-p/--bare`, an explicit `--settings` (the user's own; how two flag files combine is unverified), and `config/mcp/plugin(s)/install/update/upgrade/doctor/setup-token/migrate-installer/auth/agents`. Codex: `--help/-h/--version/-V/--remote`, a `notify` key in a `-c`/`--config` value (not in prompt text), maintenance and non-interactive subcommands (`exec/e/review/login/logout/mcp/mcp-server/plugin/app-server/remote-control/app/completion/update/doctor/sandbox/debug/apply/a/queue/archive/delete/migrate-*/unarchive/cloud/exec-server/features/help/agents`), any `notify =` line in `$CODEX_HOME/config.toml` or `*.config.toml` (a user notify is never overridden), and a missing or invalid terminal token. Interactive `codex`, `codex resume` and `codex fork` attach.
 
 ### Claude Code limits
 
-- Not installed here. The `--settings` flag, the hook names (including `StopFailure`), the `Notification.notification_type` values and the hook `timeout` field are taken from Claude Code documentation. They are not runtime-verified. An older Claude without `StopFailure` may reject or ignore that hook entry.
+- Not installed here. The `--settings` flag, the hook names (including `StopFailure`), the `Notification.notification_type` values and the hook `timeout` and `async` fields are taken from Claude Code documentation. They are not runtime-verified. **Release gate:** run `claude` inside Stingray against an installed Claude Code before release; an older Claude that does not know `StopFailure` or `async` may ignore those entries or reject the settings file.
 - Hooks from the flag settings run alongside user/project hooks, but `disableAllHooks` or managed `allowManagedHooksOnly` policy silences them. The result is that no activity appears; nothing is fabricated.
-- `Stop` is reported as completion even though another Stop hook may make Claude continue. The next `UserPromptSubmit`/`PreToolUse` then returns the phase to Working, but the review stays set until acknowledged.
-- Interruption with Esc fires no hook, so the last phase (usually Working) remains until the next event or process exit. Permission/idle notifications can arrive with Claude's own delay. `idle_prompt` maps to Waiting by design, which takes priority over an unseen review.
-- Hooks are synchronous, so every tool call adds the hook client's start-up time (~50 ms warm).
+- `Stop` is reported as completion even though another Stop hook may make Claude continue. The next `UserPromptSubmit` then returns the phase to Working, but the review stays set until acknowledged.
+- Interruption with Esc fires no hook, so Working remains until the next event, process exit, or 5 minutes without events (then `unknown`). Permission notifications can arrive with Claude's own delay. `idle_prompt` is ignored: it follows every turn and is not a question.
+- Only `PostToolUse` runs per tool call, and it is `async`; it can only move Waiting back to Working. Once-per-turn hooks stay synchronous (cold start ~1.4 s, warm ~50 ms).
 
 ### Codex limits and investigation (0.169.0-alpha.11.1)
 
 - `codex features list` shows `hooks` stable/enabled. Hooks supplied by `-c` land in an untrusted session-flags layer and need persisted user trust before they run (see the historical probe below). Stingray never uses `--dangerously-bypass-hook-trust` and does not register untrusted hooks. **Working, Waiting, Failed and Interrupted are therefore reported as `unknown`** (label: Tracking unavailable) and are not guessed.
 - The legacy `notify` program (`hooks/src/legacy_notify.rs` in the binary) receives a JSON argument with `type`, `thread-id`, `turn-id`, `cwd`, `client`, `input-messages` and `last-assistant-message`. The client reads only `type`.
 - `-c notify` replaces any user `notify`, so any configured notify makes the wrapper run Codex unattached.
-- Codex may host sessions in a shared daemon (`daemon_auto_start`). Whether per-invocation `-c notify` is honoured when a daemon already runs the thread is **unverified**; the binding travels in argv in case the daemon runs it. No turn was executed, so delivery of `agent-turn-complete` is fixture-tested only.
+- Codex may host sessions in a shared daemon (`daemon_auto_start`). Whether per-invocation `-c notify` is honoured when a daemon already runs the thread is **unverified**; the binding travels in argv in case the daemon runs it. That argv holds a per-run nonce, never the terminal token (argv is world-readable and may be logged by Codex). No turn was executed, so delivery of `agent-turn-complete` is fixture-tested only.
 
 
 
