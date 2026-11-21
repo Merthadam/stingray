@@ -4,8 +4,8 @@ One pipeline, `.github/workflows/ci.yml`, runs on every PR, on pushes to `main`,
 
 | Stage | Job | Runner | Blocking | What |
 |---|---|---|---|---|
-| 1 | `check (ubuntu-latest)`, `check (macos-latest)` | Linux, macOS arm64 | yes | `npm ci`, `npm run setup`, typecheck, build, `npm test` |
-| 2a | `e2e (linux, docker test-env)` | Linux | yes* | Electron e2e suites in the Docker test env (`scripts/test-env.sh test`), then a smoke of the local-run env (`scripts/test-env.sh up`) |
+| 1 | `check (ubuntu-latest)`, `check (macos-latest)` | Linux, macOS arm64 | yes | `npm ci`, `npm run setup`, typecheck, build; `npm test` on macOS |
+| 2a | `linux (docker test-env)` | Linux | yes* | unit tests + Electron e2e suites in the Docker test env (`scripts/test-env.sh test`), then a smoke of the local-run env (`scripts/test-env.sh up`) |
 | 2b | `e2e (macos)` | macOS arm64 | no (for now) | all e2e suites (`npm run test:e2e`) |
 | 3 | `package (macos arm64)` | macOS arm64 | yes | `npm run package:mac`, signature check, packaged-launch smoke, zip + sha256 uploaded as the `stingray-mac-arm64` artifact |
 | 4 | deploy | – | – | not yet (see below) |
@@ -14,6 +14,9 @@ One pipeline, `.github/workflows/ci.yml`, runs on every PR, on pushes to `main`,
 suites/features). They still run, in a separate non-blocking step, so a fix shows up immediately. Once
 they pass, move them into the required step. Likewise make `e2e (macos)` blocking once it is green on
 hosted runners.
+
+Linux unit tests run in the Docker image rather than directly on the runner: the zsh PTY tests
+(`tests/activity-shell.test.ts`) time out against the hosted Ubuntu runner's zsh setup.
 
 Test evidence (screenshots, logs) and the packaged app are attached to each run as artifacts.
 
