@@ -33,12 +33,12 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource,
     </div>}
     {node.explanation && <p className="flow-inspector-explanation"><StaleMark status={node.explanationStatus} />{node.explanation}</p>}
     {variant === 'flow' && node.detail && <p className="flow-inspector-detail">{node.detail}</p>}
-    {variant === 'tables' && <><h4>Columns <span>{node.fields.length}</span></h4>
+    {(variant === 'tables' || node.fields.length > 0) && <><h4>{variant === 'tables' ? 'Columns' : 'Fields'} <span>{node.fields.length}</span></h4>
     <ul className="er-inspector-fields">
       {node.fields.map(f => <li key={f.id}>
         <div><span className="er-row-name">{f.label}</span>
           <span className="er-badges">{f.badges.map(b => <b key={b} className={`er-badge ${b.toLowerCase()}`}>{b}</b>)}</span>
-          <span className="er-row-type">{f.type ?? '?'}</span>
+          <span className="er-row-type">{f.type ?? (variant === 'tables' ? '?' : '')}</span>
           {f.source && <OpenButton source={f.source} label={`${node.label}.${f.label}`} onOpenSource={onOpenSource} />}</div>
         {f.detail && <small>{f.detail}</small>}
       </li>)}

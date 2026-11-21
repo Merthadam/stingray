@@ -4,8 +4,8 @@ import type { ViewResult } from '../views';
 import { formatText } from '../views-text';
 import { matchingLines, splitMatches } from '../views-tab-model';
 
-/** Kinds without a drawn diagram yet: the CLI's text form, read-only and searchable. */
-export function TextViewFallback({ result, toolbar }: { result: ViewResult; toolbar: ReactNode }) {
+/** The CLI's text form, read-only and searchable: kinds without a drawn diagram, views too big to draw, or on request. */
+export function TextViewFallback({ result, toolbar, note }: { result: ViewResult; toolbar: ReactNode; note?: string }) {
   const lines = useMemo(() => formatText(result).split('\n'), [result]);
   const [query, setQuery] = useState('');
   const [current, setCurrent] = useState(0);
@@ -23,7 +23,7 @@ export function TextViewFallback({ result, toolbar }: { result: ViewResult; tool
       <strong>{result.name}</strong><span className="views-muted">{result.kind} · {result.nodes.length} nodes · {result.edges.length} edges</span>
       <span className="views-toolbar-spacer" />{toolbar}
     </div>
-    <p className="views-text-note">This view type isn't drawn in the app yet — here is its text form.</p>
+    {note && <p className="views-text-note">{note}</p>}
     <div className="views-text-tools">
       <label className="views-search"><Search size={13} /><input aria-label="Search the text" placeholder="Search…" value={query}
         onChange={e => { setQuery(e.target.value); setCurrent(0); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); } }} /></label>

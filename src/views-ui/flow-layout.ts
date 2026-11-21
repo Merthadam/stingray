@@ -11,11 +11,16 @@ const CHART_SIZES: Record<string, { width: number; height: number }> = {
 // Room for an explanation (docstring summary) clamped to 3 lines: in a box (wider, taller) and under a frame title.
 const EXPLAINED_WIDTH = 260, EXPLANATION_HEIGHT = 48;
 export const FRAME_EXPLANATION_HEIGHT = 52;
+// One row per field in a step card (graph views: collapsed helpers of a function), at most MAX_FIELDS + a '+N more' row.
+const FIELD_HEIGHT = 18, MAX_FIELDS = 8;
+/** Fields listed on a step card and how many more are cut (the inspector lists all). */
+export const cardFields = (node: DiagramNode) => ({ fields: node.fields.slice(0, MAX_FIELDS), more: Math.max(0, node.fields.length - MAX_FIELDS) });
 /** Whether the node's card shows its explanation (never diamonds or the plain flow's tiny start/end pills). */
 export const showsExplanation = (node: DiagramNode, flowchart = false) =>
   !!node.explanation && (flowchart ? node.kind !== 'decision' && node.kind !== 'loop' : !node.role);
 export const flowSize = (node: DiagramNode, flowchart = false) => {
-  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 } : { width: 220, height: 64 };
+  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.role ? { width: 88, height: 32 }
+    : { width: 220, height: 64 + Math.min(node.fields.length, MAX_FIELDS + 1) * FIELD_HEIGHT };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };
 const BRANCH_KINDS = new Set(['branch', 'yes', 'no', 'case', 'except']);
@@ -66,6 +71,17 @@ export async function flowPositions(elk: ElkLayouter, result: ViewResult): Promi
   return positions;
 }
 
+/** Fallback when ELK fails or times out: cards in node order, rows of 6, each row as tall as its tallest card. */
+export function flowGrid(result: ViewResult): Positions {
+  const chart = result.kind === 'flowchart', positions: Positions = {};
+  for (let i = 0, y = 0; i < result.nodes.length; i += 6) {
+    const row = result.nodes.slice(i, i + 6);
+    row.forEach((n, j) => { positions[n.id] = { x: j * 320, y }; });
+    y += Math.max(...row.map(n => flowSize(n, chart).height)) + 100;
+  }
+  return positions;
+}
+
 // ELK's model-order options crash with nested hierarchies, so put branch targets in extractor order (router
 // condition order: 1., 2., ..., else) by swapping the x slots of same-layer siblings after layout.
 function orderBranches(result: ViewResult, positions: Positions) {
@@ -83,18 +99,26 @@ function orderBranches(result: ViewResult, positions: Positions) {
 
 export type FlowFrame = ReturnType<typeof flowFrames>[number];
 
+/** Frame and parent of each group id, built once per `flowFrames` result for routing every edge. */
+export function frameIndex(result: ViewResult, frames: FlowFrame[]) {
+  return { byGroup: new Map(frames.map(f => [f.group.id, f])), parents: new Map(result.groups.map(g => [g.id, g.parent])),
+    explained: frames.some(f => f.group.explanation) };
+}
+export type FrameIndex = ReturnType<typeof frameIndex>;
+
 /** Detour for an edge entering an explained frame from above (or from beside its band), so neither the line nor its label crosses the frame's
  * explanation: down to `aboveY`, across to a lane beside the frame, down to `belowY` (under the band), across to the target.
  * The label sits on the lane just above the frame, at (`labelX`, `labelY`). Undefined for edges that need no detour. */
-export function bandEntry(result: ViewResult, frames: FlowFrame[], positions: Positions, from: DiagramNode, to: DiagramNode) {
+export function bandEntry(result: ViewResult, index: FrameIndex, positions: Positions, from: DiagramNode, to: DiagramNode) {
+  if (!index.explained) return undefined;
   const chain = (id: string | null | undefined) => {
     const ids: string[] = [];
-    for (let g = id; g && !ids.includes(g); g = result.groups.find(x => x.id === g)?.parent) ids.push(g);
+    for (let g = id; g && !ids.includes(g); g = index.parents.get(g)) ids.push(g);
     return ids;
   };
   const outside = new Set(chain(from.group));
   // The outermost explained frame the edge enters; frames nested in it start below its band.
-  const frame = chain(to.group).reverse().filter(id => !outside.has(id)).map(id => frames.find(f => f.group.id === id))
+  const frame = chain(to.group).reverse().filter(id => !outside.has(id)).map(id => index.byGroup.get(id))
     .find(f => f?.group.explanation);
   const p = positions[from.id], size = flowSize(from, result.kind === 'flowchart');
   if (!frame || !p) return undefined;
@@ -112,20 +136,26 @@ export function bandEntry(result: ViewResult, frames: FlowFrame[], positions: Po
 export function flowFrames(result: ViewResult, positions: Positions) {
   const chart = result.kind === 'flowchart';
   type Box = { x: number; y: number; right: number; bottom: number };
+  // Children per group, indexed once: this runs on every drag step.
+  const inner = new Map<string, Box[]>(), childGroups = new Map<string, string[]>();
+  for (const n of result.nodes) if (n.group && positions[n.id]) {
+    const p = positions[n.id], size = flowSize(n, chart);
+    if (!inner.has(n.group)) inner.set(n.group, []);
+    inner.get(n.group)!.push({ x: p.x, y: p.y, right: p.x + size.width, bottom: p.y + size.height });
+  }
+  for (const g of result.groups) if (g.parent) {
+    if (!childGroups.has(g.parent)) childGroups.set(g.parent, []);
+    childGroups.get(g.parent)!.push(g.id);
+  }
+  const explained = new Set(result.groups.filter(g => g.explanation).map(g => g.id));
   const boxes = new Map<string, Box | null>();
   const box = (id: string): Box | null => {
     if (boxes.has(id)) return boxes.get(id)!;
     boxes.set(id, null); // guards parent cycles
-    const inner: Box[] = [
-      ...result.nodes.filter(n => n.group === id && positions[n.id]).map(n => {
-        const p = positions[n.id], size = flowSize(n, chart);
-        return { x: p.x, y: p.y, right: p.x + size.width, bottom: p.y + size.height };
-      }),
-      ...result.groups.filter(g => g.parent === id).flatMap(g => box(g.id) ?? []),
-    ];
-    const top = 50 + (result.groups.find(g => g.id === id)?.explanation ? FRAME_EXPLANATION_HEIGHT : 0);
-    const b = inner.length ? { x: Math.min(...inner.map(i => i.x)) - 40, y: Math.min(...inner.map(i => i.y)) - top,
-      right: Math.max(...inner.map(i => i.right)) + 100, bottom: Math.max(...inner.map(i => i.bottom)) + 40 } : null;
+    const all: Box[] = [...inner.get(id) ?? [], ...(childGroups.get(id) ?? []).flatMap(g => box(g) ?? [])];
+    const top = 50 + (explained.has(id) ? FRAME_EXPLANATION_HEIGHT : 0);
+    const b = all.length ? { x: Math.min(...all.map(i => i.x)) - 40, y: Math.min(...all.map(i => i.y)) - top,
+      right: Math.max(...all.map(i => i.right)) + 100, bottom: Math.max(...all.map(i => i.bottom)) + 40 } : null;
     boxes.set(id, b);
     return b;
   };
