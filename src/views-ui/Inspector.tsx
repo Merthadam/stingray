@@ -1,6 +1,7 @@
 // Right-hand panel for the selected table: all fields, relations (both directions) and source links.
 import { ExternalLink, X } from 'lucide-react';
 import type { DiagramEdge, DiagramNode, SourceRef } from '../views';
+import { infraIconUrl } from '../infra/icons';
 import { ExplanationReason, StaleMark } from './FlowNode';
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
   onSelect(id: string): void;
   onClose(): void;
   onOpenSource(file: string, line: number | null): void;
+  onOpenServiceDocs?(serviceId: string): void;
 }
 
 function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label: string; onOpenSource: Props['onOpenSource'] }) {
@@ -20,13 +22,20 @@ function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label:
 
 const fieldLabel = (node: DiagramNode | undefined, id: string | null) => id === null ? null : node?.fields.find(f => f.id === id)?.label ?? id;
 
-export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, variant = 'tables' }: Props) {
+export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, onOpenServiceDocs, variant = 'tables' }: Props) {
   const relations = edges.filter(e => e.from === node.id || e.to === node.id);
   return <aside className="er-inspector" aria-label={`${variant === 'tables' ? 'Table' : 'Step'} ${node.label}`}>
     <header>
       <div><strong>{node.label}</strong>{node.subtitle && <span>{node.subtitle}</span>}</div>
       <button className="icon" aria-label="Close inspector" onClick={onClose}><X size={14} /></button>
     </header>
+    {node.service && <section className="flow-inspector-service" aria-label={`Service ${node.service.name}`}>
+      <img src={infraIconUrl(node.service.id)} alt="" width={56} height={56} />
+      <div><strong>{node.service.name}</strong><span>{node.service.provider.toUpperCase()} · {node.service.category}</span>
+        {onOpenServiceDocs && <button aria-label={`Open ${node.service.name} documentation`} title={node.service.docUrl}
+          onClick={() => onOpenServiceDocs(node.service!.id)}><ExternalLink size={12} />Docs</button>}</div>
+      <p>{node.service.description}</p>
+    </section>}
     {node.source && <div className="er-inspector-source">
       <code>{node.source.file}:{node.source.line}</code>
       <button aria-label={`Open ${node.label} in editor`} onClick={() => onOpenSource(node.source!.file, node.source!.line)}><ExternalLink size={12} />Open in editor</button>

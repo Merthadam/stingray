@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -198,4 +198,15 @@ test('an edge from a source beside an explained frame band also routes around th
   assert.ok(!hits(entry.labelX - label.w / 2, entry.labelY - label.h / 2, entry.labelX + label.w / 2, entry.labelY + label.h / 2), 'label stays out of the band');
   assert.ok(entry.labelY - label.h / 2 >= sy, 'label stays below the source');
   assert.equal(bandEntry(chart, frameIndex(chart, frames), positions, byId.get('low')!, byId.get('active')!), undefined, 'a source ending below the band keeps its path');
+});
+
+test('cloud resources (node.service) get an icon tile size and a short name without the Terraform type', () => {
+  const s3 = { id: 'aws/s3', provider: 'aws' as const, name: 'Amazon S3', category: 'storage' as const, description: 'Object storage.', docUrl: 'https://docs.aws.amazon.com/s3/' };
+  const bucket = { ...node('aws_s3_bucket.logs', null), service: s3 };
+  assert.deepEqual(flowSize(bucket), { width: 168, height: 104 });
+  assert.deepEqual(flowSize({ ...bucket, explanation: 'Access logs.' }), { width: 260, height: 152 });
+  assert.equal(infraName(bucket), 'logs');
+  assert.equal(infraName({ ...bucket, label: 'data.aws_iam_policy_document.assume_lambda' }), 'assume_lambda');
+  assert.equal(infraName({ ...bucket, label: 'Uploads' }), 'Uploads');
+  assert.equal(infraName({ ...bucket, label: 'My.Bucket' }), 'My.Bucket');
 });

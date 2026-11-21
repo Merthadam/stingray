@@ -77,7 +77,7 @@ try {
   const terminal = (await page.evaluate(() => window.stingray.terminals()))[0];
   await page.locator('.xterm-helper-textarea').click();
   await page.keyboard.type("printf 'STINGRAY_NATIVE_OK\\n'"); await page.keyboard.press('Enter');
-  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals())[0]?.buffer.includes('STINGRAY_NATIVE_OK\r\n')), 'real terminal output');
+  await waitFor(() => page.evaluate(async () => { const [t] = await window.stingray.terminals(); return Boolean(t) && (await window.stingray.terminalSnapshot(t.id)).data.includes('STINGRAY_NATIVE_OK\r\n'); }), 'real terminal output');
   check('real PTY accepted keyboard input and returned command output', true);
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
@@ -173,6 +173,14 @@ try {
   check('preview popups are blocked', await app.evaluate(({ webContents }) => webContents.getAllWebContents().length) === guestCount);
   const guestWidth = await app.evaluate(async ({ webContents }) => webContents.getAllWebContents().find(w => w.getType() === 'webview').executeJavaScript('innerWidth'));
   check('preview viewport fits the visible pane', Math.abs(guestWidth - (await page.locator('webview').boundingBox()).width) < 2);
+  await page.evaluate(() => { window.previewGuest = document.querySelector('webview'); });
+  await page.locator('.title-crumb h1').click(); await page.keyboard.press('Meta+b'); await page.keyboard.press('Meta+b');
+  check('hiding and showing the preview keeps the same webview', await page.evaluate(() => document.querySelector('.browser-pane:not([hidden]) webview') === window.previewGuest));
+  await page.getByRole('button', { name: 'Maximize preview', exact: true }).click();
+  check('maximized preview hides terminals', await page.locator('.terminal-area').evaluate(el => getComputedStyle(el).display === 'none'));
+  await page.getByRole('button', { name: 'Restore split view', exact: true }).click();
+  await page.getByRole('separator', { name: 'Resize browser preview' }).press('ArrowLeft');
+  check('splitter resizes and persists the preview width', await page.evaluate(() => Number(localStorage.getItem('stingray.browserSplit')) > .47));
   await waitFor(() => app.evaluate(({ webContents }) => !webContents.getAllWebContents().find(w => w.getType() === 'webview').isLoading()), 'preview load settled');
   await app.evaluate(async ({ BrowserWindow, webContents }) => {
     const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus();
@@ -187,7 +195,7 @@ try {
   await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
   check('renderer reload retains PTY and saved preview URL', await page.evaluate(async () => {
     const ts = await window.stingray.terminals(); const s = await window.stingray.state();
-    return ts.length === 1 && ts[0].buffer.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
+    return ts.length === 1 && (await window.stingray.terminalSnapshot(ts[0].id)).data.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
   }));
   await page.getByRole('tab', { name: /Repo Map/ }).click();
   await page.getByRole('button', { name: 'Unchanged file README.md', exact: true }).waitFor();

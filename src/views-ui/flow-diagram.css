@@ -43,3 +43,24 @@
 .flow-fields li::before{content:'· ';color:#94775f}
 .flow-fields li.flow-fields-more{color:#94775f}
 .flow-fields li.flow-fields-more::before{content:none}
+/* Cloud resources (Terraform, CDK): AWS/Azure architecture-diagram style, the service icon over its names, no card. */
+.flow-card.flow-infra{justify-content:flex-start;align-items:center;gap:2px;padding:6px 8px;text-align:center;background:transparent;border-color:transparent;box-shadow:none}
+.flow-card.flow-infra .flow-infra-icon{width:48px;height:48px;flex:none;margin-bottom:5px;border-radius:2px}
+.flow-card.flow-infra strong{max-width:100%;font-size:12px;font-weight:600}
+.flow-card.flow-infra span{max-width:100%;font-family:inherit;font-size:10.5px;color:#a8b3bf}
+.flow-card.flow-infra .flow-explanation{text-align:center}
+.flow-card.flow-infra:hover{background:#ffffff08}
+.flow-frame.cloud{border-radius:0;background:#1b1e2233}
+.flow-frame.cloud.aws{border:1px solid #8d99a6}
+.flow-frame.cloud.azure{border:1px dashed #5b9bd5;background:#5b9bd50a}
+.flow-frame.cloud.gcp{border:1px solid #4285f4;background:#4285f40a}
+.flow-frame.cloud .flow-frame-label{padding:9px 12px 9px 42px;color:#e4e9ee}
+.flow-frame-cloud-icon{position:absolute;top:0;left:0;width:32px;height:32px}
+.flow-frame.cloud.azure .flow-frame-cloud-icon,.flow-frame.cloud.gcp .flow-frame-cloud-icon{top:6px;left:6px;width:24px;height:24px}
+.flow-inspector-service{display:grid;grid-template-columns:56px 1fr;gap:6px 12px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.flow-inspector-service>div{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.flow-inspector-service strong{font-size:13px;color:#efe4da}
+.flow-inspector-service span{color:#a99a8f;text-transform:capitalize}
+.flow-inspector-service button{display:inline-flex;align-items:center;gap:4px;margin-top:2px;font-size:10px;padding:3px 7px;border:1px solid #3a3029;color:#d3c8bf}
+.flow-inspector-service p{grid-column:1/-1;margin:0;font-size:11.5px;line-height:16px;color:#d6c8bc}
+.flow-card.flow-infra .react-flow__handle{opacity:0}

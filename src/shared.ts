@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 import type { ActivitySnapshot } from './activity';
 import type { DbSchemaResult } from './db-schema';
+import type { LiveViewEvent, LiveViewInput, LiveViewSession } from './live-view';
 import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
 
 export const idSchema = z.string().uuid();
@@ -51,7 +52,9 @@ export const repoPathSchema = z.string().min(1).max(4096).refine(value =>
 export type GitLineStats =
   | { kind: 'available'; added: number; deleted: number; binaryFiles: number }
   | { kind: 'unavailable'; message: string };
-export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats };
+/** lines: tracked working tree vs merge-base(HEAD, local origin/main), like the PR diff; vs HEAD when that base is
+ *  unavailable (see base). uncommitted: tracked working tree vs HEAD. Untracked files are never counted. */
+export type GitStatus = { branch: string; changes: Change[]; lines: GitLineStats; uncommitted: GitLineStats; base: 'origin/main' | 'HEAD' };
 export type RemovalReview = {
   branch: string;
   /** Rare states that removal refuses outright (detached HEAD, switched branch, locked worktree). */
@@ -76,10 +79,18 @@ export type PullRequestStatus =
 export type ContainerInfo = {
   id: string; name: string; image: string; state: string; health: string;
   paths: string[];
-  ports: { port: number; target: string; url: string }[];
+  ports: { port: number; target: string; url: string; cdp?: true }[];
+  /** Started by scripts/test-env.sh (label stingray.test-env): the only containers Stingray may stop or read logs from. */
+  testEnv?: boolean;
 };
-export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
-export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
+export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker'; containerId?: string; testEnv?: boolean; cdp?: true };
+/** A Chrome DevTools Protocol endpoint to show in a live view tab. */
+export type LiveViewTarget = { workspaceId: string; url: string; port: number; containerId?: string };
+export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
+/** Scrollback lines kept by terminal panes and the main-process mirror they restore from. */
+export const terminalScrollback = 5000;
+/** Serialized screen/scrollback/modes of a terminal at `sequence`, at the PTY's size. */
+export type TerminalSnapshot = { id: string; data: string; sequence: number; cols: number; rows: number; exitCode?: number };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
   mode: 'desktop' | 'demo';
@@ -91,7 +102,6 @@ export interface DesktopAPI {
   createWorkspace(repoId: string, branch: string): Promise<State>;
   reviewRemoval(id: string): Promise<RemovalReview>;
   removeWorkspace(id: string, consent: RemovalConsent): Promise<RemovalResult>;
-  gitStatus(id: string): Promise<GitStatus>;
   repoSnapshot(id: string): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;
   dbSchema(workspaceId: string): Promise<DbSchemaResult>;
@@ -114,8 +124,15 @@ export interface DesktopAPI {
   codegraphConflicts(workspaceId: string): Promise<OverlayConflicts | null>;
   /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
-  pullRequest(id: string, refresh?: boolean): Promise<PullRequestStatus>;
+  /** Open the documentation of a cloud service of the infra catalog (src/infra/catalog.ts) in the default browser. */
+  openServiceDocs(serviceId: string): Promise<void>;
   containers(): Promise<ContainerInfo[]>;
+  /** docker stop; test-env containers only. */
+  stopContainer(id: string): Promise<void>;
+  /** Last ~300 log lines; test-env containers only. */
+  containerLogs(id: string): Promise<string>;
+  /** Copies 127.0.0.1:<port> and opens chrome://inspect in Google Chrome when possible. */
+  inspectCdp(port: number): Promise<{ address: string; opened: boolean }>;
   ports(): Promise<WorkspacePort[]>;
   preview(id: string, url: string): Promise<State>;
   activity(): Promise<ActivitySnapshot>;
@@ -125,11 +142,27 @@ export interface DesktopAPI {
   /** Dismiss a workspace's restored (previous session) activity. */
   dismissActivity(workspaceId: string): Promise<void>;
   terminals(): Promise<TerminalInfo[]>;
+  terminalSnapshot(id: string): Promise<TerminalSnapshot>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;
   openTerminalLink(id: string, uri: string): Promise<void>;
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>;
   closeTerminal(id: string): Promise<void>;
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Shared Git + PR state of a workspace; starts main-process tracking (watcher, polls) on first use. */
+  gitState(workspaceId: string): Promise<WorkspaceGitState>;
+  /** Re-reads Git now and re-queries GitHub (5s cooldown). */
+  refreshGitState(workspaceId: string): Promise<WorkspaceGitState>;
+  onGitStateChanged(listener: (state: WorkspaceGitState) => void): () => void;
+  /** Screencast + input of a test instance's Stingray window over CDP on 127.0.0.1:port; max sizes are frame pixels. */
+  liveViewStart(options: { port: number; maxWidth?: number; maxHeight?: number }): Promise<LiveViewSession>;
+  liveViewInput(sessionId: string, input: LiveViewInput): Promise<void>;
+  liveViewResize(sessionId: string, maxWidth: number, maxHeight: number): Promise<void>;
+  liveViewStop(sessionId: string): Promise<void>;
+  /** The latest frame was displayed; the next one may be sent. */
+  liveViewAck(sessionId: string): Promise<void>;
+  onLiveView(listener: (event: LiveViewEvent) => void): () => void;
 }
+/** revision increases with every change in the main process, so late responses can be ignored. */
+export type WorkspaceGitState = { workspaceId: string; revision: number; status: GitStatus | null; error: string; pr: PullRequestStatus | null };
 declare global { interface Window { stingray?: DesktopAPI } }

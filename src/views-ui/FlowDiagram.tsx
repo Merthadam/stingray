@@ -22,7 +22,7 @@ export function FlowDiagram(props: ErDiagramProps) {
   return <ReactFlowProvider><Diagram {...props} /></ReactFlowProvider>;
 }
 
-function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, toolbarExtra }: ErDiagramProps) {
+function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServiceDocs, onSaveAs, toolbarExtra }: ErDiagramProps) {
   const flow = useReactFlow();
   const chart = result.kind === 'flowchart';
   const size = useCallback((n: DiagramNode) => flowSize(n, chart), [chart]);
@@ -64,12 +64,12 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   const framesBy = useMemo(() => frameIndex(result, frames), [result, frames]);
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
-      data: { label: f.group.label, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
+      data: { label: f.group.label, provider: f.group.provider, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: f.group.provider ? `flow-frame cloud ${f.group.provider}` : 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1,
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
       id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n }, ...size(n),
-      ariaLabel: chart ? `${n.kind} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
+      ariaLabel: chart ? `${n.kind} ${n.label}` : n.service ? `${n.service.name} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
     })),
   ], [result, positions, frames, selected, chart, size, onOpenSource]);
   const edges = useMemo<FlowTransition[]>(() => {
@@ -132,7 +132,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
           </ReactFlow>}
       </div>
       {node && <Inspector variant="flow" node={node} nodes={byId} edges={result.edges} onSelect={focusNode}
-        onClose={() => setSelected(null)} onOpenSource={onOpenSource} />}
+        onClose={() => setSelected(null)} onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} />}
       {edge && <aside className="er-inspector" aria-label="Transition details">
         <header><div><strong>{byId.get(edge.from)?.label} → {byId.get(edge.to)?.label}</strong>
           <span>{edge.kind}{!edge.certain && ' · uncertain'}</span></div>

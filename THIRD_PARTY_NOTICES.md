@@ -127,3 +127,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Other dependencies retain their own licenses in node_modules and package-lock.json records. Review them before distribution.
+
+## Cloud architecture icons
+
+Terraform and AWS CDK views draw cloud resources with the providers' official architecture icons, vendored unmodified
+(only the icons the service catalog in `src/infra/catalog.ts` references) in `src/assets/infra-icons/`. They are used only
+to depict those services in architecture diagrams, as each provider permits; they remain the property of their owners and
+no endorsement is implied.
+
+- `aws/`: AWS Architecture Icons, release 07312026 (service icons 48 px, "AWS Cloud" group icons, dark variants), from
+  https://aws.amazon.com/architecture/icons/. © Amazon Web Services, Inc. or its affiliates. AWS allows customers and
+  partners to use these assets to create architecture diagrams.
+- `azure/`: Azure Public Service Icons V25, from https://learn.microsoft.com/azure/architecture/icons/. © Microsoft
+  Corporation. Microsoft permits the use of these icons in architectural diagrams, training materials, or documentation;
+  you can copy, distribute, and display the icons only for the permitted use unless granted explicit permission by
+  Microsoft. Microsoft reserves all other rights. Icons must not be cropped, flipped, rotated, distorted or used to
+  represent another product.
+- `gcp/`: Google Cloud product icons (the "legacy" product icon set, consistent across the products covered), from
+  https://cloud.google.com/icons, provided by Google for architecture diagrams and technical documentation. © Google LLC.
+
+## xterm.js serializer
+
+`electron/terminal-serialize.ts` is adapted from `@xterm/addon-serialize` 0.14.0 (`src/SerializeAddon.ts`, HTML output removed, OSC 8 hyperlinks added). MIT License, Copyright (c) 2019 The xterm.js authors; the license text is the MIT text above.

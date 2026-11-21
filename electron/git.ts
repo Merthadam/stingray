@@ -9,7 +9,7 @@ import { Store } from './store';
 import { urlSchema, repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus, type RepoSnapshot } from '../src/shared';
 import { cloneGit } from './clone';
 import { repoSnapshot, inspectFile } from './repo-map';
-import { readGitLines } from './git-lines';
+import { readGitLines, originMainBase } from './git-lines';
 
 const exec = promisify(execFile);
 const snapshotsInFlight = new Map<string, Promise<RepoSnapshot>>();
@@ -40,6 +40,8 @@ const CACHE_DIR = '.codegraph';
 const isCacheDirectory = (root: string) => lstat(path.join(root, CACHE_DIR)).then(s => s.isDirectory(), () => false);
 export class GitService {
   private pending: Promise<unknown> = Promise.resolve();
+  /** Every status read (sidebar, Repo Map, file inspection) reports here so shared Git state stays consistent. */
+  onStatus?: (id: string, status: GitStatus) => void;
   constructor(readonly store: Store, private terminalCount: (id: string) => number = () => 0,
     // Removal hooks: close the workspace's terminals and stop writers to the code-graph cache first; undo what can be undone if removal fails.
     private hooks: { beforeRemove(id: string): Promise<void>; removeFailed(id: string): void } = { beforeRemove: async () => {}, removeFailed: () => {} }) {}
@@ -200,7 +202,11 @@ export class GitService {
       git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     ]);
     const changes = parseStatus(output);
-    return { branch: branch.trim() || 'detached HEAD', changes, lines: await readGitLines(w.path, changes) };
+    const [uncommitted, base] = await Promise.all([readGitLines(w.path, changes), originMainBase(w.path)]);
+    const lines = base ? await readGitLines(w.path, changes, undefined, base) : uncommitted;
+    const result: GitStatus = { branch: branch.trim() || 'detached HEAD', changes, lines, uncommitted, base: base ? 'origin/main' : 'HEAD' };
+    this.onStatus?.(id, result);
+    return result;
   }
   async repoSnapshot(id: string) {
     const w = await this.workspace(id);
