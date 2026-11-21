@@ -24,7 +24,12 @@ export interface SymbolRef {
   kind: string;                // CodeGraph node kind, e.g. "class", "function"
   file: string;
   line: number;
+  endLine?: number;            // last line of the symbol's body (fingerprints of `explain:` entries); absent when unknown
 }
+
+/** Where a node's or group's explanation comes from: absent = the symbol's docstring; otherwise the view file's `explain:`
+ * entry, whose fingerprint matches the code ('view'), differs from it ('stale': "may be outdated") or is missing ('unstamped'). */
+export type ExplanationStatus = 'view' | 'stale' | 'unstamped';
 
 export interface DiagramNode {
   id: string;                  // unique within the view; edges reference it
@@ -39,7 +44,9 @@ export interface DiagramNode {
   order: number | null;        // position on a timeline; null = derive from edges
   detail: string | null;       // secondary text under the label, e.g. a LangGraph step's handler
   explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
-                               // rule nodes with `symbol:`); absent/null = none, nothing is shown
+                               // rule nodes with `symbol:`) or the view's `explain:` entry; absent/null = none, nothing is shown
+  explanationStatus?: ExplanationStatus;
+  aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
 }
 
 export interface DiagramEdge {
@@ -60,7 +67,9 @@ export interface DiagramGroup {
   label: string;
   source: SourceRef | null;
   parent?: string | null;      // enclosing DiagramGroup.id (flowchart: a callee expanded inside another expansion)
-  explanation?: string | null; // flowchart expanded call: the callee's docstring summary; absent/null = none
+  explanation?: string | null; // flowchart expanded call: the callee's docstring summary, or the view's `explain:` entry; absent/null = none
+  explanationStatus?: ExplanationStatus;
+  symbol?: SymbolRef | null;   // flowchart expanded call: the callee
 }
 
 export interface ViewWarning { file: string | null; line: number | null; message: string }
@@ -170,14 +179,23 @@ export interface LayersDiagnostic {
   error: string | null;        // e.g. "code graph not ready (indexing)"
 }
 
-export interface UnresolvedLink { rule: string; value: string; file: string; line: number }
+export interface UnresolvedLink { rule: string; value: string; file: string; line: number } // rule "explain": an `explain:` key
+
+/** One `explain:` entry of the view file with the fingerprint of the code it is anchored to now (what --restamp writes). */
+export interface ExplainDiagnostic {
+  key: string;
+  line: number | null;         // 1-based line of the key in the view file
+  matches: number;             // nodes and groups it applies to (0 = unresolved)
+  fingerprint: string | null;  // current; null when unresolved or not computable (code graph not ready, source unreadable)
+}
 
 export interface ViewDiagnostics {
   rules: RuleDiagnostic[];
   graph: GraphStepDiagnostic | null; // null when the view has no graph step
   flowchart?: FlowchartDiagnostic | null; // set for kind: flowchart views only
   layers?: LayersDiagnostic | null;  // set for views with layers: only
-  unresolved: UnresolvedLink[];      // first 50 edge endpoints that matched no node id/alias
+  unresolved: UnresolvedLink[];      // first 50 edge endpoints that matched no node id/alias, then unresolved `explain:` keys
+  explain?: ExplainDiagnostic[];     // set when the view file has `explain:`
   limits: { filesScanned: number; matches: number; truncated: boolean };
   ms: number;
 }

@@ -174,6 +174,7 @@ test('python: depth 0 draws call nodes, depth 2 expands nested calls in nested g
   const deep = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 2 });
   const group = deep.groups.find(g => g.label === 'db_get')!;
   assert.equal(group.parent, 'call:app/auth.py#load_user');
+  assert.equal(group.symbol?.name, 'db_get'); // explain: entries name groups by symbol and fingerprint its body
   // `query` has no steps to draw: a call node, reached through a heuristic relation (dashed).
   const query = node(deep.nodes, 'query');
   assert.deepEqual([query.kind, query.group, query.subtitle], ['call', group.id, null]);

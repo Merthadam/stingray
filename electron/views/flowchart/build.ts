@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { DiagramEdge, DiagramGroup, DiagramNode } from '../../../src/views';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
 import type { Call, Code, Construct, Handler } from './cfg';
-import { explanationOf } from '../explanation';
+import { explanationOf, symbolRef } from '../explanation';
 import { callLabel, caseLabel, decisionLabel, endLabel, errorLabel, loopLabel, truncate } from './labels';
 
 export const MAX_FLOWCHART_NODES = 150;
@@ -98,7 +98,7 @@ export class FlowchartBuilder {
     const s = n.symbol;
     this.nodes.push({
       id, label: n.label, kind: n.kind, subtitle: n.subtitle ?? null, group, fields: [], source: { file: at.file, line },
-      symbol: s ? { id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line } : null, role: n.role ?? null, order: null, detail: n.detail, ...explanationOf(s),
+      symbol: s ? symbolRef(s) : null, role: n.role ?? null, order: null, detail: n.detail, ...explanationOf(s),
     });
     this.connect(preds, id);
     return id;
@@ -291,7 +291,7 @@ export class FlowchartBuilder {
     const base = `call:${symbol.id}`;
     let group = base;
     for (let i = 2; this.groups.some(g => g.id === group); i++) group = `${base}#${i}`;
-    this.groups.push({ id: group, label: symbol.name, source: { file: symbol.file, line: symbol.line }, parent: f.group, ...explanationOf(symbol) });
+    this.groups.push({ id: group, label: symbol.name, source: { file: symbol.file, line: symbol.line }, parent: f.group, symbol: symbolRef(symbol), ...explanationOf(symbol) });
     const callee = this.frame(symbol, group, f.level + 1, [...f.stack, symbol.id], []);
     const out = await this.steps(constructs, preds, callee);
     return [...out, ...callee.returns!];

@@ -1,4 +1,5 @@
 // A symbol's docstring summary, shown as the "explanation" of symbol-backed view nodes and groups. Pure.
+import type { SymbolRef } from '../../src/views';
 import type { GraphSymbol } from './rules/types';
 
 export const MAX_EXPLANATION = 300;
@@ -27,3 +28,7 @@ export function explanationOf(symbol: GraphSymbol | null | undefined): { explana
   const explanation = docstringSummary(symbol?.docstring);
   return explanation ? { explanation } : {};
 }
+
+/** The SymbolRef of a node or group; keeps the body's end line, which `explain:` fingerprints hash up to. */
+export const symbolRef = (s: GraphSymbol): SymbolRef =>
+  ({ id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line, ...(s.endLine ? { endLine: s.endLine } : {}) });

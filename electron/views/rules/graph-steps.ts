@@ -1,7 +1,7 @@
 // Graph steps (m3-design.md "Graph steps"): expand start symbols through the code graph into nodes and edges. Pure.
 import path from 'node:path';
 import type { DiagramEdge, DiagramField, DiagramNode } from '../../../src/views';
-import { explanationOf } from '../explanation';
+import { explanationOf, symbolRef } from '../explanation';
 import type { FollowKind, GraphRelation, GraphSymbol, RunGraphStep } from './types';
 
 export const MAX_GRAPH_NODES = 150;
@@ -68,7 +68,7 @@ export const runGraphStep: RunGraphStep = (step, graph, inScope) => {
 
   const nodes = new Map<string, DiagramNode>([...reached.values()].map(s => [nodeId(s), {
     id: nodeId(s), label: s.name, kind: s.kind, subtitle: null, group: null, fields: [], source: { file: s.file, line: s.line },
-    symbol: { id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line }, role: null, order: null, detail: null, ...explanationOf(s),
+    symbol: symbolRef(s), role: null, order: null, detail: null, ...explanationOf(s),
   }]));
   if (step.helpers !== 'show') {
     for (const id of helpers) {
