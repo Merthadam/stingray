@@ -52,21 +52,6 @@ CREATE TABLE settings (
 ) STRICT;
 CREATE INDEX workspaces_repo ON workspaces(repo_id);
 `;
-// Renderer-safe agent activity metadata kept across restarts (see activity-history.ts). Never tokens, prompts or output.
-const SCHEMA_V2 = `
-CREATE TABLE agent_activity (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  terminal_id TEXT NOT NULL,
-  harness TEXT NOT NULL,
-  phase TEXT NOT NULL,
-  needs_review INTEGER NOT NULL,
-  started_at INTEGER NOT NULL,
-  last_event_at INTEGER NOT NULL,
-  completed_at INTEGER
-) STRICT;
-CREATE INDEX agent_activity_workspace ON agent_activity(workspace_id, last_event_at);
-`;
 
 type Migration = (db: DatabaseSync, directory: string, imported: string[]) => void;
 const MIGRATIONS: Migration[] = [
@@ -74,7 +59,6 @@ const MIGRATIONS: Migration[] = [
     db.exec(SCHEMA_V1);
     importLegacyJson(db, directory, imported);
   },
-  db => db.exec(SCHEMA_V2),
 ];
 
 const open = new Map<string, DatabaseSync>();
