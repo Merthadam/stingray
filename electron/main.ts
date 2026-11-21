@@ -22,6 +22,7 @@ import { saveViewAs } from './views/save-view';
 import { positionsSchema } from './views/rules/schema';
 import { ViewStateStore, viewLocalStateSchema } from './view-state';
 import { EDITOR_IDS, EditorService } from './editors';
+import { setSharedBase, sharedBaseEnabled, sharedBaseTarget, sharedBaseWorkspaces } from './codegraph-settings';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -49,7 +50,8 @@ const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
 const pullRequests = new PullRequestService();
-const views = new ViewService({ host: createCodeGraphProcessHost(), grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
+const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
+const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
   emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
 
 function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
@@ -153,6 +155,12 @@ app.whenReady().then(async () => {
   })]), async (id, input) => saveViewAs((await git.workspace(id)).path, input));
   handle('editor-settings', z.tuple([]), () => editors.settings());
   handle('set-editor', z.tuple([z.enum(EDITOR_IDS)]), editor => editors.select(editor));
+  handle('codegraph-settings', z.tuple([]), () => ({ sharedBase: sharedBaseEnabled(app.getPath('userData')) }));
+  handle('set-codegraph-shared-base', z.tuple([z.boolean()]), enabled => setSharedBase(app.getPath('userData'), enabled));
+  handle('codegraph-conflicts', z.tuple([idSchema]), (id: string) => {
+    const shared = sharedBaseWorkspaces(app.getPath('userData'), id);
+    return shared ? codegraph.conflicts(shared.target, shared.workspaceIds) : null;
+  });
   handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
     editors.openSource((await git.workspace(id)).path, file, line));
   handle('pull-request', z.tuple([idSchema, z.boolean().optional()]), async (id, refresh) => pullRequests.status((await git.workspace(id)).path, refresh));

@@ -12,7 +12,8 @@ A view produces nodes (optionally in groups, with fields), and edges between the
 - `tables` — nodes with fields (e.g. DB tables and columns), edges such as foreign keys.
 - `flow` — steps with `start`/`end` roles and transitions (e.g. a LangGraph agent).
 - `timeline` — ordered nodes (by `order`, else by edges), e.g. Alembic migrations.
-- `graph` — any nodes and edges, grouped (e.g. Terraform resources, call graphs).
+- `graph` — any nodes and edges, grouped (e.g. Terraform resources, call graphs); with `layers:`, the repo's services,
+  modules, files and symbols as a drill-down (see [Layers](#layers)).
 - `flowchart` — the control flow of one function (decisions, loops, calls, returns), computed from its code; see
   [Flowcharts](#flowcharts).
 
@@ -47,12 +48,13 @@ use: [langgraph]                       # builtin sets and/or .stingray/rules/<na
 rules: []                              # inline rules (schema below); max 50
 graph: { ... }                         # optional graph step (below)
 flowchart: { ... }                     # kind: flowchart only (below)
+layers: { ... }                        # kind: graph only (below)
 include: [AuditLog]                    # node ids/labels always kept
 exclude: [Base]                        # node ids/labels always dropped (wins over include)
 layout: {}                             # reserved for the UI
 ```
 
-At least one of `use`, `rules`, `graph`, `flowchart` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
+At least one of `use`, `rules`, `graph`, `flowchart`, `layers` is required. Unknown keys are errors. Globs: `*` (at most 2 per path segment),
 `**` (at most 3), `?`, `[...]`; no `{}`, `()`, `!`, `+`, `@`, `\`.
 
 `use` names a builtin set (see `stingray-views sets`; `sqlalchemy` extracts SQLAlchemy models; `sql` extracts SQL DDL from `.sql` files and literal strings in TS/JS/Python) or a
@@ -183,6 +185,32 @@ flowchart:
 - Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
 - Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
   Without a code graph the flowchart is skipped.
+
+## Layers
+
+The repo's architecture as a drill-down: services (L1), modules (L2), files (L3) and top-level symbols (L4), from the
+code graph's service layers. Services and modules are inferred from manifests (`package.json`, `pyproject.toml`, …) and
+compose `command`s; a committed `.stinggraph/layers.yaml` names them (labels, aliases, includes/excludes, modules). Every
+file outside a service is in `(unassigned)`. The builtin **Services** view (id `layers`) shows this for every worktree.
+
+```yaml
+version: 1
+name: Connector service
+kind: graph                       # required
+scope: { exclude: ["**/tests/**"] } # files left out, with their edges
+layers:
+  depth: 3                        # 1 services, 2 modules, 3 files, 4 symbols (default 1; the Views tab slider overrides it)
+  expand: [connector]             # services drawn down to `depth` (id or label); the others stay one node (default: all)
+exclude: ["(unassigned)"]         # drop a service by label, like any node
+```
+
+- Levels above the drawn one are nested groups (service › module › file). Edges between files roll up to the drawn
+  nodes; the label is the count, then per kind (`141 · imports 44, calls 40, …`). Dashed: every edge of the pair was
+  inferred (cross-service HTTP calls the engine synthesized, or heuristic resolution).
+- Symbol level: members (methods) count as their class; module-level code and imports have no symbol and are left out.
+- `stingray-views check <file> --depth N` (1-4) overrides `depth`; the result's `diagnostics.layers` has the config used,
+  the depth and the counts. `layers.yaml` problems are warnings. Without a code graph the step is skipped.
+- Keep depth 3-4 to a few `expand`ed services: views stop at 2,000 nodes.
 
 ## Limits
 

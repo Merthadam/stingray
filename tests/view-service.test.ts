@@ -79,7 +79,7 @@ async function settle(ms = 150, events?: unknown[]) {
 test('listViews returns the builtin view and view files, invalid ones with errors', async t => {
   const { root, host, service } = await setup(t);
   const list = await service.listViews('ws', root);
-  assert.deepEqual(list.map(v => [v.id, v.builtin, v.error !== null]), [['database', true, false], ['audit', false, false], ['broken', false, true], ['core', false, false], ['flow', false, false]]);
+  assert.deepEqual(list.map(v => [v.id, v.builtin, v.error !== null]), [['database', true, false], ['layers', true, false], ['audit', false, false], ['broken', false, true], ['core', false, false], ['flow', false, false]]);
   assert.equal(host.opened, 1);
   await assert.rejects(service.computeView('ws', root, 'broken'), /\.stingray\/views\/broken\.yaml is invalid: line 4: Unknown set "nope"/);
   await assert.rejects(service.computeView('ws', root, 'flow'), /^Error: View flow could not be computed: not scripted$/);
@@ -168,7 +168,7 @@ test('changes emit the affected views, coalesced', async t => {
   graph.change('app/base.py');
   graph.change('README.md');
   await settle(150, events);
-  assert.deepEqual(events, [{ workspaceId: 'ws', viewIds: ['audit', 'core', 'database', 'flow'], listChanged: false }]);
+  assert.deepEqual(events, [{ workspaceId: 'ws', viewIds: ['audit', 'core', 'database', 'flow', 'layers'], listChanged: false }]);
 
   events.length = 0;
   graph.change('.stingray/rules/orm.yaml');
@@ -188,12 +188,13 @@ test('changes emit the affected views, coalesced', async t => {
 
   events.length = 0;
   graph.change('docs/readme.md');
-  await settle();
-  assert.deepEqual(events, []);
+  await settle(150, events);
+  assert.deepEqual(events, [{ workspaceId: 'ws', viewIds: ['layers'], listChanged: false }]); // the builtin layers view counts every file
 
+  events.length = 0;
   graph.setStatus('ready');
   await settle(150, events);
-  assert.deepEqual(events, [{ workspaceId: 'ws', viewIds: ['audit', 'broken', 'core', 'database', 'flow'], listChanged: false }]);
+  assert.deepEqual(events, [{ workspaceId: 'ws', viewIds: ['audit', 'broken', 'core', 'database', 'flow', 'layers'], listChanged: false }]);
 });
 
 test('release unsubscribes and closes the graph; dispose closes all', async t => {
@@ -231,7 +232,7 @@ test('a change during a computation makes the refetch compute again', async t =>
   const before = service.computeView('ws', root, 'database');
   host.graphs.get('ws')!.change('app/models/user.py');
   await settle(150, events);
-  assert.deepEqual(events.map(e => e.viewIds), [['audit', 'core', 'database', 'flow']]);
+  assert.deepEqual(events.map(e => e.viewIds), [['audit', 'core', 'database', 'flow', 'layers']]);
   const after = service.computeView('ws', root, 'database');
   assert.notEqual(after, before);
   await Promise.all([before, after]);
@@ -292,10 +293,10 @@ test('changes re-queue rule views by scope and rule files, graph views on any co
   await service.listViews('ws', root);
   const graph = host.graphs.get('ws')!;
   const after = async (...files: string[]) => { events.length = 0; graph.change(...files); await settle(150, events); return events.map(e => e.viewIds); };
-  assert.deepEqual(await after('app/flows/a.ts'), [['calls', 'database', 'flow', 'steps']]);
-  assert.deepEqual(await after('app/other.ts'), [['calls', 'database', 'flow']]);
-  assert.deepEqual(await after('lib/x.ts'), [['calls', 'database']]);
-  assert.deepEqual(await after('app/flows/b.py'), [['audit', 'calls', 'core', 'database', 'flow', 'steps']]);
+  assert.deepEqual(await after('app/flows/a.ts'), [['calls', 'database', 'flow', 'layers', 'steps']]);
+  assert.deepEqual(await after('app/other.ts'), [['calls', 'database', 'flow', 'layers']]);
+  assert.deepEqual(await after('lib/x.ts'), [['calls', 'database', 'layers']]);
+  assert.deepEqual(await after('app/flows/b.py'), [['audit', 'calls', 'core', 'database', 'flow', 'layers', 'steps']]);
 });
 
 
@@ -313,12 +314,23 @@ test('SQL extractor merges with SQLAlchemy and invalidates cached DDL on SQL and
   assert.equal((await service.computeView('ws', root, 'sql')).computedAt, sql.computedAt);
   host.graphs.get('ws')!.change('schema.sql');
   await settle(30, events);
-  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'sql']);
+  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'layers', 'sql']);
   assert.deepEqual((await service.computeView('ws', root, 'sql')).nodes.map(n => n.label), ['changed']);
   events.length = 0;
   await writeFile(path.join(root, 'embedded.ts'), 'const ddl = `CREATE TABLE embedded (id INT)`;');
   host.graphs.get('ws')!.change('embedded.ts');
   await settle(30, events);
-  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'sql']);
+  assert.deepEqual(events.at(-1)?.viewIds, ['all', 'database', 'layers', 'sql']);
   assert.deepEqual((await service.computeView('ws', root, 'sql')).nodes.map(n => n.label).sort(), ['changed', 'embedded']);
+});
+
+test('the builtin layers view evaluates layers: at depth 1, or at an overridden depth', async t => {
+  const { root, host, service } = await setup(t);
+  const graph = host.open('ws', root) as FakeGraph;
+  graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {},
+    diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
+  const plain = await service.computeView('ws', root, 'layers');
+  await service.computeView('ws', root, 'layers', { depth: 3 });
+  assert.deepEqual([plain.name, plain.kind, plain.builtin], ['Services', 'graph', true]);
+  assert.deepEqual(graph.evaluated.map(v => v.layers?.depth), [1, 3]);
 });

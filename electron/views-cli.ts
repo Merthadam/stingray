@@ -34,7 +34,8 @@ export interface CliDeps {
 export const USAGE = `Usage:
   stingray-views check <file.yaml> [--json] [--depth N]
                                               validate a view and print diagnostics + a text diagram
-                                              (--depth 0-4: flowchart call levels, overrides flowchart.depth)
+                                              (--depth 0-4: flowchart call levels, overrides flowchart.depth;
+                                               1-4: layers level, overrides layers.depth)
   stingray-views list                         views of this worktree
   stingray-views sets                         builtin rule sets for \`use:\`
   stingray-views help                         the full guide (view format, rules, workflow)
@@ -114,8 +115,11 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   }
 
   if (depth !== null) {
-    if (!loaded.view.flowchart) { deps.err('--depth only applies to kind: flowchart views'); return 2; }
-    loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
+    if (loaded.view.layers) {
+      if (depth < 1) { deps.err('--depth of a layers view is 1 to 4'); return 2; }
+      loaded.view = { ...loaded.view, layers: { ...loaded.view.layers, depth } };
+    } else if (loaded.view.flowchart) loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
+    else { deps.err('--depth only applies to kind: flowchart views and views with layers:'); return 2; }
   }
   const graph = await deps.openGraph(root), api = graph.api;
   let result;
@@ -132,7 +136,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
 
   const d = result.diagnostics!;
   // A missing/unreadable code graph is the environment, not the view; graph-step errors with a graph are the view's.
-  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error));
+  const failed = d.rules.some(r => r.errors.length) || (graph.api !== null && (!!d.graph?.error || !!d.flowchart?.error || !!d.layers?.error));
   if (json) { deps.out(JSON.stringify({ summary: loaded.summary, result }, null, 2)); return failed ? 1 : 0; }
 
   deps.out(`${result.name} (${result.kind}) — ${relFile}`);
@@ -151,6 +155,10 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   if (d.flowchart) {
     const f = d.flowchart;
     deps.out(`flowchart: start ${f.start ?? '-'}  depth ${f.depth}  functions ${f.functions}  nodes ${f.nodes}${f.truncated ? '  (truncated)' : ''}${f.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${f.error}` : ''}`);
+  }
+  if (d.layers) {
+    const l = d.layers;
+    deps.out(`layers: ${l.config ?? 'inferred (no .stinggraph/layers.yaml)'}  depth ${l.depth}  services ${l.services}  files ${l.files}  nodes ${l.nodes}${l.error ? `\n  ${graph.api ? 'error' : 'skipped'}: ${l.error}` : ''}`);
   }
   if (d.unresolved.length) {
     deps.out('unresolved links (edge ends matching no node id or alias):');

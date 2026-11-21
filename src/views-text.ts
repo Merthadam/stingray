@@ -21,9 +21,14 @@ export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagra
 
   const lines = [`${kind}: ${nodes.length} nodes, ${edges.length} edges${truncated ? ' (truncated: a limit was hit)' : ''}`];
   const byGroups = () => {
-    const known = new Set(groups.map(g => g.id));
+    const known = new Map(groups.map(g => [g.id, g]));
+    // Nested groups (layers: service > module > file) are named by their path.
+    const title = (g: DiagramGroup, seen = new Set<string>()): string => {
+      const parent = g.parent ? known.get(g.parent) : undefined;
+      return parent && !seen.has(parent.id) ? `${title(parent, seen.add(g.id))} / ${g.label}` : g.label;
+    };
     const sections: [string | null, DiagramNode[]][] = [[null, nodes.filter(n => n.group === null || !known.has(n.group))],
-      ...groups.map(g => [g.label, nodes.filter(n => n.group === g.id)] as [string, DiagramNode[]])];
+      ...groups.map(g => [title(g), nodes.filter(n => n.group === g.id)] as [string, DiagramNode[]])];
     for (const [label, members] of sections) {
       if (!members.length) continue;
       if (label !== null) lines.push(`${label}:`);

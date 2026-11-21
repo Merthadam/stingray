@@ -64,6 +64,12 @@ export interface FlowchartStep {
   exclude?: string[];
 }
 
+/** `layers:` of a `kind: graph` view: stinggraph's service layers drawn as a hierarchy (see layers.ts). */
+export interface LayersStep {
+  depth: number;                              // 1-4, default 1: 1 services, 2 modules, 3 files, 4 symbols
+  expand?: string[];                          // service ids or labels drawn below services (default: all)
+}
+
 export interface Scope { include: string[]; exclude: string[] }
 
 /** A view file with its `use` resolved: everything the engine needs, no further file reads of YAML. */
@@ -74,6 +80,7 @@ export interface ResolvedView {
   rules: SourcedRule[];
   graph: GraphStep | null;
   flowchart: FlowchartStep | null;
+  layers?: LayersStep | null;
   builtins: string[];         // TypeScript extractors computed by the main process, e.g. ["sqlalchemy"]
   include: string[];          // node ids/labels always kept
   exclude: string[];          // node ids/labels always dropped (wins)
@@ -96,6 +103,16 @@ export interface GraphRelation {
   line: number | null;
   certain: boolean;           // false for heuristic resolution
 }
+/** stinggraph's service layers (CodeGraph.getLayers; its `Layers` type fits this shape). */
+export interface GraphLayers {
+  config: string | null;      // ".stinggraph/layers.yaml" when it was used, else null (inferred only)
+  services: { id: string; label: string; aliases: string[]; origin: string; modules: { id: string; label: string }[] }[];
+  assignments: Record<string, { service: string; module: string }>; // every indexed file
+  errors: { source: string; message: string }[];
+}
+/** Edges between two units of a `rollup`, counted per edge kind. */
+export interface GraphRollupEdge { from: string; to: string; total: number; synthesized: number; byKind: Record<string, number> }
+
 /** Read-only view of one worktree's code graph (CodeGraph adapter in the child/CLI, fake in tests). */
 export interface GraphApi {
   /** Symbols named exactly `name`, optionally only in `file`. */
@@ -103,6 +120,11 @@ export interface GraphApi {
   symbols(ids: string[]): Map<string, GraphSymbol>;
   outgoing(ids: string[], kinds: string[]): GraphRelation[];
   incoming(ids: string[], kinds: string[]): GraphRelation[];
+  /** Every node of a file, the file node itself (kind "file") included. */
+  fileSymbols(file: string): GraphSymbol[];
+  layers(): GraphLayers | null;
+  /** Cross-file edges rolled up to `units[file]` (files without a unit are left out); edges inside one unit are not counted. */
+  rollup(units: Record<string, string>): GraphRollupEdge[];
 }
 
 // ---- Evaluation ----

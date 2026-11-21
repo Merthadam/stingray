@@ -95,7 +95,7 @@ test('computeView builds the database view from a repository and rejects unknown
   const root = await mkdtemp(path.join(os.tmpdir(), 'stingray-views-'));
   const service = new ViewService({ host: createCodeGraphHost(), grammarPath: grammar, emit: () => {} });
   try {
-    assert.deepEqual((await service.listViews('ws', root)).map(v => v.id), ['database']);
+    assert.deepEqual((await service.listViews('ws', root)).map(v => v.id), ['database', 'layers']);
     const files: Record<string, string> = {
       'app/models.py': [
         'from sqlalchemy import ForeignKey, String',

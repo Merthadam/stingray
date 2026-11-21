@@ -6,7 +6,7 @@ import type { ViewResult, ViewSummary, ViewsChangedEvent } from '../../src/views
 import type { GraphChange, GraphHost, WorktreeGraph } from './graph';
 import { DATABASE_VIEW, databaseView } from './database';
 import { combineSchemas, computeView, linkSymbols } from './compute';
-import { RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
+import { LAYERS_VIEW, RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
 
 interface Worktree {
   root: string;
@@ -18,12 +18,12 @@ interface Worktree {
 }
 
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
- * class or mixin outside the scope changes the tables inside it), any code file with a graph or flowchart step, or a file its rules read. */
+ * class or mixin outside the scope changes the tables inside it), any code file with a graph, flowchart or layers step, or a file its rules read. */
 function affects(v: ViewFileEntry, changed: string[], code: string[], python: boolean, sql: boolean): boolean {
   if (v.ruleFiles.some(r => changed.includes(r))) return true;
   const view = v.view;
   if (!view) return false;
-  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && (view.graph || view.flowchart))) return true;
+  if ((sql && view.builtins.includes('sql')) || (python && view.builtins.includes('sqlalchemy')) || (code.length && (view.graph || view.flowchart || view.layers))) return true;
   return code.some(f => inScope(f, view.scope) && view.rules.some(({ rule }) => !rule.files || inScope(f, { include: rule.files, exclude: [] })));
 }
 
@@ -42,7 +42,7 @@ export class ViewService {
 
   async listViews(workspaceId: string, root: string): Promise<ViewSummary[]> {
     this.worktree(workspaceId, root);
-    return [DATABASE_VIEW, ...(await listViewFiles(root)).map(v => v.summary)];
+    return [DATABASE_VIEW, LAYERS_VIEW.summary, ...(await listViewFiles(root)).map(v => v.summary)];
   }
 
   /** Concurrent requests for the same view (and depth override) of a worktree share one computation. */
@@ -82,13 +82,14 @@ export class ViewService {
     const w = this.worktree(workspaceId, root);
     const findSymbols = w.graph.findSymbols.bind(w.graph);
     if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), findSymbols);
-    const file = await readViewFile(root, viewId);
+    const file = viewId === LAYERS_VIEW.summary.id ? LAYERS_VIEW : await readViewFile(root, viewId);
     if (!file) throw new Error(`Unknown view: ${viewId}`);
     let { view } = file;
     if (!view) throw new Error(`View file ${file.summary.file} is invalid: ${file.summary.error}`);
     let layout = file.layout;
     // Another depth draws other nodes: the file's saved positions belong to its own depth.
     if (depth !== undefined && view.flowchart && depth !== view.flowchart.depth) { view = { ...view, flowchart: { ...view.flowchart, depth } }; layout = null; }
+    if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.max(1, depth) } }; layout = null; }
     return computeView({ ...file, view, layout }, {
       workspaceId, graph: w.graph.status(), findSymbols, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
@@ -149,6 +150,7 @@ export class ViewService {
     const code = change.files.filter(f => !f.startsWith('.stingray/'));
     const rules = change.files.some(f => f.startsWith(RULES_DIR + '/'));
     listChanged ||= rules; // a rule file can make a view valid or invalid (its summary error)
+    if (code.length) ids.add(LAYERS_VIEW.summary.id);
     if (code.length || rules) {
       for (const v of await listViewFiles(w.root).catch(() => [])) if (affects(v, change.files, code, python, sql)) ids.add(v.summary.id);
     }
@@ -156,7 +158,7 @@ export class ViewService {
   }
 
   private async allViewIds(w: Worktree) {
-    return [DATABASE_VIEW.id, ...(await listViewFiles(w.root).catch(() => [])).map(v => v.summary.id)];
+    return [DATABASE_VIEW.id, LAYERS_VIEW.summary.id, ...(await listViewFiles(w.root).catch(() => [])).map(v => v.summary.id)];
   }
 
   /** Coalesce changes into one event per worktree, at most debounceMs after the first change. */

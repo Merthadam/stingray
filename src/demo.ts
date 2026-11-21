@@ -202,6 +202,9 @@ export const demoAPI: DesktopAPI = {
   },
   editorSettings: async () => structuredClone(editor),
   setEditor: async selected => { editor = { ...editor, selected }; return structuredClone(editor); },
+  codegraphSettings: async () => ({ sharedBase: false }),
+  setCodegraphSharedBase: async () => ({ sharedBase: false }),
+  codegraphConflicts: async () => null,
   openSource: async (id, file, line) => { console.info('Demo: would open', file, line, 'in', editor.selected, 'for workspace', id); },
   pullRequest: async id => {
     await new Promise(resolve => setTimeout(resolve, 700));

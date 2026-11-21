@@ -62,3 +62,9 @@ test('formatText caps output lines', () => {
   assert.equal(lines.length, 401);
   assert.equal(lines[400], '… 101 more lines');
 });
+
+test('formatText graph: nested groups (layers) are titled by their path', () => {
+  const text = formatText({ kind: 'graph', truncated: false, edges: [], groups: [{ id: 's', label: 'CRUD backend', source: null, parent: null },
+    { id: 'm', label: '(root)', source: null, parent: 's' }], nodes: [{ ...node('file:a.py'), label: 'a.py', kind: 'file', group: 'm' }] });
+  assert.deepEqual(text.split('\n'), ['graph: 1 nodes, 0 edges', 'CRUD backend / (root):', '  a.py (file)']);
+});
