@@ -8,7 +8,7 @@ import type { ErDiagramProps } from './types';
 import type { DiagramNode, ViewLocalState } from '../views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
-import { bandEntry, flowFrames, flowPositions, flowSize } from './flow-layout';
+import { bandEntry, flowFrames, frameIndex, flowPositions, flowSize } from './flow-layout';
 import { FlowGroup, FlowNode, FlowchartNode } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
@@ -57,6 +57,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
   }, [result, revision, chart]);
 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
+  const framesBy = useMemo(() => frameIndex(result, frames), [result, frames]);
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
       data: { label: f.group.label, explanation: f.group.explanation, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: 'flow-frame',
@@ -72,7 +73,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
     return result.edges.filter(e => positions[e.from] && positions[e.to]).map(e => {
       const source = byId.get(e.from)!, target = byId.get(e.to)!;
       const returning = positions[e.to].y <= positions[e.from].y + size(source).height;
-      const frame = frames.find(f => f.group.id === source.group);
+      const frame = source.group ? framesBy.byGroup.get(source.group) : undefined;
       const key = source.group ?? e.from, lane = lanes.get(key) ?? 0;
       if (returning) lanes.set(key, lane + 1);
       const right = Math.max(frame ? frame.x + frame.width - 60 : 0,
@@ -85,10 +86,10 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onSaveAs, 
         className: `flow-edge${e.style === 'dashed' || e.kind === 'branch' || !e.certain ? ' dashed' : ''}`,
         ariaLabel: `${source.label} to ${target.label}${e.label ? `: ${e.label}` : ''}`,
         data: { returnX: returning ? right + 30 + lane * 24 : undefined,
-          entry: returning ? undefined : bandEntry(result, frames, positions, source, target), onSelect: () => setSelected({ kind: 'edge', id: e.id }) },
+          entry: returning ? undefined : bandEntry(result, framesBy, positions, source, target), onSelect: () => setSelected({ kind: 'edge', id: e.id }) },
       };
     });
-  }, [result, positions, byId, frames, selected, size]);
+  }, [result, positions, byId, framesBy, selected, size]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const moved: Positions = {};

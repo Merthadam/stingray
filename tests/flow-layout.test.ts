@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, frameIndex, flowGraph, flowPositions, flowSize, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -132,7 +132,7 @@ test('edges entering an explained frame from above route around its explanation 
   const positions = await flowPositions(new ELK(), chart);
   const frames = flowFrames(chart, positions);
   const [a] = frames, byId = new Map(chart.nodes.map(n => [n.id, n]));
-  const route = (from: string, to: string) => bandEntry(chart, frames, positions, byId.get(from)!, byId.get(to)!);
+  const route = (from: string, to: string) => bandEntry(chart, frameIndex(chart, frames), positions, byId.get(from)!, byId.get(to)!);
   const entry = route('check', 'active')!;
   assert.ok(entry, 'the Yes edge from above detours');
   const s = positions.check, t = positions.active, ss = flowSize(byId.get('check')!, true), ts = flowSize(byId.get('active')!, true);
@@ -148,6 +148,10 @@ test('edges entering an explained frame from above route around its explanation 
   assert.ok(entry.labelY - label.h / 2 >= sy && entry.labelY + label.h / 2 <= a.y, 'label sits between the source and the frame');
   assert.equal(route('active', 'fail'), undefined, 'edges inside the frame keep their path');
   assert.equal(route('done', 'write'), undefined, 'frames without an explanation keep their path');
+  const plain = { ...chart, groups: chart.groups.map(g => ({ ...g, explanation: null })) } as ViewResult;
+  assert.deepEqual(frameIndex(plain, flowFrames(plain, positions)).explained, false);
+  assert.equal(bandEntry(plain, frameIndex(plain, flowFrames(plain, positions)), positions, byId.get('check')!, byId.get('active')!), undefined,
+    'no explained frame: no detours');
 });
 
 test('step cards list at most 8 fields plus a +N more row, and size for exactly that', () => {
