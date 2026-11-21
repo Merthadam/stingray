@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diagnosticCount, isFlowDiagram, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
+import { MAX_FLOW_NODES, diagnosticCount, isFlowDiagram, textViewNote, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
 import type { DiagramNode, ViewResult, ViewSummary } from '../src/views';
 
 const node = (id: string, label: string): DiagramNode => ({ id, label, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });
@@ -48,6 +48,11 @@ test('viewDepth prefers the session override, else the computed depth; layers st
   assert.equal(viewDepth(null, 3), null);
   assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && isFlowDiagram(result({ kind: 'graph' })) && isFlowDiagram(result({ kind: 'flow' })));
   assert.ok(!isFlowDiagram(result()) && !isFlowDiagram(result({ kind: 'timeline' })), 'tables draw as ER, timeline falls back to text');
+  const nodes = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `n${i}` })) as ViewResult['nodes'];
+  const big = result({ kind: 'graph', nodes: nodes(MAX_FLOW_NODES + 1) });
+  assert.ok(isFlowDiagram(result({ kind: 'graph', nodes: nodes(MAX_FLOW_NODES) })) && !isFlowDiagram(big), 'too many nodes fall back to text');
+  assert.match(textViewNote(big), /401 nodes, more than the 400/);
+  assert.match(textViewNote(result({ kind: 'timeline' })), /isn't drawn in the app yet/);
 });
 
 test('pickView keeps a stored view that still exists, else the first', () => {

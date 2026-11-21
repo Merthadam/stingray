@@ -10,7 +10,7 @@ import { TextViewFallback } from './views-ui/TextViewFallback';
 import { DiagnosticsDrawer } from './views-ui/DiagnosticsDrawer';
 import { SaveViewDialog } from './views-ui/SaveViewDialog';
 import { EditorPicker } from './views-ui/EditorPicker';
-import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, viewDepth } from './views-tab-model';
+import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, textViewNote, viewDepth } from './views-tab-model';
 import './views-tab.css';
 
 const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
@@ -156,7 +156,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     {view?.error && <div className="inline-error views-banner" role="alert">{view.error} · Showing the last result.
       <button className="secondary" onClick={() => void loadView(summary.id)}>Retry</button></div>}
     <div className="views-content">
-      {result.kind !== 'tables' && !isFlowDiagram(result) ? <TextViewFallback result={result} toolbar={tools} />
+      {result.kind !== 'tables' && !isFlowDiagram(result) ? <TextViewFallback result={result} toolbar={tools} note={textViewNote(result)} />
         : local?.id === current ? <div className="views-diagram" data-testid="views-diagram">
           <Diagram key={`${ws}:${current}:${result.diagnostics?.flowchart?.depth ?? result.diagnostics?.layers?.depth ?? ''}`} result={result}
             initialState={depths[current!] === undefined ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}

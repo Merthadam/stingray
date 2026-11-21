@@ -17,8 +17,17 @@ export function viewDepth(result: ViewResult | null, override: number | undefine
   return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, layers };
 }
 
-/** Views drawn as a flow diagram (nodes, transitions, nested frames; graph includes layers); timeline falls back to text. */
-export const isFlowDiagram = (result: ViewResult) => result.kind === 'flow' || result.kind === 'flowchart' || result.kind === 'graph';
+// One ELK pass over more nodes than this is slow and the result unreadable; rule views can reach 2000 nodes.
+export const MAX_FLOW_NODES = 400;
+const flowKind = (result: ViewResult) => result.kind === 'flow' || result.kind === 'flowchart' || result.kind === 'graph';
+/** Views drawn as a flow diagram (nodes, transitions, nested frames; graph includes layers); timeline and flow views over
+ * MAX_FLOW_NODES fall back to text. */
+export const isFlowDiagram = (result: ViewResult) => flowKind(result) && result.nodes.length <= MAX_FLOW_NODES;
+
+/** Why a view shows as text: a kind without a drawn diagram, or too many nodes to draw. */
+export const textViewNote = (result: ViewResult) => flowKind(result)
+  ? `This view has ${result.nodes.length} nodes, more than the ${MAX_FLOW_NODES} the diagram draws — here is its text form.`
+  : 'This view type isn\'t drawn in the app yet — here is its text form.';
 
 /** The stored selection if it still exists, else the first view (Database). */
 export function pickView(list: ViewSummary[], stored: string | null): string | null {
