@@ -84,7 +84,7 @@ const langgraphRules = () => [
 ];
 
 test('langgraph-like flow: START/END roles, conditional labeled edges, groups and symbol links', async () => {
-  const symbols = { plan_step: { id: 's1', name: 'plan_step', kind: 'function', file: 'agent.py', line: 20 }, act_step: { id: 's2', name: 'act_step', kind: 'function', file: 'lib.py', line: 3 } };
+  const symbols = { plan_step: { id: 's1', name: 'plan_step', kind: 'function', file: 'agent.py', line: 20, docstring: 'Plan the next step.\n\nDetails.' }, act_step: { id: 's2', name: 'act_step', kind: 'function', file: 'lib.py', line: 3 } };
   const graph: GraphApi = {
     findSymbols: (name, file) => [symbols[name as keyof typeof symbols]].filter(s => s && (!file || s.file === file)),
     symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [],
@@ -94,6 +94,9 @@ test('langgraph-like flow: START/END roles, conditional labeled edges, groups an
     ['plan', 'step', null, 'build_graph', 's1'], ['act', 'step', null, 'build_graph', 's2'], ['START', 'terminal', 'start', null, null], ['END', 'terminal', 'end', null, null],
   ]);
   assert.deepEqual(out.groups, [{ id: 'build_graph', label: 'build_graph', source: null }]);
+  // rule nodes with `symbol:` show the linked symbol's docstring summary; others have none
+  assert.deepEqual(out.nodes.map(x => x.explanation ?? null), ['Plan the next step.', null, null, null]);
+  assert.ok(!('explanation' in out.nodes[1]));
   assert.deepEqual(out.edges.map(e => [e.id, e.label, e.style]), [
     ['edge:START->plan', null, 'solid'], ['edge:act->END', null, 'solid'], ['edge:plan->act', 'go', 'dashed'], ['edge:plan->END', 'stop', 'dashed'],
   ]);
