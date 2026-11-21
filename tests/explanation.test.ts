@@ -29,6 +29,10 @@ test('docstringSummary: without blank lines (CodeGraph strips them from JSDoc) t
   assert.equal(docstringSummary('Read the current session, refreshing\nthe token once when asked.\nMore detail.'), 'Read the current session, refreshing the token once when asked.');
   assert.equal(docstringSummary('Ends with a quote "x."\nNext.'), 'Ends with a quote "x."');
   assert.equal(docstringSummary('Is it done?\nNext.'), 'Is it done?');
+  // a line ending in an abbreviation continues the sentence
+  assert.equal(docstringSummary('Accept a token, e.g.\na JWT from Cognito.\nMore detail.'), 'Accept a token, e.g. a JWT from Cognito.');
+  assert.equal(docstringSummary('Sort users, posts, etc.\nby date.\nMore.'), 'Sort users, posts, etc. by date.');
+  assert.equal(docstringSummary('Compare old VS.\nnew.\nMore.'), 'Compare old VS. new.');
   // a Python docstring with a blank line keeps its whole first paragraph, even across sentences
   assert.equal(docstringSummary('Accept a token.\nVerify its claims.\n\nRaises: 401.'), 'Accept a token. Verify its claims.');
   assert.equal(docstringSummary('"""Accept a token.\n    Verify its claims.\n    """'), 'Accept a token.');
