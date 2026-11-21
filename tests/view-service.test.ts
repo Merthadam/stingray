@@ -149,7 +149,8 @@ test('a depth override recomputes only flowchart views, keyed by depth, and code
   const plain = service.computeView('ws', root, 'chart');
   assert.notEqual(plain, deep);
   await Promise.all([deep, plain]);
-  assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth), [3, 1]);
+  // Both run concurrently, so their evaluation order is not defined.
+  assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth).sort(), [1, 3]);
   // the file's saved positions are for its own depth only
   assert.deepEqual([(await deep).layout, (await plain).layout?.positions], [null, { 'start@1': { x: 5, y: 6 } }]);
   await service.computeView('ws', root, 'flow', { depth: 3 });
