@@ -80,7 +80,7 @@ export class ActivityService {
     return { revision: this.revision, agents: [...this.entries.values()].map(e => ({ id: e.id, terminalId: e.terminalId, workspaceId: e.workspaceId, harness: e.harness, connection: e.connection, phase: e.phase, reviewRevision: e.reviewRevision, restored: e.restored, lastEventAt: e.lastEventAt })) };
   }
   /** Load the previous session's entries as restored history: their terminals are gone, so they only leave by dismissal,
-   * workspace removal or retention. Later changes are saved debounced; `flushHistory` saves at once. */
+   * workspace removal or retention. Later changes are saved at most once per `persistMs`; `flushHistory` saves at once. */
   restore(history: ActivityHistory) {
     this.history = history;
     for (const r of history.load()) if (!this.entries.has(r.id)) this.entries.set(r.id, {
@@ -115,8 +115,9 @@ export class ActivityService {
     if (!entry || entry.restored || entry.terminalId !== terminalId || entry.reviewRevision !== reviewRevision) return;
     entry.reviewRevision = null; this.changed();
   }
-  private changed() {
-    ++this.revision; this.publish(this.snapshot());
+  private changed() { ++this.revision; this.publish(this.snapshot()); this.persistSoon(); }
+  /** Save at most once per `persistMs` (the timer is not reset by later changes). */
+  private persistSoon() {
     if (this.history && !this.persistTimer) {
       this.persistTimer = setTimeout(() => {
         this.persistTimer = undefined; this.saveHistory();
@@ -165,6 +166,7 @@ export class ActivityService {
     entry.connection = e.ended ? 'disconnected' : 'connected'; entry.phase = e.phase;
     if (e.completed) { entry.reviewRevision = this.revision + 1; entry.completedAt = entry.lastEventAt; }
     if (e.completed || before !== `${entry.connection}/${entry.phase}`) this.changed();
+    else this.persistSoon(); // keep the saved last-event time current
   }
   private accept(socket: Socket) {
     if (this.sockets.size >= 64) { socket.destroy(); return; }

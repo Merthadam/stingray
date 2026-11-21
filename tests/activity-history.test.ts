@@ -31,8 +31,10 @@ test('save replaces records atomically, load returns them newest first and drops
   assert.deepEqual(history.load(NOW), [b, a]);
   history.save([a], NOW);
   assert.deepEqual(history.load(NOW), [a]);
-  assert.throws(() => history.save([{ ...a, harness: 'other' as 'pi' }], NOW));
-  assert.deepEqual(history.load(NOW), [a], 'a rejected save leaves the previous records');
+  history.save([{ ...a, harness: 'other' as 'pi' }, b], NOW);
+  assert.deepEqual(history.load(NOW), [b], 'an invalid record is skipped without blocking the rest');
+  assert.equal((database(d).prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1,
+    'the table is created without a schema bump that would lock older builds out');
 });
 
 test('retention prunes records older than the age limit and beyond the per-workspace count', async t => {
@@ -42,6 +44,9 @@ test('retention prunes records older than the age limit and beyond the per-works
   history.save([...recent, other, record({ lastEventAt: NOW - 3 * DAY })], NOW);
   assert.deepEqual(history.load(NOW).map(r => r.id), [...recent.slice(0, 3), other].map(r => r.id));
   assert.deepEqual(history.load(NOW + 3 * DAY), [], 'load prunes by age too');
+  const review = record({ needsReview: true, lastEventAt: NOW - 50 });
+  history.save([...recent, review], NOW);
+  assert.ok(history.load(NOW).some(r => r.id === review.id), 'unreviewed work outranks newer settled rows');
 });
 
 test('corrupt rows are skipped and an unreadable database loads empty', async t => {
@@ -116,4 +121,28 @@ test('flushHistory saves live entries without tokens and stops persisting before
   assert.equal(saved.id, live.id); assert.equal(saved.terminalId, terminal); assert.equal(saved.needsReview, true); assert.ok(saved.completedAt);
   const raw = JSON.stringify(database(d).prepare('SELECT * FROM agent_activity').all());
   assert.ok(!raw.includes(env.STINGRAY_ACTIVITY_TOKEN) && !raw.includes(env.STINGRAY_ACTIVITY_SOCKET));
+});
+
+test('live changes are saved on the timer, including a hook event that only advances the last event time', async t => {
+  const d = await dir(t), history = new ActivityHistory(d);
+  const service = new ActivityService(() => {}, 20000, undefined, 20);
+  await service.start();
+  t.after(() => service.close());
+  service.restore(history);
+  const env = service.bind(randomUUID(), WS);
+  const hook = async (phase: string) => {
+    const socket = createConnection(env.STINGRAY_ACTIVITY_SOCKET);
+    await new Promise<void>(r => socket.once('connect', r));
+    socket.end(JSON.stringify({ type: 'event', v: 2, token: env.STINGRAY_ACTIVITY_TOKEN, harness: 'claude', session: 's1', pid: process.pid, at: Date.now(), phase, completed: false, ended: false }) + '\n');
+    await new Promise(r => socket.once('close', r));
+  };
+  const saved = async (match: (r: ActivityRecord | undefined) => boolean) => {
+    for (let i = 0; i < 200; i++) { const [r] = history.load(); if (match(r)) return r!; await new Promise(r => setTimeout(r, 10)); }
+    assert.fail('not saved');
+  };
+  await hook('working');
+  const first = await saved(r => r?.phase === 'working');
+  await new Promise(r => setTimeout(r, 5));
+  await hook('working');
+  await saved(r => r!.lastEventAt > first.lastEventAt);
 });

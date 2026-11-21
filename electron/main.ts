@@ -79,11 +79,11 @@ app.whenReady().then(async () => {
   try {
     if (process.platform !== 'win32') {
       await activity.start();
-      activity.restore(new ActivityHistory(app.getPath('userData')));
       await activityShell.prepare(activity.directory, {
         extension: path.join(__dirname, 'pi-extension.js'), hookClient: path.join(__dirname, 'hook-client.cjs'),
         execPath: process.execPath, endpoint: activity.endpoint,
       }, terminals.viewsBin);
+      activity.restore(new ActivityHistory(app.getPath('userData'))); // after prepare: a failed setup closes the service
     }
   } catch { activityShell.startup = ''; await activity.close(); }
   win = new BrowserWindow({
