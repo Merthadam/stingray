@@ -11,9 +11,11 @@
     "dev:ui": "vite --host 127.0.0.1 --port 5178 --strictPort",
     "prototype:home": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "typecheck": "tsc --noEmit",
     "start": "electron .",
     "package:mac": "npm run build && node scripts/package-mac.mjs",
     "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "node scripts/run-e2e.mjs",
     "test:desktop": "node tests/desktop.mjs",
     "test:repo-map": "node tests/repo-map.mjs",
     "test:terminal-links": "node tests/terminal-links.mjs",
@@ -21,7 +23,11 @@
     "test:pull-requests": "node tests/pull-requests.mjs",
     "test:worktree-removal": "node tests/worktree-removal.mjs",
     "test:add-project": "node tests/add-project.mjs",
-    "test:views-tab": "node tests/views-tab.mjs"
+    "test:views-tab": "node tests/views-tab.mjs",
+    "check": "npm run build && npm test",
+    "env:up": "scripts/test-env.sh up --detach",
+    "env:down": "scripts/test-env.sh down --all",
+    "env:ls": "scripts/test-env.sh ls"
   },
   "dependencies": {
     "@colbymchenry/codegraph": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.2/colbymchenry-codegraph-1.6.2-sting.2.tgz",

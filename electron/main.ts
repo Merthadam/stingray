@@ -18,6 +18,7 @@ import { ActivityShell } from './activity-shell';
 import { extractDbSchema } from './db-schema';
 import type { DbSchemaResult } from '../src/db-schema';
 import { ViewService } from './views';
+import { infraServiceById } from '../src/infra/catalog';
 import { createCodeGraphProcessHost } from './codegraph-process';
 import { installLauncher } from './views/launcher';
 import { saveViewAs } from './views/save-view';
@@ -154,7 +155,7 @@ app.whenReady().then(async () => {
   handle('views', z.tuple([idSchema]), async (id: string) => views.listViews(id, (await git.workspace(id)).path));
   // ViewService shares concurrent computations of the same view.
   const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
-  handle('view', z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(4).optional() }).optional()]),
+  handle('view', z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]),
     async (id: string, viewId: string, options?: { depth?: number }) => views.computeView(id, (await git.workspace(id)).path, viewId, options));
   handle('view-state', z.tuple([idSchema, viewIdSchema]), (id: string, viewId: string) => viewState.get(id, viewId));
   handle('save-view-state', z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), (id, viewId, state) => viewState.set(id, viewId, state));
@@ -172,6 +173,12 @@ app.whenReady().then(async () => {
   });
   handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
     editors.openSource((await git.workspace(id)).path, file, line));
+  // Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs.
+  handle('open-service-docs', z.tuple([z.string().max(100)]), serviceId => {
+    const service = infraServiceById(serviceId);
+    if (!service) throw new Error('Unknown cloud service.');
+    return shell.openExternal(service.docUrl);
+  });
   handle('containers', z.tuple([]), () => containers.list());
   handle('container-stop', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.stop(id));
   handle('container-logs', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.logs(id));

@@ -14,6 +14,7 @@ import { applyExplain, type ReadSource } from './explain';
 import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 import { explanationOf, symbolRef } from './explanation';
+import { withInfraServices } from './infra';
 import { tablesView, type ViewFileEntry } from './view-file';
 
 export const MAX_WARNINGS = 200;
@@ -40,7 +41,7 @@ const EMPTY: EvaluateOutput = {
 export async function computeView(entry: ViewFileEntry & { view: ResolvedView }, deps: ComputeDeps): Promise<ViewResult> {
   const { view, summary } = entry;
   // Views with only builtins (e.g. a plain sqlalchemy tables view) do not need the engine.
-  const evaluated = view.rules.length > 0 || view.graph !== null || view.flowchart !== null || !!view.layers;
+  const evaluated = view.rules.length > 0 || view.graph !== null || view.flowchart !== null || !!view.layers || !!view.sequence;
   const [output, schemas] = await Promise.all([
     evaluated ? deps.evaluate(view) : EMPTY,
     Promise.all(TS_EXTRACTORS.filter(name => view.builtins.includes(name) && deps[name]).map(name => deps[name]!())),
@@ -48,22 +49,28 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   const schema = schemas.length ? combineSchemas(schemas) : null;
   const tables = schema ? tablesView(databaseView(schema, deps.graph), summary, view) : null;
   const merged = tables ? mergeTables(output, tables) : { nodes: output.nodes, edges: output.edges };
+  const infra = withInfraServices(view, merged.nodes, [...new Map([...output.groups, ...tables?.groups ?? []].map(g => [g.id, g])).values()]);
   const warnings: ViewWarning[] = [...output.warnings, ...tables?.warnings ?? []];
   const result: ViewResult = {
     ...summary, workspaceId: deps.workspaceId ?? '', computedAt: evaluated || !tables ? Date.now() : tables.computedAt, truncated: output.truncated || !!tables?.truncated,
-    groups: [...new Map([...output.groups, ...tables?.groups ?? []].map(g => [g.id, g])).values()],
-    nodes: merged.nodes, edges: merged.edges,
+    groups: infra.groups, nodes: infra.nodes, edges: merged.edges,
     warnings: warnings.slice(0, MAX_WARNINGS),
     stats: { ...tables?.stats, ...output.stats, nodes: merged.nodes.length, edges: merged.edges.length,
       ...(warnings.length > MAX_WARNINGS ? { warningsDropped: warnings.length - MAX_WARNINGS } : {}) },
     graph: deps.graph, diagnostics: output.diagnostics, layout: entry.layout ?? null,
+    ...(output.sequence !== undefined ? { sequence: output.sequence } : {}),
   };
   const linked = await linkSymbols(result, deps.findSymbols);
   if (!entry.explain?.length) return linked;
   // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
   const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
   const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
-  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS) };
+  // Participants mirror their nodes: `explain:` entries reach them through the nodes.
+  const sequence = explained.sequence && { ...explained.sequence, participants: explained.sequence.participants.map(p => {
+    const n = explained.nodes.find(x => x.id === p.id);
+    return n?.explanation ? { ...p, explanation: n.explanation } : p;
+  }) };
+  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS), ...(sequence ? { sequence } : {}) };
 }
 
 /** Merge narrowed sqlalchemy tables into engine output (see the header for the key semantics). Pure. */

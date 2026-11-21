@@ -43,6 +43,20 @@ export function countSteps(list: Construct[]): number {
     : 1), 0);
 }
 
+/** The code-graph target of a call among a function's `calls` relations: same line and name first, else the one target of
+ * that name anywhere in the function (several: the graph saw a different call, e.g. a builtin `d.get` next to `store.get`).
+ * `cache` keeps symbols looked up across calls. */
+export function resolveCall(call: Call, outgoing: GraphRelation[], graph: GraphApi, cache: Map<string, GraphSymbol>): { symbol: GraphSymbol; certain: boolean } | null {
+  const targets = (rels: GraphRelation[]) => {
+    const missing = rels.map(r => r.to).filter(id => !cache.has(id));
+    if (missing.length) for (const [id, s] of graph.symbols([...new Set(missing)])) cache.set(id, s);
+    return rels.map(r => ({ r, s: cache.get(r.to) })).filter(x => x.s?.name === call.callee);
+  };
+  const anywhere = targets(outgoing);
+  const hit = targets(outgoing.filter(r => r.line === call.line))[0] ?? (new Set(anywhere.map(x => x.r.to)).size === 1 ? anywhere[0] : undefined);
+  return hit ? { symbol: hit.s!, certain: hit.r.certain } : null;
+}
+
 export class FlowchartBuilder {
   readonly nodes: DiagramNode[] = [];
   readonly edges: DiagramEdge[] = [];
@@ -226,18 +240,7 @@ export class FlowchartBuilder {
     }
   }
 
-  /** The code-graph target of a call: same line and name first, else the one target of that name anywhere in the function
-   * (several: the graph saw a different call, e.g. a builtin `d.get` next to `store.get`). */
-  private resolve(call: Call, f: Frame): { symbol: GraphSymbol; certain: boolean } | null {
-    const targets = (rels: GraphRelation[]) => {
-      const missing = rels.map(r => r.to).filter(id => !this.symbolsById.has(id));
-      if (missing.length) for (const [id, s] of this.graph.symbols([...new Set(missing)])) this.symbolsById.set(id, s);
-      return rels.map(r => ({ r, s: this.symbolsById.get(r.to) })).filter(x => x.s?.name === call.callee);
-    };
-    const anywhere = targets(f.outgoing);
-    const hit = targets(f.outgoing.filter(r => r.line === call.line))[0] ?? (new Set(anywhere.map(x => x.r.to)).size === 1 ? anywhere[0] : undefined);
-    return hit ? { symbol: hit.s!, certain: hit.r.certain } : null;
-  }
+  private resolve(call: Call, f: Frame) { return resolveCall(call, f.outgoing, this.graph, this.symbolsById); }
 
   private expandable(s: GraphSymbol) {
     const matches = (globs: string[]) => globs.some(g => path.posix.matchesGlob(s.file, g));

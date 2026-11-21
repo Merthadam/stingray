@@ -1,10 +1,18 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, ViewKind } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, ViewKind } from './views';
+import { sequenceEvents } from './sequence-events';
 
-export interface TextDiagramInput { kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean }
+export interface TextDiagramInput {
+  kind: ViewKind; groups: DiagramGroup[]; nodes: DiagramNode[]; edges: DiagramEdge[]; truncated: boolean;
+  sequence?: SequenceData | null; // kind: sequence
+}
 export const MAX_TEXT_LINES = 400;
 
-export function formatText({ kind, groups, nodes, edges, truncated }: TextDiagramInput, maxLines = MAX_TEXT_LINES): string {
+export function formatText({ kind, groups, nodes, edges, truncated, sequence }: TextDiagramInput, maxLines = MAX_TEXT_LINES): string {
+  if (kind === 'sequence') {
+    const lines = sequence ? sequenceLines(sequence, truncated) : [`sequence: not computed${truncated ? ' (truncated: a limit was hit)' : ''}`];
+    return (lines.length > maxLines ? [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`] : lines).join('\n');
+  }
   // Labels name nodes; a label shared by several nodes gets its id appended so edges stay unambiguous.
   const counts = new Map<string, number>();
   for (const n of nodes) counts.set(n.label, (counts.get(n.label) ?? 0) + 1);
@@ -156,4 +164,38 @@ function timelineOrder(nodes: DiagramNode[], edges: DiagramEdge[]): DiagramNode[
     done.add(ready.id); result.push(ready);
     for (const to of next.get(ready.id) ?? []) indegree.set(to, indegree.get(to)! - 1);
   }
+}
+
+/** Sequence as arrows in row order (docs/sequence-view-spec.md §CLI text), in the reading order the diagram draws
+ * (sequence-events.ts): indent = call level plus enclosing fragments, `-->` = return, fragments open with
+ * `alt|opt|loop|try <label>`, later arms with `else <label>`, close with `end`; notes indent under their fragment. */
+function sequenceLines(sequence: SequenceData, truncated: boolean): string[] {
+  const { participants, messages } = sequence;
+  // A label shared by several participants gets its id appended.
+  const counts = new Map<string, number>();
+  for (const p of participants) counts.set(p.label, (counts.get(p.label) ?? 0) + 1);
+  const names = new Map(participants.map(p => [p.id, counts.get(p.label)! > 1 ? `${p.label} (${p.id})` : p.label]));
+  const name = (id: string) => names.get(id) ?? id;
+  const lines = [`sequence: ${participants.length} participants, ${messages.length} messages${truncated ? ' (truncated: a limit was hit)' : ''}`,
+    `participants: ${participants.map(p => p.kind === 'participant' ? name(p.id) : `${name(p.id)} (${p.kind})`).join(', ')}`];
+  const pad = (n: number) => '  '.repeat(Math.max(0, n));
+  const indents: number[] = []; // of the open fragments, innermost last
+  let level = 0; // of the last message printed: notes outside fragments indent like it
+  for (const e of sequenceEvents(sequence)) {
+    if (e.type === 'open') {
+      // A fragment sits at the level of the function it is in: the lowest call level among its rows.
+      const rows = messages.slice(e.fragment.first, e.fragment.last + 1).map(m => m.level);
+      indents.push((rows.length ? Math.min(...rows) : level) + e.depth);
+      lines.push(`${pad(indents.at(-1)!)}${e.fragment.kind}${e.fragment.label && e.fragment.label !== e.fragment.kind ? ` ${e.fragment.label}` : ''}`);
+    } else if (e.type === 'branch') lines.push(`${pad(indents.at(-1)!)}else${e.label && e.label !== 'else' ? ` ${e.label}` : ''}`);
+    else if (e.type === 'close') lines.push(`${pad(indents.pop()!)}end`);
+    else if (e.type === 'note') lines.push(`${pad(indents.length ? indents.at(-1)! + 1 : level)}note ${name(e.note.participant)}: ${e.note.text}`);
+    else {
+      const m = e.message;
+      level = m.level;
+      lines.push(`${pad(m.level + e.depth)}${name(m.from)} ${m.kind === 'return' ? '-->' : '->'} ${name(m.to)}${m.label ? `: ${m.label}` : ''}`
+        + `${m.kind === 'link' && m.link ? `  [link ${m.link}]` : ''}${m.certain ? '' : '  (uncertain)'}`);
+    }
+  }
+  return lines;
 }

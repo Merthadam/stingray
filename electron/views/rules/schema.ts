@@ -5,10 +5,10 @@ import { LineCounter, isMap, isScalar, parseDocument, type Document, type Pair }
 import { z } from 'zod';
 import type { ViewKind, ViewLayout } from '../../../src/views';
 import { GRAMMAR_FILES } from './grammars';
-import type { Emit, FlowchartStep, GraphStep, LayersStep, Rule, RuleSourceName, Scope, SourcedRule } from './types';
+import { LINK_SETS, SEQUENCE_PARTICIPANTS, type Emit, type FlowchartStep, type GraphStep, type LayersStep, type Rule, type RuleSourceName, type Scope, type SequenceStep, type SourcedRule } from './types';
 
 export const SLUG = /^[a-z0-9-]{1,64}$/;
-export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph', 'flowchart'];
+export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph', 'flowchart', 'sequence'];
 export const MAX_USE = 8, MAX_RULES = 50, MAX_QUERY_BYTES = 8 * 1024;
 
 // Globs run on the main thread (path.matchesGlob compiles to backtracking regexes), so repo-controlled patterns are
@@ -79,6 +79,21 @@ const flowchartSchema = z.strictObject({
   exclude: globs.optional(),
 });
 
+const sequenceSchema = z.strictObject({
+  start: z.strictObject({ symbol: z.string().min(1).max(200).optional(), route: z.string().min(1).max(300).optional(), file: z.string().min(1).max(500).optional() })
+    .refine(s => (s.symbol === undefined) !== (s.route === undefined), { error: 'start needs exactly one of symbol or route' }),
+  trigger: z.string().min(1).max(200).optional(),
+  actor: z.string().min(1).max(80).default('User'),
+  depth: z.int().min(0).max(6).default(3),
+  participants: z.enum(SEQUENCE_PARTICIPANTS).default('auto'),
+  internal: z.enum(['collapse', 'show']).default('collapse'),
+  returns: z.boolean().default(true),
+  links: z.array(z.enum(LINK_SETS)).max(LINK_SETS.length).default([...LINK_SETS]).transform(l => [...new Set(l)]),
+  externals: z.record(z.string().min(1).max(100), z.string().min(1).max(80)).refine(e => Object.keys(e).length <= 50, { error: 'At most 50 externals' }).default({}),
+  include: globs.optional(),
+  exclude: globs.optional(),
+});
+
 const layersSchema = z.strictObject({
   depth: z.int().min(1).max(4).default(1),
   expand: z.array(z.string().min(1).max(200)).max(50).optional(),
@@ -122,6 +137,7 @@ export const viewSchema = z.strictObject({
   graph: graphSchema.optional(),
   flowchart: flowchartSchema.optional(),
   layers: layersSchema.optional(),
+  sequence: sequenceSchema.optional(),
   include: names.optional(),   // node ids/labels always kept
   exclude: names.optional(),   // node ids/labels always dropped (wins over include)
   layout: layoutSchema.optional(),
@@ -134,7 +150,18 @@ export const viewSchema = z.strictObject({
     if (v[key] !== undefined) ctx.addIssue({ code: 'custom', path: [key], message: `${key}: cannot be combined with flowchart:` });
   }
   if (v.layers && v.kind !== 'graph') ctx.addIssue({ code: 'custom', path: ['layers'], message: 'needs kind: graph' });
-  if (!v.flowchart && !v.layers && !v.use?.length && !v.rules?.length && !v.graph) ctx.addIssue({ code: 'custom', path: [], message: 'A view needs at least one of use, rules, graph, flowchart or layers' });
+  if (v.kind === 'sequence' && !v.sequence) ctx.addIssue({ code: 'custom', path: ['kind'], message: 'kind: sequence needs a sequence: section' });
+  if (v.sequence && v.kind !== 'sequence') ctx.addIssue({ code: 'custom', path: ['sequence'], message: 'sequence: needs kind: sequence' });
+  if (v.kind === 'sequence') {
+    for (const key of ['use', 'graph', 'flowchart', 'layers'] as const) {
+      if (v[key] !== undefined) ctx.addIssue({ code: 'custom', path: [key], message: `${key}: cannot be combined with kind: sequence` });
+    }
+    // Rules of a sequence only teach it extra hops (docs/sequence-view-spec.md §Links).
+    (v.rules ?? []).forEach((r, i) => {
+      if (!r.emit.edge || r.emit.edge.kind !== 'link') ctx.addIssue({ code: 'custom', path: ['rules', i, 'emit'], message: 'rules of a sequence view must emit edge: { from, to, kind: link }' });
+    });
+  }
+  if (!v.flowchart && !v.layers && !v.sequence && !v.use?.length && !v.rules?.length && !v.graph) ctx.addIssue({ code: 'custom', path: [], message: 'A view needs at least one of use, rules, graph, flowchart, layers or sequence' });
 });
 
 export const ruleFileSchema = z.strictObject({
@@ -217,6 +244,7 @@ export interface ViewDefinition {
   graph: GraphStep | null;
   flowchart: FlowchartStep | null;
   layers: LayersStep | null;
+  sequence: SequenceStep | null;
   include: string[];
   exclude: string[];
   layout: ViewLayout | null;
@@ -234,7 +262,7 @@ export function parseViewYaml(text: string, file: string): ViewDefinition {
     name: v.name, description: v.description ?? '', kind: v.kind, scope: v.scope,
     use: [...new Set(v.use ?? [])].map(name => ({ name, line: lineAt(src, ['use', (v.use ?? []).indexOf(name)]) })),
     rules: sourced(src, v.rules ?? [], 'view'),
-    graph: v.graph ?? null, flowchart: v.flowchart ?? null, layers: v.layers ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
+    graph: v.graph ?? null, flowchart: v.flowchart ?? null, layers: v.layers ?? null, sequence: v.sequence ?? null, include: v.include ?? [], exclude: v.exclude ?? [],
     layout: v.layout ? { positions: v.layout.positions ?? {} } : null,
     explain: Object.entries(v.explain ?? {}).map(([key, e]) => ({ key, text: e.text, fingerprint: e.fingerprint ?? null, line: keyLine(src, explainPair(src.doc, key)) })),
   };

@@ -20,7 +20,8 @@ export function TextViewFallback({ result, toolbar, note }: { result: ViewResult
   };
   return <div className="views-text">
     <div className="views-toolbar">
-      <strong>{result.name}</strong><span className="views-muted">{result.kind} · {result.nodes.length} nodes · {result.edges.length} edges</span>
+      <strong>{result.name}</strong><span className="views-muted">{result.kind} · {result.sequence ? `${result.sequence.participants.length} participants · ${result.sequence.messages.length} messages`
+        : `${result.nodes.length} nodes · ${result.edges.length} edges`}</span>
       <span className="views-toolbar-spacer" />{toolbar}
     </div>
     {note && <p className="views-text-note">{note}</p>}

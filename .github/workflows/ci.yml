@@ -1,0 +1,157 @@
+# CI/CD pipeline: check -> e2e -> package. Deployment is intentionally not wired up yet
+# (see docs/ci.md, "Next: deploy"); the pipeline stops at a downloadable, ad-hoc signed app.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---- Stage 1: typecheck, build, unit/integration tests (unit on macOS here) ----------
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run setup
+      - run: npm run typecheck
+      - run: npm run build
+      # On Linux, unit tests run in the Docker test env (stage 2a), which has the shell setup they expect.
+      - run: npm test
+        if: runner.os == 'macOS'
+        env:
+          GIT_AUTHOR_NAME: CI
+          GIT_AUTHOR_EMAIL: ci@invalid
+          GIT_COMMITTER_NAME: CI
+          GIT_COMMITTER_EMAIL: ci@invalid
+
+  # ---- Stage 2a: unit + Electron e2e on Linux, inside the same Docker env as local runs --
+  e2e-linux:
+    name: linux (docker test-env)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests + required e2e suites
+        run: scripts/test-env.sh test unit e2e desktop repo-map pull-requests worktree-removal add-project views-tab
+      - name: Suites known to fail on Linux (non-blocking, tracked in docs/ci.md)
+        continue-on-error: true
+        run: scripts/test-env.sh test e2e terminal-links workspace-status
+      - name: Local run smoke (scripts/test-env.sh up)
+        run: |
+          out=$(scripts/test-env.sh up --detach)
+          echo "$out"
+          port=$(echo "$out" | sed -nE 's#.*CDP endpoint : http://127.0.0.1:([0-9]+).*#\1#p')
+          for _ in $(seq 1 30); do
+            curl -fs "http://127.0.0.1:$port/json" | grep -q 'file:///app/dist/index.html' && { echo "App page is up"; exit 0; }
+            sleep 1
+          done
+          echo "App page did not appear on the CDP endpoint" >&2; exit 1
+      - name: Tear down
+        if: always()
+        run: scripts/test-env.sh prune
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-linux-evidence
+          path: artifacts/testing/test-env/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---- Stage 2b: Electron e2e on macOS (the shipping platform) --------------------------
+  e2e-macos:
+    name: e2e (macos)
+    needs: check
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run setup
+      - run: npm run build
+      - run: npm run test:e2e
+        env:
+          GIT_AUTHOR_NAME: CI
+          GIT_AUTHOR_EMAIL: ci@invalid
+          GIT_COMMITTER_NAME: CI
+          GIT_COMMITTER_EMAIL: ci@invalid
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-macos-evidence
+          path: artifacts/testing/e2e/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---- Stage 3: package the macOS app (CD up to, not including, deploy) -----------------
+  package-macos:
+    name: package (macos arm64)
+    needs: [check, e2e-linux, e2e-macos]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run setup
+      - run: npm run package:mac
+      - name: Verify signature
+        run: codesign --verify --deep --strict release/Stingray.app
+      - name: Packaged app launch smoke
+        run: node tests/package-launch.mjs
+        env:
+          STINGRAY_TEST_EVIDENCE: artifacts/testing/package-launch
+      - name: Zip
+        id: zip
+        run: |
+          version=$(node -p "require('./package.json').version")
+          name="Stingray-${version}-${GITHUB_SHA::7}-mac-arm64.zip"
+          ditto -c -k --keepParent release/Stingray.app "$name"
+          shasum -a 256 "$name" | tee "$name.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stingray-mac-arm64
+          path: |
+            ${{ steps.zip.outputs.name }}
+            ${{ steps.zip.outputs.name }}.sha256
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-launch-evidence
+          path: artifacts/testing/package-launch/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---- Stage 4: deploy (not yet) --------------------------------------------------------
+  # Planned: on tags v*, notarize with a Developer ID (secrets), then publish a GitHub
+  # Release with the zip. Kept out until signing identity and a release channel exist.

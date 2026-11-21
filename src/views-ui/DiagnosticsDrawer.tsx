@@ -58,6 +58,10 @@ export function DiagnosticsDrawer({ result, onOpenSource, onClose }: { result: V
         {d.layers && <><h4>Layers</h4>
           <p>{d.layers.config ?? 'inferred (no .stinggraph/layers.yaml)'} · depth {d.layers.depth} · {d.layers.services} services · {d.layers.files} files · {d.layers.nodes} nodes</p>
           {d.layers.error && <p className="views-diag-error">{d.layers.error}</p>}</>}
+        {d.sequence && <><h4>Sequence</h4>
+          <p>start {d.sequence.start ?? '—'} · depth {d.sequence.depth} · participants by {d.sequence.participants} · {d.sequence.functions} functions · {d.sequence.messages} messages{d.sequence.truncated ? ' · limit hit (lower the depth or exclude files)' : ''}</p>
+          {Object.keys(d.sequence.links).length > 0 && <p className="views-diag-stats">{Object.entries(d.sequence.links).map(([k, v]) => <span key={k}>{k} <strong>{v}</strong></span>)}</p>}
+          {d.sequence.error && <p className="views-diag-error">{d.sequence.error}</p>}</>}
         <h4>Unresolved links <span>{d.unresolved.length}</span></h4>
         {d.unresolved.length ? <ul className="views-diag-list">{d.unresolved.map((u, i) => <li key={i}>
           <Location file={u.file} line={u.line} onOpenSource={onOpenSource} /> <code>{u.value}</code> <span className="views-muted">({u.rule})</span></li>)}</ul>

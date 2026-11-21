@@ -151,7 +151,8 @@ test('a depth override recomputes only flowchart views, keyed by depth, and code
   const plain = service.computeView('ws', root, 'chart');
   assert.notEqual(plain, deep);
   await Promise.all([deep, plain]);
-  assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth), [3, 1]);
+  // Both run concurrently, so their evaluation order is not defined.
+  assert.deepEqual(graph.evaluated.map(v => v.flowchart?.depth).sort(), [1, 3]);
   // the file's saved positions are for its own depth only
   assert.deepEqual([(await deep).layout, (await plain).layout?.positions], [null, { 'start@1': { x: 5, y: 6 } }]);
   await service.computeView('ws', root, 'flow', { depth: 3 });
@@ -161,6 +162,24 @@ test('a depth override recomputes only flowchart views, keyed by depth, and code
   await settle(150, events);
   assert.ok(events[0].viewIds.includes('chart'));
   assert.notEqual(service.computeView('ws', root, 'chart', { depth: 2 }), pending);
+});
+
+test('a depth override (0-6) recomputes sequence views and passes the result sequence through; flowchart depth is clamped to 4', async t => {
+  const { root, host, events, service } = await setup(t);
+  await writeFile(path.join(root, '.stingray/views/login.yaml'), 'version: 1\nname: Login\nkind: sequence\nsequence:\n  start: { symbol: login }\n');
+  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n');
+  const graph = host.open('ws', root) as FakeGraph;
+  const sequence = { participants: [], messages: [], fragments: [], notes: [] };
+  graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {}, sequence,
+    diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
+  const [deep, plain] = await Promise.all([service.computeView('ws', root, 'login', { depth: 6 }), service.computeView('ws', root, 'login')]);
+  assert.deepEqual(graph.evaluated.map(v => v.sequence?.depth), [6, 3]);
+  assert.deepEqual([deep.sequence, plain.kind], [sequence, 'sequence']);
+  await service.computeView('ws', root, 'chart', { depth: 6 });
+  assert.equal(graph.evaluated.at(-1)!.flowchart!.depth, 4);
+  graph.change('app/login.ts');
+  await settle(150, events);
+  assert.ok(events[0].viewIds.includes('login'));
 });
 
 test('changes emit the affected views, coalesced', async t => {

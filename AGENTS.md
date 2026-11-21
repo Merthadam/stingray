@@ -12,7 +12,10 @@
 
 ## Checks
 
-- `npm run build` and `npm test` before opening a PR; run the relevant `npm run test:*` suite for the area you touched.
+- `npm run check` (typecheck, build, unit tests) before opening a PR; run the relevant e2e suite for
+  the area you touched (`npm run test:e2e -- <suite>` or headless `scripts/test-env.sh test e2e <suite>`).
+- CI (`.github/workflows/ci.yml`, see `docs/ci.md`) runs check → e2e → package on every PR; keep it green
+  and check the run after pushing (`gh pr checks --watch`).
 
 ## Testing the app
 

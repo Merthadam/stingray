@@ -102,7 +102,8 @@ export interface DesktopAPI {
   inspectFile(id: string, path: string): Promise<FileInspection>;
   dbSchema(workspaceId: string): Promise<DbSchemaResult>;
   views(workspaceId: string): Promise<ViewSummary[]>;
-  /** `depth` overrides a flowchart view's `flowchart.depth` (0-4) or a layers view's `layers.depth` (1-4) for this computation; others ignore it. */
+  /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
+   * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it. */
   view(workspaceId: string, viewId: string, options?: { depth?: number }): Promise<ViewResult>;
   onViewsChanged(listener: (event: ViewsChangedEvent) => void): () => void;
   /** Local (app data) state of a view in a worktree; null when none saved yet. */
@@ -119,6 +120,8 @@ export interface DesktopAPI {
   codegraphConflicts(workspaceId: string): Promise<OverlayConflicts | null>;
   /** Open a worktree file (at a 1-based line when the editor supports it) in the selected editor. */
   openSource(workspaceId: string, file: string, line: number | null): Promise<void>;
+  /** Open the documentation of a cloud service of the infra catalog (src/infra/catalog.ts) in the default browser. */
+  openServiceDocs(serviceId: string): Promise<void>;
   containers(): Promise<ContainerInfo[]>;
   /** docker stop; test-env containers only. */
   stopContainer(id: string): Promise<void>;
