@@ -2,7 +2,7 @@
 // Every view type (database tables today; flows, timelines, ... later) produces the same diagram model,
 // so one renderer can draw all of them. Results come from static analysis; repository code is never executed.
 
-export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph' | 'flowchart';
+export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph' | 'flowchart' | 'sequence';
 
 /** Worktree-relative POSIX path and 1-based line. */
 export interface SourceRef { file: string; line: number }
@@ -107,6 +107,64 @@ export interface ViewResult extends ViewSummary {
   graph: GraphStatus;          // code-graph state when this result was computed
   diagnostics: ViewDiagnostics | null; // rule/graph-step feedback for repo views; null for builtin views
   layout: ViewLayout | null;   // positions saved in the view file (`layout:`); null for builtin views or when absent
+  sequence?: SequenceData | null; // set for kind: sequence views only (docs/sequence-view-spec.md)
+}
+
+// ---- Sequence views (kind: sequence) ----
+
+export type SequenceParticipantKind = 'actor' | 'participant' | 'external';
+
+/** A lifeline. Mirrored into ViewResult.nodes (same id, kind, label, order = column). */
+export interface SequenceParticipant {
+  id: string;                  // "actor", "p:<service|module|file|class>:<key>" or "ext:<name>"
+  label: string;
+  kind: SequenceParticipantKind;
+  subtitle: string | null;     // e.g. "service", "module", the file path of a class, "external"
+  column: number;              // 0-based, left to right (first appearance)
+  source: SourceRef | null;    // first function reached in it
+  symbol: SymbolRef | null;
+  explanation?: string | null; // from explain: / docstring of its first function
+}
+
+export type SequenceMessageKind = 'call' | 'http' | 'link' | 'return' | 'self';
+
+/** One arrow, in drawing order (row = index in SequenceData.messages). */
+export interface SequenceMessage {
+  id: string;                  // "m<row>"
+  from: string;                // SequenceParticipant.id
+  to: string;                  // SequenceParticipant.id (same as from for 'self')
+  kind: SequenceMessageKind;
+  label: string;
+  detail: string | null;       // code of the call site / link description
+  level: number;               // call level (0 = entry function's own calls); for activation bars
+  certain: boolean;            // false: heuristic resolution (drawn marked)
+  link: string | null;         // link set or rule that produced it ("http", "auth", "langgraph", "events", "rule:<id>")
+  source: SourceRef | null;    // call site
+  symbol: SymbolRef | null;    // callee, when known
+}
+
+export type SequenceFragmentKind = 'alt' | 'opt' | 'loop' | 'try';
+
+/** A combined fragment spanning rows [first, last] (inclusive message indexes), over the participants it touches. */
+export interface SequenceFragment {
+  id: string;                  // "f<n>"
+  kind: SequenceFragmentKind;
+  label: string;               // condition / loop header / "try"
+  first: number;               // first message row
+  last: number;                // last message row
+  branches: { label: string; first: number }[]; // later arms (alt: elif/else/case; try: except ...), each starts at a row
+  parent: string | null;       // enclosing fragment id
+  source: SourceRef | null;
+}
+
+/** A note on a lifeline after row `after` (-1 = before the first message), e.g. "error: HTTPException". */
+export interface SequenceNote { id: string; participant: string; after: number; text: string; kind: 'error' | 'info'; source: SourceRef | null }
+
+export interface SequenceData {
+  participants: SequenceParticipant[];
+  messages: SequenceMessage[];
+  fragments: SequenceFragment[];
+  notes: SequenceNote[];
 }
 
 /** Diagram positions (React Flow coordinates, top-left of the node). Stored in a view file's `layout:` and locally. */
@@ -168,6 +226,18 @@ export interface FlowchartDiagnostic {
   error: string | null;        // e.g. "code graph not ready (indexing)", "start symbol not found: x"
 }
 
+/** Feedback for a `kind: sequence` view; `depth` is effective (YAML, CLI --depth or Views tab slider), like flowcharts. */
+export interface SequenceDiagnostic {
+  start: string | null;        // resolved entry, "name (file:line)" or "POST /x -> handler (file:line)"
+  depth: number;               // 0-6
+  participants: string;        // effective granularity: service | module | file | class
+  functions: number;           // function bodies parsed
+  messages: number;
+  links: Record<string, number>; // messages per link set / rule
+  truncated: boolean;
+  error: string | null;
+}
+
 /** Feedback for a view with `layers:` (stinggraph service layers). `depth` is the effective level drawn (1 services,
  * 2 modules, 3 files, 4 symbols): `layers.depth` unless overridden, like a flowchart's. */
 export interface LayersDiagnostic {
@@ -195,6 +265,7 @@ export interface ViewDiagnostics {
   graph: GraphStepDiagnostic | null; // null when the view has no graph step
   flowchart?: FlowchartDiagnostic | null; // set for kind: flowchart views only
   layers?: LayersDiagnostic | null;  // set for views with layers: only
+  sequence?: SequenceDiagnostic | null; // set for kind: sequence views only
   unresolved: UnresolvedLink[];      // first 50 edge endpoints that matched no node id/alias, then unresolved `explain:` keys
   explain?: ExplainDiagnostic[];     // set when the view file has `explain:`
   limits: { filesScanned: number; matches: number; truncated: boolean };

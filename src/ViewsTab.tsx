@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Database, FileText, GanttChart, Network, PanelLeftClose, PanelLeftOpen, RefreshCw, Stethoscope, Table2, TriangleAlert, Workflow, X } from 'lucide-react';
+import { Database, FileText, GanttChart, Network, PanelLeftClose, PanelLeftOpen, RefreshCw, Stethoscope, Table2, TriangleAlert, Workflow, X, ArrowRightLeft } from 'lucide-react';
 import { api } from './api';
 import type { Workspace } from './shared';
 import type { ViewKind, ViewLocalState, ViewResult, ViewSummary } from './views';
@@ -13,7 +13,7 @@ import { EditorPicker } from './views-ui/EditorPicker';
 import { LAYER_NAMES, diagnosticCount, isFlowDiagram, pickView, textViewNote, viewDepth } from './views-tab-model';
 import './views-tab.css';
 
-const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow };
+const KIND_ICONS: Record<ViewKind, typeof Table2> = { tables: Table2, flow: Workflow, timeline: GanttChart, graph: Network, flowchart: Workflow, sequence: ArrowRightLeft };
 const COLLAPSED_KEY = 'stingray-views-collapsed';
 const selectedKey = (workspaceId: string) => `stingray-views-selected:${workspaceId}`;
 const SAVE_DELAY = 500;
