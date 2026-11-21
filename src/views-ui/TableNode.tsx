@@ -30,7 +30,7 @@ export const TableNode = memo(function TableNode({ data }: NodeProps<TableFlowNo
       <strong>{node.label}</strong>
       {node.subtitle && <span>{node.subtitle}</span>}
     </div>
-    {node.explanation && <div className="er-card-explanation" title={explanationTitle(node.explanation, node.explanationStatus)}><span><StaleMark status={node.explanationStatus} />{node.explanation}</span></div>}
+    {node.explanation && <div className="er-card-explanation" title={explanationTitle(node.explanation, node.explanationStatus, node.explanationReason)}><span><StaleMark status={node.explanationStatus} />{node.explanation}</span></div>}
     {rows.map(f => <div key={f.id} className={`er-row${f.id === activeField ? ' active' : ''}`} title={f.detail ?? undefined}
       onClick={() => onField(node.id, f.id)}>
       <Handles id={`f:${f.id}`} />

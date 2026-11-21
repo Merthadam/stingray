@@ -93,7 +93,7 @@ export class ViewService {
     if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
     if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
     return computeView({ ...file, view, layout }, {
-      workspaceId, graph: w.graph.status(), findSymbols, readSource: createFileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
+      workspaceId, graph: w.graph.status(), findSymbols, callees: ids => w.graph.callees(ids), fileSymbols: f => w.graph.fileSymbols(f), readSource: createFileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
     });
   }

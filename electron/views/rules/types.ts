@@ -120,6 +120,7 @@ export interface GraphSymbol {
   id: string; name: string; kind: string; file: string; line: number;
   endLine?: number;           // last line of the body; absent when unknown
   docstring?: string | null;  // raw CodeGraph docstring; absent when the symbol has none
+  qualifiedName?: string;     // CodeGraph's qualified name, e.g. "SessionStore::get_user"; absent when empty
 }
 export interface GraphRelation {
   from: string; to: string;   // GraphSymbol ids

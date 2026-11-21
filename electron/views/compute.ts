@@ -23,6 +23,10 @@ export interface ComputeDeps {
   sqlalchemy?: () => Promise<DbSchemaResult>;
   sql?: () => Promise<DbSchemaResult>;
   findSymbols: (queries: SymbolQuery[]) => Promise<(GraphSymbol | null)[]>;
+  /** Direct `calls` targets per symbol id (heuristic relations included), in-repo symbols only; null when unknown (no answer). */
+  callees?: (ids: string[]) => Promise<Map<string, GraphSymbol[]> | null>;
+  /** Every symbol of a file (for class → constructor); null when unknown (no answer). */
+  fileSymbols?: (file: string) => Promise<GraphSymbol[] | null>;
   readSource?: ReadSource;    // worktree files, for fingerprints of `explain:` entries (unchecked without it)
   graph: GraphStatus;
   workspaceId?: string;
@@ -59,7 +63,7 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   if (!entry.explain?.length) return linked;
   // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
   const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
-  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource });
+  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
   // Participants mirror their nodes: `explain:` entries reach them through the nodes.
   const sequence = explained.sequence && { ...explained.sequence, participants: explained.sequence.participants.map(p => {
     const n = explained.nodes.find(x => x.id === p.id);

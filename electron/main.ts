@@ -42,9 +42,9 @@ const activity = new ActivityService(snapshot => { if (win && !win.isDestroyed()
 const activityShell = new ActivityShell();
 let visibleTerminals = new Set<string>();
 const terminals = new Terminals(event => { if (win && !win.isDestroyed()) win.webContents.send('terminal-event', event); }, activity, activityShell);
-const git = new GitService(store, id => terminals.hasWorkspace(id), {
-  // Stop the worktree's code graph (its .codegraph cache) before the folder is cleaned and removed.
-  beforeRemove: id => views.release(id), removeFailed: id => views.reopen(id),
+const git = new GitService(store, id => terminals.countWorkspace(id), {
+  // Close the workspace's terminals and stop its code graph (.codegraph cache) before the folder is cleaned and removed.
+  beforeRemove: id => { terminals.closeWorkspace(id); return views.release(id); }, removeFailed: id => views.reopen(id),
 });
 const lockedSessions = new Set<string>();
 const containers = new ContainerService();
@@ -123,10 +123,10 @@ app.whenReady().then(async () => {
   });
   handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
   handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
-  handle('remove-workspace', z.tuple([idSchema, z.string().max(200), removalConsentSchema]), async (id, confirmation, consent) => {
-    const state = await git.removeWorkspace(id, confirmation, consent);
+  handle('remove-workspace', z.tuple([idSchema, removalConsentSchema]), async (id, consent) => {
+    const result = await git.removeWorkspace(id, consent);
     await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
-    return state;
+    return result;
   });
   handle('git-status', z.tuple([idSchema]), id => git.status(id));
   handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));

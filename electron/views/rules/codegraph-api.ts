@@ -4,7 +4,7 @@ import type { GraphApi, GraphLayers, GraphRelation, GraphRollupEdge, GraphSymbol
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
 
-const symbol = (n: Node): GraphSymbol => ({ id: n.id, name: n.name, kind: n.kind, file: n.filePath, line: n.startLine, endLine: n.endLine, ...(n.docstring ? { docstring: n.docstring } : {}) });
+const symbol = (n: Node): GraphSymbol => ({ id: n.id, name: n.name, kind: n.kind, file: n.filePath, line: n.startLine, endLine: n.endLine, ...(n.docstring ? { docstring: n.docstring } : {}), ...(n.qualifiedName ? { qualifiedName: n.qualifiedName } : {}) });
 const relation = (e: Edge & { possibly_stale?: boolean }): GraphRelation => ({ from: e.source, to: e.target, kind: e.kind, line: e.line ?? null,
   certain: e.provenance !== 'heuristic' && !e.possibly_stale, ...(e.metadata ? { meta: e.metadata } : {}) });
 const safe = <T>(read: () => T, empty: T) => { try { return read(); } catch { return empty; } };

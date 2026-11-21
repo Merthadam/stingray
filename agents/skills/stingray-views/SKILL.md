@@ -33,7 +33,8 @@ files. Prefer a builtin set (`use:`) when one fits; write rules for the project'
 
 Other commands: `stingray-views list` (views of this worktree, with errors), `stingray-views check <file> --json`
 (full result as JSON), `stingray-views check <file> --restamp` (stamp `explain:` fingerprints, below),
-`stingray-views help` (this guide).
+`stingray-views check <file> --strict` (exit 1 when an `explain:` entry needs review, for CI), `stingray-views help`
+(this guide).
 
 ## View file
 
@@ -202,27 +203,45 @@ for nodes without a symbol (tables, LangGraph steps, infra), write it in the vie
 explain:
   identity:                        # node id, group id, alias (rule `aliases`, a table's name or model class) or symbol name
     text: Accept only genuine, unrevoked tokens of verified travelers   # 1-500 chars; replaces the docstring explanation
-    fingerprint: "3f9a0c1d2b4e"    # written by --restamp; do not edit by hand; keep it quoted
+    fingerprint:                   # written by --restamp; do not edit by hand
+      services/auth/api.py::create_app::identity: 3f9a0c1d2b4e              # <file>::<qualified name>: hash
+      services/auth/session_store.py::SessionStore::get_user: 0d44b9e1a2c7  # a function identity calls
   users:
     text: Everyone who signed up, including invited but unconfirmed users
+    fingerprint:
+      drawn:sql:db/schema.sql#users: 5be0c4a19d02     # no symbol: the node as drawn
 ```
 
 - A key is matched in that order: node id, group id, alias, then every node and group linked to that symbol (e.g. a
   flowchart's `call` node and the expanded `» identity` group). The first kind that matches wins. A key matching nothing
   is listed under "unresolved links" as `explain: "<key>"` (a warning, not an error).
-- The fingerprint is a hash of the code the text was written for: a symbol's own body (its lines, not its callees;
-  trailing whitespace and line endings ignored), or for a node without a symbol the node as drawn (label, kind,
-  subtitle, detail, fields with types and badges — a table's changes when its columns do; a group's also covers its
-  member nodes and nested groups). A key matching several nodes or groups (e.g. same-named functions) covers all of them.
-- When the code changes, check warns `explanation for "<key>" may be outdated …`, the text diagram appends
-  `(may be outdated)` and the Views tab marks the explanation. Entries without a fingerprint warn too.
+- The fingerprint is a map with one hash per piece of code the text was written for. For a symbol: its own body plus
+  every function it calls directly that the code graph resolves to this repo — including functions in files the view
+  excludes, one level deep (callees of callees do not count), no library or stdlib calls. A class call counts as its
+  constructor. Bodies are hashed by their lines, trailing whitespace and line endings ignored. For a node without a
+  symbol: one `drawn:<id>` piece, the node as drawn (label, kind, subtitle, detail, fields with types and badges — a
+  table's changes when its columns do; a group's also covers its member nodes and nested groups). A key matching
+  several nodes or groups (e.g. same-named functions) covers all of them. A callee that cannot be hashed is left out
+  (listed under `skipped` in `--json`); more than 200 pieces cannot be checked.
+- Statuses and warnings:
+  - current: no warning;
+  - stale: `explanation for "<key>" may be outdated: X changed; new call Y; no longer calls Z …`; the text diagram
+    appends `(may be outdated)` and the Views tab marks the explanation with the reason;
+  - unstamped: `… has no fingerprint …` (or the reason it cannot be fingerprinted);
+  - legacy: a plain-string fingerprint from older versions (own body only) warns `… uses the old fingerprint format …`
+    and the text diagram appends `(old fingerprint)`, until you review it and restamp.
 - Workflow: write or update the texts, run `check`, read each flagged explanation against the code and fix it, then
-  run `stingray-views check <file> --restamp`. It writes the current fingerprints of entries that resolve into the file
-  (comments kept) and prints what it stamped; plain `check` never writes. Restamping needs the code graph; without it
+  run `stingray-views check <file> --restamp`. It writes the current fingerprint maps of entries that resolve into the
+  file, replacing old string fingerprints (comments kept), and prints what it stamped (`stamped "<key>" (N pieces)`,
+  and any callee it left out); plain `check` never writes. Restamping needs the code graph; without it
   fingerprints are not checked at all. It writes nothing while `check` fails, and skips entries whose source file
   changed since the code graph indexed it (line ranges come from the index): restamp once Stingray has re-indexed.
   An entry whose code cannot be fingerprinted (unreadable or too large file, no end line) warns with the reason.
-  `diagnostics.explain` in `--json` has each entry's matches, current fingerprint and source files.
+  `diagnostics.explain` in `--json` has each entry's matches, `status`, current `pieces`, `skipped` callees, `changes`
+  (changed, added, removed piece keys) and source files.
+- CI: `stingray-views check <file> --strict` exits 1 (after printing `strict: N explanation(s) need review` to stderr)
+  when any entry is stale, unstamped or legacy; it combines with `--json` but not with `--restamp`. Without a code
+  graph only legacy and unstamped entries can be detected.
 
 ## Layers
 

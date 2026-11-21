@@ -25,11 +25,13 @@ export interface SymbolRef {
   file: string;
   line: number;
   endLine?: number;            // last line of the symbol's body (fingerprints of `explain:` entries); absent when unknown
+  qualifiedName?: string;      // CodeGraph qualified name, file-relative, e.g. "create_app::identity" (fingerprint piece keys)
 }
 
 /** Where a node's or group's explanation comes from: absent = the symbol's docstring; otherwise the view file's `explain:`
- * entry, whose fingerprint matches the code ('view'), differs from it ('stale': "may be outdated") or is missing ('unstamped'). */
-export type ExplanationStatus = 'view' | 'stale' | 'unstamped';
+ * entry, whose fingerprint matches the code ('view'), differs from it ('stale': "may be outdated"), is missing ('unstamped')
+ * or uses the old single-hash format ('legacy'). */
+export type ExplanationStatus = 'view' | 'stale' | 'unstamped' | 'legacy';
 
 export interface DiagramNode {
   id: string;                  // unique within the view; edges reference it
@@ -46,6 +48,7 @@ export interface DiagramNode {
   explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
                                // rule nodes with `symbol:`, tables linked to their model class) or the view's `explain:` entry; absent/null = none, nothing is shown
   explanationStatus?: ExplanationStatus;
+  explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
 }
 
@@ -69,6 +72,7 @@ export interface DiagramGroup {
   parent?: string | null;      // enclosing DiagramGroup.id (flowchart: a callee expanded inside another expansion)
   explanation?: string | null; // flowchart expanded call: the callee's docstring summary, or the view's `explain:` entry; absent/null = none
   explanationStatus?: ExplanationStatus;
+  explanationReason?: string;  // as on DiagramNode
   symbol?: SymbolRef | null;   // flowchart expanded call: the callee
 }
 
@@ -256,13 +260,20 @@ export interface LayersDiagnostic {
 
 export interface UnresolvedLink { rule: string; value: string; file: string; line: number } // rule "explain": an `explain:` key
 
-/** One `explain:` entry of the view file with the fingerprint of the code it is anchored to now (what --restamp writes). */
+/** Piece keys of an `explain:` fingerprint that differ between the view file and the code (sorted). */
+export interface ExplainChanges { changed: string[]; added: string[]; removed: string[] }
+
+/** One `explain:` entry of the view file with the fingerprint of the code it is anchored to now (`pieces` is what --restamp writes). */
 export interface ExplainDiagnostic {
   key: string;
   line: number | null;         // 1-based line of the key in the view file
   matches: number;             // nodes and groups it applies to (0 = unresolved)
-  fingerprint: string | null;  // current; null when unresolved or not computable (code graph not ready, source unreadable)
-  files: string[];             // source files of the symbols it is anchored to (restamp skips them when the index lags)
+  fingerprint: string | null;  // summary hash of `pieces` (display only); null when `pieces` is
+  pieces: Record<string, string> | null; // current piece key → hash; null when unresolved or not computable (code graph not ready, source unreadable)
+  skipped: string[];           // callees left out because they could not be hashed
+  status: ExplanationStatus | null; // null when unresolved
+  changes: ExplainChanges;     // empty unless stale
+  files: string[];             // source files of all pieces, targets and callees (restamp skips them when the index lags)
 }
 
 export interface ViewDiagnostics {

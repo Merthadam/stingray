@@ -41,9 +41,10 @@ await put('app/auth.py', 'def check_password(user, password):\n    """Reject ina
 await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a value."""\n    return value.strip().lower()\n\n\n'
   + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(name)\n\n\n'
   + 'def handle(request):\n    """Handle a request end to end."""\n    record = load(request)\n    return clean(record)\n');
-await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n');
+await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n'
+  + 'explain:\n  handle: { text: Serve one request, fingerprint: "000000000000" }\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n'
-  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: "000000000000" }\n');
+  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: { app/auth.py::login: "000000000000" } }\n');
 // A FastAPI-like route -> service -> repository: a sequence view with an if/else (alt) and a raise (error note).
 await put('app/routes.py', 'from app.service import authenticate\n\n\ndef sign_in_route(request):\n    return authenticate(request.email, request.password)\n');
 await put('app/service.py', 'from app.repo import fetch_account, touch_login\n\n\ndef authenticate(email, password):\n    account = fetch_account(email)\n'
@@ -142,6 +143,8 @@ try {
   check('graph view draws its functions as flow cards with explanations',
     await calls.getByRole('group', { name: 'Step handle' }).count() === 1 && await calls.getByRole('group', { name: 'Step clean' }).count() === 0
     && await calls.getByRole('group', { name: 'Step load' }).locator('.flow-explanation').innerText() === 'Load a record by its cleaned name.');
+  check('an explain: entry with an old string fingerprint is marked "old fingerprint", not "may be outdated"',
+    await calls.getByRole('group', { name: 'Step handle' }).locator('.flow-explanation-stale.legacy').innerText() === 'old fingerprint');
   check('collapsed helpers show as fields of their callers', (await calls.getByRole('list', { name: 'Fields of handle' }).innerText()).includes('clean'));
   await calls.getByRole('group', { name: 'Step handle' }).click();
   check('selecting a graph node opens its symbol and helpers in the inspector',
@@ -152,7 +155,8 @@ try {
   const graphText = page.getByLabel('Text diagram');
   await graphText.waitFor();
   check('a graph view switches to its searchable text form, without the fallback note',
-    (await graphText.innerText()).includes('handle') && await page.locator('.views-text-note').count() === 0);
+    (await graphText.innerText()).includes('handle') && await page.locator('.views-text-note').count() === 0
+    && (await graphText.innerText()).includes('Serve one request (old fingerprint)'));
   await page.getByRole('button', { name: 'Show as diagram' }).click();
   await calls.getByRole('group', { name: 'Step load' }).waitFor({ timeout: 60000 });
   check('and back to the diagram', await page.getByRole('button', { name: 'Show as text' }).isVisible());

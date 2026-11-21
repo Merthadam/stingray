@@ -24,12 +24,14 @@ const active = () => page.locator('.workspace-entry.selected .workspace-link');
 const card = name => page.locator('.workspace-entry').filter({ has: page.getByRole('button', { name, exact: true }) });
 const dialog = () => page.getByRole('dialog');
 const removeButton = () => dialog().getByRole('button', { name: 'Remove worktree', exact: true });
-const acknowledge = () => dialog().getByRole('checkbox');
+const discardButton = () => dialog().getByRole('button', { name: 'Discard changes and remove', exact: true });
+const discard = () => dialog().getByRole('checkbox', { name: 'Discard these uncommitted changes' });
+const deleteBranch = () => dialog().getByRole('checkbox', { name: /Also delete branch/ });
 const cancel = () => dialog().getByRole('button', { name: 'Keep worktree', exact: true }).click();
 async function selected(name) { await page.waitForFunction(name => document.querySelector('.workspace-entry.selected .workspace-link')?.getAttribute('aria-label') === name, name); }
 async function openRemoval(name) {
   await card(name).getByRole('button', { name: `Remove worktree ${name}`, exact: true }).click();
-  await dialog().getByLabel('Worktree safety checks').waitFor();
+  await dialog().getByLabel('Worktree checks').waitFor();
 }
 try {
   app = await electron.launch({ args: ['.'], env, timeout: 30000 });
@@ -90,44 +92,30 @@ try {
   if (!process.env.STINGRAY_CARD_ONLY) {
     check('primary repository has no sidebar remove action', await card('main').locator('.workspace-remove').count() === 0);
     const missingConsent = await page.evaluate(async w => {
-      try { await window.stingray.removeWorkspace(w.id, w.branch); return false; } catch { return true; }
+      try { await window.stingray.removeWorkspace(w.id); return false; } catch { return true; }
     }, worktree);
     await access(worktree.path);
-    check('IPC refuses removal without the safety-review consent object', missingConsent);
+    check('IPC refuses removal without a consent object', missingConsent);
     await openRemoval('feature/remove');
     check('sidebar removal does not select a background workspace', await active().getAttribute('aria-label') === 'main');
-    check('no-upstream warning and branch preservation are explicit', (await dialog().innerText()).includes('No upstream') && (await dialog().innerText()).includes('Keeps its branch and commits'));
-    await dialog().getByLabel('Branch confirmation').fill(worktree.branch);
-    check('unknown push status requires acknowledgement', await removeButton().isDisabled());
-    await acknowledge().check(); check('acknowledgement enables removal for a clean worktree', await removeButton().isEnabled());
-    await page.screenshot({ path: path.join(evidence, 'unknown-push-compact.png') });
+    check('clean worktree: branch preservation is explicit and push status is informational only',
+      (await dialog().innerText()).includes('its commits are kept') && (await dialog().innerText()).includes('No upstream') && await removeButton().isEnabled());
+    check('merged branch offers opt-in deletion, unchecked by default', !(await deleteBranch().isChecked()));
+    await page.screenshot({ path: path.join(evidence, 'clean-compact.png') });
     await cancel(); await access(worktree.path); check('cancel preserves worktree and branch');
-    await writeFile(path.join(worktree.path, 'local.txt'), 'keep my changes');
-    await mkdir(path.join(worktree.path, 'ignored')); await writeFile(path.join(worktree.path, 'ignored', 'keep'), 'keep ignored too');
-    const terminal = await page.evaluate(id => window.stingray.createTerminal(id), worktree.id);
+    await mkdir(path.join(worktree.path, 'ignored')); await writeFile(path.join(worktree.path, 'ignored', 'dep.js'), 'regenerable');
+    await writeFile(path.join(worktree.path, 'local.txt'), 'discard me');
+    await page.evaluate(id => window.stingray.createTerminal(id), worktree.id);
     await openRemoval('feature/remove');
-    check('preflight lists files and terminals before any removal attempt', (await dialog().innerText()).includes('Close every terminal') && (await dialog().innerText()).includes('1 untracked entries, 1 ignored entries'));
-    await dialog().getByLabel('Branch confirmation').fill(worktree.branch); await acknowledge().check();
-    check('blockers cannot be overridden by typed confirmation and acknowledgement', await removeButton().isDisabled());
-    await page.screenshot({ path: path.join(evidence, 'blocked-compact.png') }); await cancel();
-    await page.evaluate(id => window.stingray.closeTerminal(id), terminal.id);
-    await rm(path.join(worktree.path, 'local.txt')); await rm(path.join(worktree.path, 'ignored'), { recursive: true });
-    git(repo, 'remote', 'add', 'origin', path.join(root, 'unused-local-remote'));
-    git(repo, 'update-ref', 'refs/remotes/origin/feature/remove', base);
-    git(worktree.path, 'branch', '--set-upstream-to=origin/feature/remove');
-    await openRemoval('feature/remove');
-    check('clean local tracking is qualified, not claimed remotely verified', (await dialog().innerText()).includes('No commits ahead of') && (await dialog().innerText()).includes('may be stale') && await acknowledge().count() === 0);
-    await dialog().getByLabel('Branch confirmation').fill(worktree.branch);
-    await writeFile(path.join(worktree.path, 'file.txt'), 'late unpushed commit\n'); const tip = commit(worktree.path);
-    await removeButton().click();
-    await dialog().getByRole('alert').filter({ hasText: 'review changed' }).waitFor();
-    await acknowledge().waitFor();
-    check('commit after opening dialog is caught and refreshed before deletion', (await dialog().innerText()).includes('1 unpushed commit') && await removeButton().isDisabled() && await dialog().getByLabel('Branch confirmation').inputValue() === '');
-    await dialog().getByLabel('Branch confirmation').fill(worktree.branch); await acknowledge().check();
-    await page.screenshot({ path: path.join(evidence, 'unpushed-confirmation.png') });
-    await removeButton().click(); await dialog().waitFor({ state: 'hidden' });
+    const text = await dialog().innerText();
+    check('dirty worktree lists changes and terminals; ignored files are not reported', text.includes('1 untracked item will be permanently deleted') && text.includes('local.txt') && text.includes('1 open terminal in this workspace will be closed') && !text.includes('dep.js'));
+    check('discarding requires one explicit confirmation', await discardButton().isDisabled());
+    await discard().check(); check('confirmation enables discard and remove', await discardButton().isEnabled());
+    await page.screenshot({ path: path.join(evidence, 'discard-compact.png') });
+    await discardButton().click(); await dialog().waitFor({ state: 'hidden' });
     await assert.rejects(access(worktree.path));
-    check('confirmed removal deletes only the fixture worktree and preserves its unpushed commit', git(repo, 'rev-parse', 'refs/heads/feature/remove').trim() === tip && git(repo, 'show', `${tip}:file.txt`).trim() === 'late unpushed commit');
+    check('removal deletes the worktree with its ignored files and keeps the branch', git(repo, 'rev-parse', 'refs/heads/feature/remove').trim() === base);
+    check('removal closes the workspace terminals', (await page.evaluate(() => window.stingray.terminals())).every(t => t.workspaceId !== worktree.id));
     check('background removal preserves current workspace selection', await active().getAttribute('aria-label') === 'main');
     await access(path.join(repo, 'file.txt'));
   }

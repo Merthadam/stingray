@@ -29,7 +29,7 @@ test('repository registration is canonical, persisted and idempotent', async () 
     assert.deepEqual(await f.service.openRepository(f.repo), state);
     assert.deepEqual(await new Store(f.store.directory).load(), state);
     assert.equal((await f.service.status(state.workspaces[0].id)).changes.length, 0);
-    await assert.rejects(f.service.removeWorkspace(state.workspaces[0].id, 'main'), /Only worktrees/);
+    await assert.rejects(f.service.removeWorkspace(state.workspaces[0].id, { discard: true, deleteBranch: false }), /Only worktrees/);
   } finally { await f.cleanup(); }
 });
 test('worktree creation and safe deletion preserve the branch and main repository', async () => {
@@ -40,29 +40,27 @@ test('worktree creation and safe deletion preserve the branch and main repositor
     const w = next.workspaces[1];
     assert.equal((await f.service.status(w.id)).branch, 'feature/example');
     assert.equal(await readFile(path.join(w.path, 'README.md'), 'utf8'), '# Test fixture\n');
-    await assert.rejects(f.service.removeWorkspace(w.id, 'wrong'), /exact branch/);
-    const review = await f.service.reviewRemoval(w.id);
-    const removed = await f.service.removeWorkspace(w.id, w.branch, { token: review.token, acknowledge: true });
+    await assert.rejects(f.service.removeWorkspace(w.id), /Confirm the removal/);
+    const { state: removed } = await f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false });
     assert.equal(removed.workspaces.length, 1);
     await assert.rejects(access(w.path));
     assert.ok(await git(f.repo, ['rev-parse', '--verify', 'refs/heads/feature/example']));
     assert.equal(await readFile(path.join(f.repo, 'README.md'), 'utf8'), '# Test fixture\n');
   } finally { await f.cleanup(); }
 });
-test('dirty, ignored files and open terminals block removal without deleting anything', async () => {
+test('untracked files need discard consent; ignored files do not block removal', async () => {
   const f = await fixture();
   try {
     const first = await f.service.openRepository(f.repo);
     const state = await f.service.createWorkspace(first.repos[0].id, 'test-safety');
     const w = state.workspaces[1];
-    const busy = new GitService(f.store, () => true);
-    await assert.rejects(busy.removeWorkspace(w.id, w.branch), /Close every terminal/);
     await writeFile(path.join(w.path, 'untracked.txt'), 'keep me');
-    await assert.rejects(f.service.removeWorkspace(w.id, w.branch), /modified, untracked, or ignored/);
+    await assert.rejects(f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false }), /uncommitted changes/);
+    assert.equal(await readFile(path.join(w.path, 'untracked.txt'), 'utf8'), 'keep me');
     await rm(path.join(w.path, 'untracked.txt'));
-    await mkdir(path.join(w.path, 'ignored')); await writeFile(path.join(w.path, 'ignored', 'keep'), 'keep me too');
-    await assert.rejects(f.service.removeWorkspace(w.id, w.branch), /modified, untracked, or ignored/);
-    assert.equal(await readFile(path.join(w.path, 'ignored', 'keep'), 'utf8'), 'keep me too');
+    await mkdir(path.join(w.path, 'ignored')); await writeFile(path.join(w.path, 'ignored', 'build'), 'regenerable');
+    await f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false });
+    await assert.rejects(access(w.path));
   } finally { await f.cleanup(); }
 });
 test('invalid and existing branch names fail without adding a workspace', async () => {

@@ -45,6 +45,8 @@ class FakeGraph implements WorktreeGraph {
     return queries.map(({ file, name, kinds }) => this.state.state === 'ready'
       ? { id: `${file}:${name}`, name, kind: kinds?.[0] ?? 'class', file, line: 5, ...(name === 'User' ? { docstring: '"""A registered account.\n\n    Soft-deleted.\n    """' } : {}) } : null);
   }
+  async callees(ids: string[]) { return new Map(ids.map(id => [id, [] as GraphSymbol[]])); }
+  async fileSymbols(_file: string): Promise<GraphSymbol[]> { return []; }
   evaluated: ResolvedView[] = [];
   evaluate: (view: ResolvedView) => Promise<EvaluateOutput> = async () => { throw new Error('not scripted'); };
   async evaluateView(view: ResolvedView) { this.evaluated.push(view); return this.evaluate(view); }
