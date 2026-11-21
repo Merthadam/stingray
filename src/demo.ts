@@ -245,4 +245,9 @@ export const demoAPI: DesktopAPI = {
   gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoAPI.gitStatus(id), pr: await demoAPI.pullRequest(id) }),
   refreshGitState: id => demoAPI.gitState(id),
   onGitStateChanged: () => () => {},
+  liveViewStart: async () => { throw new Error('Live view is unavailable in the browser demo. It needs the desktop app and a running test instance.'); },
+  liveViewInput: async () => undefined,
+  liveViewResize: async () => undefined,
+  liveViewStop: async () => undefined,
+  onLiveView: () => () => {},
 };

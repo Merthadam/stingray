@@ -25,6 +25,8 @@ import { positionsSchema } from './views/rules/schema';
 import { ViewStateStore, viewLocalStateSchema } from './view-state';
 import { EDITOR_IDS, EditorService } from './editors';
 import { setSharedBase, sharedBaseEnabled, sharedBaseTarget, sharedBaseWorkspaces } from './codegraph-settings';
+import { LiveViews } from './live-view';
+import { liveViewInputSchema } from '../src/live-view';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -59,6 +61,7 @@ pullRequests.onListChange = () => gitState.listChanged();
 const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
 const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
   emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
+const liveViews = new LiveViews(event => { if (win && !win.isDestroyed()) win.webContents.send('live-view-event', event); });
 
 function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
   ipcMain.handle(name, (event, ...args) => {
@@ -214,6 +217,15 @@ app.whenReady().then(async () => {
   handle('close-terminal', z.tuple([idSchema]), id => terminals.close(id));
   handle('git-state', z.tuple([idSchema]), id => gitState.get(id));
   handle('refresh-git-state', z.tuple([idSchema]), id => gitState.refresh(id, true));
+  const frameSize = z.number().int().min(16).max(8192);
+  handle('live-view-start', z.tuple([z.strictObject({ port: z.number().int().min(1).max(65535), maxWidth: frameSize.optional(), maxHeight: frameSize.optional() })]),
+    options => liveViews.start(options));
+  handle('live-view-input', z.tuple([idSchema, liveViewInputSchema]), (id, input) => liveViews.input(id, input));
+  handle('live-view-resize', z.tuple([idSchema, frameSize, frameSize]), (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight));
+  handle('live-view-stop', z.tuple([idSchema]), id => liveViews.stop(id));
+  // A reloaded renderer has lost its session ids; a closed window has no viewer.
+  win.webContents.on('did-start-loading', () => liveViews.stopAll());
+  win.on('closed', () => liveViews.stopAll());
   win.on('close', event => {
     if (cloning) {
       event.preventDefault();

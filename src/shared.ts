@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 import type { ActivitySnapshot } from './activity';
 import type { DbSchemaResult } from './db-schema';
+import type { LiveViewEvent, LiveViewInput, LiveViewSession } from './live-view';
 import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
 
 export const idSchema = z.string().uuid();
@@ -145,6 +146,12 @@ export interface DesktopAPI {
   /** Re-reads Git now and re-queries GitHub (5s cooldown). */
   refreshGitState(workspaceId: string): Promise<WorkspaceGitState>;
   onGitStateChanged(listener: (state: WorkspaceGitState) => void): () => void;
+  /** Screencast + input of a test instance's Stingray window over CDP on 127.0.0.1:port; max sizes are frame pixels. */
+  liveViewStart(options: { port: number; maxWidth?: number; maxHeight?: number }): Promise<LiveViewSession>;
+  liveViewInput(sessionId: string, input: LiveViewInput): Promise<void>;
+  liveViewResize(sessionId: string, maxWidth: number, maxHeight: number): Promise<void>;
+  liveViewStop(sessionId: string): Promise<void>;
+  onLiveView(listener: (event: LiveViewEvent) => void): () => void;
 }
 /** revision increases with every change in the main process, so late responses can be ignored. */
 export type WorkspaceGitState = { workspaceId: string; revision: number; status: GitStatus | null; error: string; pr: PullRequestStatus | null };

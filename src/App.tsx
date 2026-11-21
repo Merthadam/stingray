@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, MonitorPlay, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
-import type { State, TerminalInfo, Workspace, WorkspacePort } from './shared';
+import type { LiveViewTarget, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
 import { TerminalPane } from './TerminalPane';
 import { BrowserPane } from './BrowserPane';
 import { Modal } from './Modal';
@@ -9,6 +9,7 @@ import { ProjectHome } from './ProjectHome';
 import { AddProjectForm } from './AddProjectForm';
 import { RepoMap } from './RepoMap';
 import { ViewsTab } from './ViewsTab';
+import { LiveView } from './LiveView';
 import { WorkspaceStatus } from './WorkspaceStatus';
 import { useGitState } from './useGitState';
 import { RemoveWorktreeForm } from './RemoveWorktreeForm';
@@ -42,7 +43,8 @@ export default function App() {
   useEffect(() => { if (drawer && pendingSearchFocus.current) { pendingSearchFocus.current = false; search.current?.focus(); } }, [drawer]);
   const [previewReveal, setPreviewReveal] = useState(0);
   const [split, setSplit] = useState(false);
-  const [tab, setTab] = useState<'workspace' | 'changes' | 'views'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'changes' | 'views' | 'live'>('workspace');
+  const [liveView, setLiveView] = useState<LiveViewTarget | null>(null);
   const [mapTarget, setMapTarget] = useState<{ path: string; line: number | null; nonce: number } | null>(null);
   const mapNonce = useRef(0);
   const [modal, setModal] = useState<'open' | 'create' | 'remove' | 'close-terminal' | 'about' | null>(null);
@@ -59,6 +61,7 @@ export default function App() {
   useEffect(() => { setMapTarget(null); }, [selected]);
   const selectedGit = useGitState(selected);
   const status = selectedGit.state?.status ?? null;
+  useEffect(() => { if (tab === 'live' && liveView?.workspaceId !== selected) setTab('workspace'); }, [tab, liveView, selected]);
   const workspace = state.workspaces.find(w => w.id === selected);
   const repo = state.repos.find(r => r.id === selection?.repoId);
   const projectWorkspaces = state.workspaces.filter(w => w.repoId === repo?.id);
@@ -128,12 +131,19 @@ export default function App() {
       setShowBrowser(true); setTab('workspace'); setPreviewReveal(n => n + 1);
     } finally { setBusy(false); }
   }
+  /** Opens (or replaces) the live view tab of a test instance in its workspace. */
+  function openLiveView(target: LiveViewTarget) {
+    const owner = state.workspaces.find(w => w.id === target.workspaceId);
+    if (!owner) return;
+    setNavigation({ repoId: owner.repoId, workspaceId: owner.id }); setLiveView(target); setTab('live'); setError('');
+  }
   function openModal(value: typeof modal) { setError(''); setBranch(''); setModal(value); }
   function openRemoval(target: Workspace) { if (!busy) { setRemovalTarget(target); openModal('remove'); } }
   const viewTabs = workspace && !initializing && !loadFailed && <div className="title-tabs" role="tablist" aria-label="Workspace views">
     <button role="tab" aria-selected={tab === 'workspace'} className={tab === 'workspace' ? 'active' : ''} onClick={() => setTab('workspace')}><Columns2 size={13} /> Workspace</button>
     <button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'active' : ''} onClick={() => setTab('changes')}><MapIcon size={13} /> Repo Map {status && <span className="count">{status.changes.length}</span>}</button>
     <button role="tab" aria-selected={tab === 'views'} className={tab === 'views' ? 'active' : ''} onClick={() => setTab('views')}><Network size={13} /> Views</button>
+    {liveView?.workspaceId === workspace.id && <button role="tab" aria-selected={tab === 'live'} className={tab === 'live' ? 'active' : ''} onClick={() => setTab('live')}><MonitorPlay size={13} /> Live view</button>}
   </div>;
   const piState = api.mode === 'demo' ? 'Simulated shell' : activity.unavailable ? 'Pi: Tracking unavailable' : activeActivity ? `Pi: ${activeActivity}` : workspaceTerminals.find(t => t.id === active)?.piTracking === 'available' ? 'Pi: not attached' : 'Pi: Tracking unavailable';
   return <div className="app-shell">
@@ -173,7 +183,7 @@ export default function App() {
                 agents={activity.agents.filter(a => a.workspaceId === w.id)} activityUnavailable={activity.unavailable}
                 onSelect={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setError(''); }}
                 onChanges={() => { setNavigation({ repoId: repo.id, workspaceId: w.id }); setTab('changes'); setError(''); }} onRemove={() => openRemoval(w)}>
-                <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} />
+                <WorkspacePortsChip workspace={w} discovery={discovery} terminalIds={liveTerminalIds} disabled={busy} onOpen={openPort} onLiveView={(_owner, target) => openLiveView(target)} />
               </WorkspaceStatus>
             </div>)}{!filteredWorkspaces.length && <div className="sidebar-empty">No matching workspaces.</div>}</nav>
         </> : <><button className="project-home-selected" onClick={() => setProjectQuery('')} aria-current="page"><LayoutGrid size={16} />Projects<span>{state.repos.length}</span></button><div className="project-sidebar-note">A place for each repository.<br />A workspace for each idea.</div></>}
@@ -192,6 +202,7 @@ export default function App() {
             {showBrowser && <BrowserPane key={workspace.id} workspace={workspace} revealRequest={previewReveal} onNavigate={async url => { const next = await api.preview(workspace.id, url); apply(next); }} onClose={() => setShowBrowser(false)} />}
           </div>
           {tab === 'changes' && <RepoMap key={workspace.id} workspace={workspace} reveal={mapTarget} />}
+          {tab === 'live' && liveView?.workspaceId === workspace.id && <LiveView key={liveView.port + ':' + liveView.containerId} target={liveView} onClose={() => { setLiveView(null); setTab('workspace'); }} />}
           {tab === 'views' && <ViewsTab key={workspace.id} workspace={workspace} onOpenInMap={(path, line) => { setMapTarget({ path, line, nonce: ++mapNonce.current }); setTab('changes'); }} />}
         </>}
       </main>
