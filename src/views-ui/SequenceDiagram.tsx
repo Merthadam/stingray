@@ -96,7 +96,7 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
             {layout.fragments.map(f => <g key={f.fragment.id} className={`seq-fragment-head ${f.fragment.kind}`}>
               <path className="seq-fragment-tab" d={`M${f.x} ${f.y + 4} q0 -4 4 -4 H${f.x + tabWidth(f.fragment.kind)} v12 l-6 7 H${f.x} z`} />
               <text className="seq-fragment-kind" x={f.x + 7} y={f.y + 14}>{f.fragment.kind}</text>
-              {f.fragment.label && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>[{clip(f.fragment.label, SEQ.maxLabel)}]<title>{f.fragment.label}</title></text>}
+              {f.fragment.label && f.fragment.label !== f.fragment.kind && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>[{clip(f.fragment.label, SEQ.maxLabel)}]<title>{f.fragment.label}</title></text>}
               {f.branches.map((b, i) => <g key={i}>
                 <line className="seq-branch" x1={f.x} x2={f.x + f.width} y1={b.y} y2={b.y} />
                 <text className="seq-fragment-label" x={f.x + 8} y={b.y + 16}>[{clip(b.label, SEQ.maxLabel)}]<title>{b.label}</title></text></g>)}
@@ -129,7 +129,7 @@ function Participant({ laid, selected, onSelect }: { laid: LaidParticipant; sele
     </g> : <>
       <rect x={x - width / 2} y={10} width={width} height={46} rx={6} />
       <text className="seq-participant-label" x={x} y={p.subtitle ? 30 : 37}>{laid.label}</text>
-      {p.subtitle && <text className="seq-participant-subtitle" x={x} y={45}>{p.subtitle}</text>}
+      {laid.subtitle && <text className="seq-participant-subtitle" x={x} y={45}>{laid.subtitle}</text>}
     </>}
   </g>;
 }

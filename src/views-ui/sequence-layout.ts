@@ -17,12 +17,13 @@ export const SEQ = {
   minGap: 36, labelPad: 18,
   charWidth: 6.6,     // 11px monospace (message labels, notes, fragment labels)
   headerChar: 7.4,    // 12px participant labels, semibold
+  subtitleChar: 6.1,  // 10px monospace participant subtitles
   minBox: 104, maxBox: 230, boxPad: 30,
   maxLabel: 56,
 };
 export const UNCERTAIN = ' (uncertain)';
 
-export interface LaidParticipant { participant: SequenceParticipant; x: number; width: number; label: string } // x = lifeline
+export interface LaidParticipant { participant: SequenceParticipant; x: number; width: number; label: string; subtitle: string | null } // x = lifeline
 export interface LaidMessage {
   message: SequenceMessage; row: number;
   y: number;                   // arrow
@@ -41,6 +42,8 @@ export interface SequenceLayout {
 
 export const textWidth = (text: string, char = SEQ.charWidth) => Math.ceil(text.length * char);
 export const clip = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+/** Keeps the end (a file path's name). */
+const clipStart = (text: string, max: number) => text.length > max ? `…${text.slice(text.length - max + 1)}` : text;
 const labelWidth = (m: SequenceMessage) => textWidth(clip(m.label, SEQ.maxLabel) + (m.certain ? '' : UNCERTAIN));
 const noteText = (n: SequenceNote) => clip(n.text, Math.floor((SEQ.noteMax - 20) / SEQ.charWidth));
 export const tabWidth = (kind: string) => textWidth(kind) + 18;
@@ -49,9 +52,11 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
   const S = SEQ, events = sequenceEvents(data);
   const columns = [...data.participants].sort((a, b) => a.column - b.column);
   const col = new Map(columns.map((p, i) => [p.id, i]));
+  const actors = new Set(columns.filter(p => p.kind === 'actor').map(p => p.id));
   const n = columns.length;
-  const boxChars = Math.floor((S.maxBox - S.boxPad) / S.headerChar);
-  const width = columns.map(p => Math.min(S.maxBox, Math.max(S.minBox, textWidth(p.label, S.headerChar) + S.boxPad)));
+  const boxChars = Math.floor((S.maxBox - S.boxPad) / S.headerChar), subtitleChars = Math.floor((S.maxBox - S.boxPad) / S.subtitleChar);
+  const width = columns.map(p => Math.min(S.maxBox, Math.max(S.minBox, textWidth(p.label, S.headerChar) + S.boxPad,
+    textWidth(p.subtitle ?? '', S.subtitleChar) + S.boxPad)));
 
   // Columns: each lifeline as far right as its box, the labels of the arrows ending at it and the notes around it need.
   const half = width.map(w => w / 2);
@@ -130,7 +135,8 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
         while (stack.length && stack[stack.length - 1].level > L) end(lastArrow);
         if (stack[stack.length - 1]?.participant !== m.from) push(m.from, L, arrow);
         x1 = edge(m.from, from);
-        push(m.to, L + 1, arrow + (self ? S.selfDrop : 0));
+        // The trigger enters the entry function, whose own calls have the trigger's level (0) too.
+        push(m.to, actors.has(m.from) ? L : L + 1, arrow + (self ? S.selfDrop : 0));
         x2 = edge(m.to, to);
       }
       const label = clip(m.label, S.maxLabel);
@@ -147,7 +153,8 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
     ...messages.map(m => m.message.from === m.message.to || m.message.kind === 'self' ? m.labelX + labelWidth(m.message) : 0));
   return {
     width: Math.ceil(right + S.side), height: Math.ceil(y + S.bottom),
-    participants: columns.map((participant, i) => ({ participant, x: x[i], width: width[i], label: clip(participant.label, boxChars) })),
+    participants: columns.map((participant, i) => ({ participant, x: x[i], width: width[i], label: clip(participant.label, boxChars),
+      subtitle: participant.subtitle === null ? null : clipStart(participant.subtitle, subtitleChars) })),
     messages, activations, fragments, notes,
   };
 }

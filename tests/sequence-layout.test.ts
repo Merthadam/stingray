@@ -117,7 +117,9 @@ test('sequenceLayout draws activation bars for callees, nested bars for re-entry
   assert.ok(outer && outer.y <= layout.messages[2].y && outer.y + outer.height >= response.y, 'auth is active from POST to its response');
   const nested = bars('auth').find(a => a.x > outer.x)!;
   assert.ok(nested && nested.y + nested.height < call.y, 'the self link nests a second bar that ends before the next call');
-  assert.ok(bars('web').length >= 2, 'web: the trigger activation plus the nested self call');
+  assert.equal(bars('web').length, 2, 'web: the trigger activation plus the nested self call');
+  const web = bars('web').find(a => a.y <= layout.messages[0].y)!;
+  assert.ok(web.y + web.height >= response.y, 'the entry stays active from the trigger to its last call');
 });
 
 test('sequenceLayout frames fragments over the lifelines they touch, with branch separators and notes inside', () => {
