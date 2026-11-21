@@ -17,7 +17,8 @@ const containerSchema = z.object({
   workspace: z.string().nullish(), cdp: z.string().nullish(), testEnv: z.string().nullish(),
 });
 // Never request environment variables, credentials, or full inspect output.
-export const inspectFormat = '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}""{{end}},"workingDir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"mounts":[{{range $i, $m := .Mounts}}{{if $i}},{{end}}{"Type":{{json $m.Type}},"Source":{{json $m.Source}}}{{end}}],"ports":{{json .NetworkSettings.Ports}},"workspace":{{json (index .Config.Labels "stingray.workspace")}},"cdp":{{json (index .Config.Labels "stingray.cdp")}},"testEnv":{{json (index .Config.Labels "stingray.test-env")}}}';
+// index, not .State.Health: newer Docker CLIs fail the whole inspect when a container has no healthcheck.
+export const inspectFormat = '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}""{{end}},"workingDir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"mounts":[{{range $i, $m := .Mounts}}{{if $i}},{{end}}{"Type":{{json $m.Type}},"Source":{{json $m.Source}}}{{end}}],"ports":{{json .NetworkSettings.Ports}},"workspace":{{json (index .Config.Labels "stingray.workspace")}},"cdp":{{json (index .Config.Labels "stingray.cdp")}},"testEnv":{{json (index .Config.Labels "stingray.test-env")}}}';
 
 export function parseContainers(output: string): ContainerInfo[] {
   return output.split('\n').filter(line => line.trim()).map(line => {
