@@ -27,6 +27,7 @@ export type TraceEvent =
   | { t: 'close' }
   | { t: 'note'; at: End; text: string; source: SourceRef; entered: number | null }; // entered: the msg that entered its function (null: entry)
 
+type Arm = { label: string; body: Construct[]; calls?: { calls: Call[]; code: Code } };
 type How = Pick<Hop, 'label' | 'certain'> & { kind: 'call' | Hop['kind']; link: string | null };
 
 interface Frame {
@@ -101,10 +102,14 @@ export class SequenceWalker {
       case 'action': await this.calls(c.calls, f, c.code); return false;
       case 'if': {
         await this.calls(c.calls, f, c.code);
-        // `elif` / `else if` chains read as one alt with a branch per arm.
-        const arms: { label: string; body: Construct[] }[] = [{ label: condLabel(c.cond), body: c.then }];
+        // `elif` / `else if` chains read as one alt with a branch per arm; an arm's condition calls run first in it.
+        const arms: Arm[] = [{ label: condLabel(c.cond), body: c.then }];
         let rest = c.else;
-        while (rest.length === 1 && rest[0].type === 'if' && !rest[0].calls.length) { arms.push({ label: condLabel(rest[0].cond), body: rest[0].then }); rest = rest[0].else; }
+        while (rest.length === 1 && rest[0].type === 'if') {
+          const elif = rest[0];
+          arms.push({ label: condLabel(elif.cond), body: elif.then, calls: { calls: elif.calls, code: elif.code } });
+          rest = elif.else;
+        }
         if (rest.length) arms.push({ label: 'else', body: rest });
         await this.arms(arms, f, { kind: arms.length > 1 ? 'alt' : 'opt', source: at(c.code) });
         return false;
@@ -142,11 +147,12 @@ export class SequenceWalker {
   }
 
   /** A fragment with one arm per entry (the first arm's label is the fragment's). */
-  private async arms(arms: { label: string; body: Construct[] }[], f: Frame, open: { kind: SequenceFragmentKind; source: SourceRef }) {
+  private async arms(arms: Arm[], f: Frame, open: { kind: SequenceFragmentKind; source: SourceRef }) {
     this.push({ t: 'open', kind: open.kind, label: arms[0].label, source: open.source });
     this.openFragments++;
     for (const [i, arm] of arms.entries()) {
       if (i) this.push({ t: 'branch', label: arm.label });
+      if (arm.calls) await this.calls(arm.calls.calls, f, arm.calls.code);
       await this.body(arm.body, f);
     }
     this.openFragments--;
