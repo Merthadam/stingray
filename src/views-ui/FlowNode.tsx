@@ -7,24 +7,37 @@ import { cardFields, showsExplanation } from './flow-layout';
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
 const STALE = 'may be outdated: the code changed since this explanation was written';
-/** Marker in front of a view `explain:` text whose fingerprint no longer matches the code. */
+const LEGACY = 'old fingerprint';
+/** Marker in front of a view `explain:` text whose fingerprint no longer matches the code ('stale') or uses the old
+ * own-body-only format ('legacy', muted). */
 export const StaleMark = ({ status }: { status?: ExplanationStatus }) =>
-  status === 'stale' ? <b className="flow-explanation-stale" title={STALE}>may be outdated</b> : null;
+  status === 'stale' ? <b className="flow-explanation-stale" title={STALE}>may be outdated</b>
+    : status === 'legacy' ? <b className="flow-explanation-stale legacy" title={LEGACY} aria-label={LEGACY}>{LEGACY}</b> : null;
+/** Why a stale or legacy explanation is flagged: the given reason, else a generic note; undefined for other statuses. */
+const explanationNote = (status?: ExplanationStatus, reason?: string) =>
+  status === 'stale' ? reason ?? STALE : status === 'legacy' ? reason ?? LEGACY : undefined;
 /** Hover text of an explanation, with the staleness note. */
-export const explanationTitle = (text: string, status?: ExplanationStatus) => status === 'stale' ? `${text}\n(${STALE})` : text;
+export const explanationTitle = (text: string, status?: ExplanationStatus, reason?: string) => {
+  const note = explanationNote(status, reason);
+  return note ? `${text}\n(${note})` : text;
+};
+/** Inspector line under a stale or legacy explanation naming what changed. */
+export const ExplanationReason = ({ status, reason }: { status?: ExplanationStatus; reason?: string }) =>
+  reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; explanation?: string | null; explanationStatus?: ExplanationStatus; onOpen?: () => void; onExplain?: () => void }>>) {
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void }>>) {
+  const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
       : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
-    {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${data.explanationStatus === 'stale' ? ' (may be outdated)' : ''}: ${data.explanation}`}
-      title={explanationTitle(data.explanation, data.explanationStatus)} onClick={data.onExplain}><span className="flow-explanation"><StaleMark status={data.explanationStatus} />{data.explanation}</span></button>}
+    {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${note ? ` (${note})` : ''}: ${data.explanation}`}
+      title={explanationTitle(data.explanation, data.explanationStatus, data.explanationReason)} onClick={data.onExplain}><span className="flow-explanation"><StaleMark status={data.explanationStatus} />{data.explanation}</span></button>}
   </>;
 }
 
 /** A node's explanation (its symbol's docstring summary), clamped in the card; full text on hover and in the inspector. */
 const Explanation = ({ node, chart }: { node: DiagramNode; chart?: boolean }) =>
-  showsExplanation(node, chart) ? <p className="flow-explanation" title={explanationTitle(node.explanation!, node.explanationStatus)}>
+  showsExplanation(node, chart) ? <p className="flow-explanation" title={explanationTitle(node.explanation!, node.explanationStatus, node.explanationReason)}>
     <StaleMark status={node.explanationStatus} />{node.explanation}</p> : null;
 
 export type FlowStepNode = Node<{ node: DiagramNode }, 'step'>;

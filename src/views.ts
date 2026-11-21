@@ -29,7 +29,7 @@ export interface SymbolRef {
 
 /** Where a node's or group's explanation comes from: absent = the symbol's docstring; otherwise the view file's `explain:`
  * entry, whose fingerprint matches the code ('view'), differs from it ('stale': "may be outdated") or is missing ('unstamped'). */
-export type ExplanationStatus = 'view' | 'stale' | 'unstamped';
+export type ExplanationStatus = 'view' | 'stale' | 'unstamped' | 'legacy';
 
 export interface DiagramNode {
   id: string;                  // unique within the view; edges reference it
@@ -46,6 +46,7 @@ export interface DiagramNode {
   explanation?: string | null; // intent in prose: the linked symbol's docstring summary (flowchart call nodes, graph steps,
                                // rule nodes with `symbol:`, tables linked to their model class) or the view's `explain:` entry; absent/null = none, nothing is shown
   explanationStatus?: ExplanationStatus;
+  explanationReason?: string;
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
 }
 
@@ -69,6 +70,7 @@ export interface DiagramGroup {
   parent?: string | null;      // enclosing DiagramGroup.id (flowchart: a callee expanded inside another expansion)
   explanation?: string | null; // flowchart expanded call: the callee's docstring summary, or the view's `explain:` entry; absent/null = none
   explanationStatus?: ExplanationStatus;
+  explanationReason?: string;
   symbol?: SymbolRef | null;   // flowchart expanded call: the callee
 }
 
