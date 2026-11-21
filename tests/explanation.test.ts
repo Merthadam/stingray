@@ -40,7 +40,8 @@ test('docstringSummary: without blank lines (CodeGraph strips them from JSDoc) t
 
 test('docstringSummary: empty is null; long text is capped with an ellipsis', () => {
   for (const raw of [undefined, null, '', '   ', '""""""', '/** */', '/**\n * @param x\n */', '\n\n']) assert.equal(docstringSummary(raw), null, String(raw));
-  const long = docstringSummary('word '.repeat(200))!;
+  assert.equal(docstringSummary('word '.repeat(200)), 'word '.repeat(200).trim()); // the full paragraph, cut only in text output
+  const long = docstringSummary('word '.repeat(500))!;
   assert.equal(long.length, MAX_EXPLANATION);
   assert.ok(long.endsWith('…'));
   assert.equal(docstringSummary('x'.repeat(MAX_EXPLANATION)), 'x'.repeat(MAX_EXPLANATION));

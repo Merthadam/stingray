@@ -1,7 +1,8 @@
 // A symbol's docstring summary, shown as the "explanation" of symbol-backed view nodes and groups. Pure.
 import type { GraphSymbol } from './rules/types';
 
-export const MAX_EXPLANATION = 300;
+// The full first paragraph: the UI clamps it to 3 lines with the full text in the tooltip/Inspector; text output cuts at 300.
+export const MAX_EXPLANATION = 2000;
 // A line ending in one of these abbreviations does not end a sentence.
 const ABBREVIATION_END = /\b(e\.g|i\.e|etc|vs|cf|approx)\.$/i;
 
