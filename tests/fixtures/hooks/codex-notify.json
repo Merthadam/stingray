@@ -1,0 +1,1 @@
+{"type":"agent-turn-complete","thread-id":"0199a213-81c0-7800-8aa1-bbab2a035a53","turn-id":"12345","cwd":"/tmp/project","client":"codex-tui","input-messages":["PRIVATE PROMPT TEXT"],"last-assistant-message":"PRIVATE MODEL OUTPUT"}

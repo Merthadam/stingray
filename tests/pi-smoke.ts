@@ -30,7 +30,7 @@ export default function(pi) {
 await writeFile(path.join(bin,'pi'), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(cli!)} --offline --no-session --no-extensions --no-mcp --no-skills --no-prompt-templates --no-themes --no-context-files --no-tools --extension ${shellQuote(fixture)} "$@"\n`, { mode: 0o700 });
 const snapshots: object[] = [];
 const service = new ActivityService(s => { snapshots.push(s); }); await service.start();
-const shell = new ActivityShell(); await shell.prepare(service.directory,path.resolve('dist-electron/pi-extension.js'));
+const shell = new ActivityShell(); await shell.prepare(service.directory,{ extension: path.resolve('dist-electron/pi-extension.js'), hookClient: path.resolve('dist-electron/hook-client.cjs'), execPath: process.execPath, endpoint: service.endpoint });
 const env = { HOME:home, PATH:`${bin}:${path.dirname(process.execPath)}:/usr/bin:/bin`, TERM:'xterm-256color', LANG:'en_US.UTF-8',
  PI_CODING_AGENT_DIR:config, PI_OFFLINE:'1', PI_SKIP_VERSION_CHECK:'1', PI_TELEMETRY:'0', PI_IMAGE_PROTOCOL:'none' };
 await writeFile(path.join(home,'.zshrc'),`export PATH=${shellQuote(env.PATH)}\nPROMPT='isolated % '\n`);

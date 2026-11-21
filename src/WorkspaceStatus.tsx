@@ -4,13 +4,13 @@ import { api } from './api';
 import type { GitLineStats, Workspace } from './shared';
 import { useGitState } from './useGitState';
 import './workspace-git.css';
-import type { PiActivity } from './activity';
+import type { AgentActivity } from './activity';
 import { WorkspaceActivity } from './WorkspaceActivity';
 
 const counts = (lines: GitLineStats) => lines.kind === 'available' ? `+${lines.added} −${lines.deleted}` : 'unavailable';
 export function WorkspaceStatus({ workspace, selected, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRemove, children }: {
   workspace: Workspace; selected: boolean;
-  agents?: PiActivity[]; activityUnavailable?: boolean;
+  agents?: AgentActivity[]; activityUnavailable?: boolean;
   disabled: boolean; running: boolean; onSelect: () => void; onChanges: () => void; onRemove: () => void; children: ReactNode;
 }) {
   const git = useGitState(workspace.id);

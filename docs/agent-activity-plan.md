@@ -1,15 +1,15 @@
 # Agent activity integration plan
 
-Status: **Pi-only activity is implemented and source/candidate-verified within the coverage below. Claude Code and Codex are deferred.** Installed-app promotion is a separate user-requested delivery; its actual outcome is recorded under `artifacts/testing/2026-11-07-pi-activity-delivery/`. This document records implementation and historical planning, not independent proof of authority.
-Updated 2026-11-07 against HEAD b33a0a8 plus uncommitted activity and earlier card/port refinements.
+Status: **Pi activity is implemented and verified as below. Claude Code (hooks) and Codex (notify, completion only) adapters are implemented on `feat/multi-harness-activity` and fixture-tested; neither has been runtime-verified against a live agent turn.** This document records implementation and historical planning, not independent proof of authority.
+Updated for the multi-harness branch. Pi-only delivery history below is unchanged.
 
-Current capability results and exact evidence: [agent-activity-capability-gates.md](agent-activity-capability-gates.md). The current delivery scope is Pi-only, not completion of the original all-three-agent goal. Codex hook discovery/composition passed a historical isolated probe (7/7 assertions), without trusting or executing hooks; exact settlement and blocking-UI semantics remain unproven for Claude/Codex.
+Per-harness capabilities, limits and evidence: [agent-activity-capability-gates.md](agent-activity-capability-gates.md#per-harness-capability-matrix).
 
 ## Goal
 
 Show truthful workspace activity for Pi:
 Working / Waiting for you / Needs review / Idle, with separate failure, interruption, disconnection and unavailable information.
-Pi 1.5.0 is the only implemented adapter. Claude Code and Codex remain usable as ordinary terminal commands, without activity tracking.
+Pi 1.5.0 was the first adapter; Claude Code (hooks) and Codex (notify, completion only) adapters are now implemented too (see Multi-harness architecture).
 Do not infer activity from terminal output, silence, process existence, or terminal titles.
 
 ## Baseline and scope
@@ -41,9 +41,21 @@ Static inspection now establishes the missing attachment path. Evidence and memb
 - The shipped Codex wrapper adds a hook-trust bypass and trusted-project configuration. Do NOT reproduce those behaviors. Its legacy process-scoped log watcher is not proof of current-version coverage and is excluded from the metadata-only proposal.
 - The Pi template uses `agent_end`, treats shutdown as Stop, and can forward assistant/error text. Do NOT copy those semantics or payloads; validate current lifecycle APIs and retain metadata-only reporting.
 
-Historical proposed adaptation: new-terminal shell bootstrap/PATH wrappers, per-invocation Pi extension and Claude plugin where supported, and a bounded investigation of Codex per-invocation hook registration. Only the Pi path is now implemented. Preserve aliases/functions rather than overwrite them; document any unsupported bypass paths such as direct absolute executable invocation. Do not claim automatic tracking for every shell invocation form.
+Historical proposed adaptation: new-terminal shell bootstrap/PATH wrappers, per-invocation Pi extension and Claude plugin where supported, and a bounded investigation of Codex per-invocation hook registration. Pi was implemented first; Claude Code and Codex now attach per invocation too, without global configuration (see Multi-harness architecture). Preserve aliases/functions rather than overwrite them; document any unsupported bypass paths such as direct absolute executable invocation. Do not claim automatic tracking for every shell invocation form.
 
 Codex local-only discovery/composition now passes for the installed version; actual hook execution still requires user-operated trust review. This does not resolve final-settlement or blocking-UI observation. Return those blockers rather than silently install global hooks or approximate lifecycle state. Any optional global setup needs separate approval. The investigation itself did not authorize implementation. Pi source implementation and verification are recorded below; this historical investigation grants no authority for further execution.
+
+## Multi-harness architecture
+
+- `electron/harnesses.ts` defines a `HarnessAdapter` per CLI (`pi`, `claude`, `codex`): display name and a generated PATH wrapper. All wrappers share the invocation-time resolver from the Pi wrapper (skip Stingray's bin dir, loop guard, non-TTY pass-through) plus per-CLI pass-through subcommands/flags. `ActivityShell.prepare` writes all three wrappers into the app-owned bin dir and the Claude settings file into the app-owned activity directory (0700/0600). Nothing is written to `~/.claude`, `~/.codex` or user shell directories.
+- How each reports:
+  - **Pi**: the bundled extension streams `hello` + `state` over a long-lived socket (unchanged). `hello` is now v2 with `harness: 'pi'`; v1 is still accepted as Pi.
+  - **Claude Code**: the wrapper adds `--settings <app-owned json>` (CLI flag for loading additional settings, layered over the user's; user hooks remain). Hooks run `agents/hook-client.ts` (bundled to `dist-electron/hook-client.cjs`) once per event.
+  - **Codex**: the wrapper adds a per-invocation `-c notify=[…]` override, which runs the same hook client on `agent-turn-complete`. It also sends a background `start` event so the run is visible before its first turn.
+- The hook client runs on Stingray's own Electron binary as plain Node (`/usr/bin/env ELECTRON_RUN_AS_NODE=1 <execPath> hook-client.cjs …`). That binary always exists, while a `node` on the user's PATH may not. argv form, not shell syntax, because Codex runs notify without a shell. Cold start is about 1.4 s and warm about 50 ms on the dev machine. The client reads stdin up to 1 MiB (it drops larger input), reads only `session_id`, `hook_event_name` and `notification_type` (Claude) or `type` (Codex), prints nothing, always exits 0 and stops itself after 1.5 s. Claude hook `timeout` is 5 s. Only `PostToolUse` runs per tool call and it is `async`, so tool calls never wait for the client; the once-per-turn hooks stay synchronous so their order is kept.
+- Hook-style protocol: a single `{type:'event', v:2, token, harness, session, pid, at, phase, completed, ended}` frame per connection, after which the connection closes. Identity is (terminal, harness, session): the Claude `session_id`, or the Codex process pid. The client sends the `at` timestamp at report time, and the service drops a report that is older than the last one it applied, so racing hooks cannot regress state. An async `PostToolUse` carries `resume` and only moves Waiting back to Working, so a late one cannot re-open a finished turn. Liveness comes from the agent pid (the wrapper `exec`s, so `$$` is the agent): the service polls `kill(pid, 0)` every ≤5 s and marks a dead process Disconnected. A hook run that stays Working for 15 leases (5 min) without any event becomes `unknown`: Claude interrupted with Esc fires no hook. A long silent tool run hits this too, and `unknown` is the honest label there. A reused pid can keep an entry Connected until the terminal closes; that is accepted because reuse within one terminal's lifetime is rare and it never fabricates a phase. A clean `SessionEnd` (`ended`) removes the entry, or keeps it Disconnected if a review is still unseen. Same bounds as before: terminal-bound token, 8 runs per terminal, frame/rate limits. Socket close carries no meaning for hook clients.
+- Codex may run notify from a shared background daemon without the terminal environment. Its wrapper therefore puts the socket path, a fresh per-run nonce (64 hex from `/dev/urandom`) and the pid into the `-c` argv. argv is visible to every local user and Codex may log `-c` overrides, so the terminal token never goes there: the background `start` (terminal token from its environment) registers the nonce, and notify frames authenticate with the nonce alone. A nonce can only update the live run that registered it; it cannot create entries or revive a dead run. A notify that lands before `start` registers is dropped. Claude hooks inherit the terminal environment (`STINGRAY_ACTIVITY_SOCKET/TOKEN`, `STINGRAY_AGENT_PID`).
+- Renderer: `AgentActivity` (formerly `PiActivity`) carries `harness`. The sidebar shows the harness name (or “Agents” when mixed), its aria-label is `<Harness>: <label>` (`Pi: Idle` is unchanged), and the per-run tooltip names each harness.
 
 ## Implemented Pi architecture
 
@@ -106,6 +118,7 @@ Prefer separate worktrees for editing workers, but provision only after approval
 
 ## Adapter-specific gates
 
+- Claude Code / Codex: implemented as described under Multi-harness architecture. The capability matrix lists what is observed and what is not.
 - Pi: implemented for exact host VERSION 1.5.0. Real no-provider smoke covers extension loading, blocking confirmation UI, reload, new session and shutdown. Turn/retry/outcome and transport cases use synthetic events. Real provider turns and resume/fork flows were not verified. Other versions report tracking unavailable when the extension loads; API/load incompatibility may instead leave it unattached.
 - Codex: establish that the chosen per-invocation hook configuration actually registers and composes with existing hooks. Hook trust remains explicitly user-operated; never use a trust bypass. If unsupported, report a blocker rather than rewrite global config.
 - Claude Code: prefer additive per-session plugin attachment if supported by the current CLI; verify coexistence with existing security hooks. Do not replace hook settings wholesale. Prior-session absence of Claude is not a fresh installation check and does not authorize installation.

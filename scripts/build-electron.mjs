@@ -9,3 +9,5 @@ await rm('dist-electron/skills', { recursive: true, force: true });
 await cp('agents/skills', 'dist-electron/skills', { recursive: true });
 // Keep Pi's host API external: the per-invocation extension resolves it inside Pi.
 await build({ entryPoints: ['agents/pi-extension.ts'], bundle: true, platform: 'node', target: 'node22', format: 'esm', outfile: 'dist-electron/pi-extension.js', external: ['@earendil-works/pi-coding-agent'] });
+// Claude Code hooks / Codex notify run this per event with Stingray's Electron binary as Node (ELECTRON_RUN_AS_NODE).
+await build({ entryPoints: ['agents/hook-client.ts'], bundle: true, platform: 'node', target: 'node22', format: 'cjs', outfile: 'dist-electron/hook-client.cjs' });
