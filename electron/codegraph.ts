@@ -72,7 +72,7 @@ class Graph implements WorktreeGraph {
       try {
         const nodes = files.get(file) ?? files.set(file, nodesIn(posix(file))).get(file)!;
         const node = nodes.find(n => n.name === name && (!kinds?.length || kinds.includes(n.kind)));
-        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine, ...(node.docstring ? { docstring: node.docstring } : {}) } : null;
+        return node ? { id: node.id, name: node.name, kind: node.kind, file: node.filePath, line: node.startLine, endLine: node.endLine, ...(node.docstring ? { docstring: node.docstring } : {}), ...(node.qualifiedName ? { qualifiedName: node.qualifiedName } : {}) } : null;
       } catch { return null; }
     });
   }
