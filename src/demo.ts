@@ -73,6 +73,7 @@ const repoViews = (): ViewSummary[] => [
     error: 'line 3: kind: must be one of tables, flow, timeline, graph' },
 ];
 const savedViews = new Map<string, { summary: ViewSummary; input: SaveViewInput }>();
+let demoTestEnvStopped = false;
 const viewStates = new Map<string, ViewLocalState>();
 let editor: EditorSettings = { selected: 'vscode', available: ['repo-map', 'vscode', 'cursor', 'system'] };
 const CORE_TABLES = new Set(['users', 'organizations', 'memberships']);
@@ -213,7 +214,11 @@ export const demoAPI: DesktopAPI = {
     return { kind: 'pr', branch, repository: 'demo/stingray', checkedAt: Date.now(), number: id === mainId ? 41 : 42, state: id === mainId ? 'merged' : 'open' };
   },
   ports: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return []; },
-  containers: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return [{ id: 'demo-web', name: 'demo-web', image: 'node:24', state: 'running', health: 'healthy', paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 3000, target: '3000/tcp', url: 'http://127.0.0.1:3000' }] }, { id: 'demo-db', name: 'demo-db', image: 'postgres:17', state: 'running', health: '', paths: [], ports: [] }]; },
+  containers: async () => { await new Promise(resolve => setTimeout(resolve, 650)); return [{ id: 'demo-web', name: 'demo-web', image: 'node:24', state: 'running', health: 'healthy', paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 3000, target: '3000/tcp', url: 'http://127.0.0.1:3000' }] }, { id: 'demo-db', name: 'demo-db', image: 'postgres:17', state: 'running', health: '', paths: [], ports: [] },
+    ...(demoTestEnvStopped ? [] : [{ id: 'demo-test-env', name: 'stingray-test-demo', image: 'stingray-test-env:demo', state: 'running', health: '', testEnv: true, paths: state.workspaces.slice(0, 1).map(w => w.path), ports: [{ port: 9223, target: '9223/tcp', url: 'http://127.0.0.1:9223', cdp: true as const }] }])]; },
+  stopContainer: async () => { demoTestEnvStopped = true; },
+  containerLogs: async () => '2026-01-01T00:00:00Z Simulated demo test environment logs.\n2026-01-01T00:00:01Z DevTools listening on ws://127.0.0.1:9222',
+  inspectCdp: async port => ({ address: `127.0.0.1:${port}`, opened: false }),
   preview: async (id, url) => { const w = state.workspaces.find(w => w.id === id); if (w) w.previewUrl = url; return save(); },
   // No real Pi runs in the browser demo; never fabricate live activity.
   activity: async () => ({ revision: 0, agents: [] }),
