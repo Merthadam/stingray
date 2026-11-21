@@ -3,7 +3,7 @@
 # release/*-candidate copies: nothing is installed, promoted or kept on the host.
 #
 #   scripts/test-env.sh up [--ref REF] [--port N] [--repo PATH] [--with-my-data] [--detach]
-#   scripts/test-env.sh down [NAME|--all]     stop/remove test containers
+#   scripts/test-env.sh down NAME|--all       stop/remove test containers
 #   scripts/test-env.sh ls                    list running test envs
 #   scripts/test-env.sh prune                 down --all + remove test images
 #
@@ -41,7 +41,7 @@ cmd_up() {
     case $1 in
       --ref) ref=$2; shift 2 ;;
       --port) port=$2; shift 2 ;;
-      --repo) repo=$(cd "$2" && pwd); shift 2 ;;
+      --repo) repo=$(cd "$2" && pwd); case $repo in *[,\"]*) die "--repo path must not contain , or \"" ;; esac; shift 2 ;;
       --with-my-data) mydata=1; shift ;;
       --detach|-d) detach=1; shift ;;
       *) die "unknown option $1" ;;
@@ -74,28 +74,37 @@ cmd_up() {
   # Stingray maps the container to this checkout's workspace and marks the DevTools port.
   local args=(--init --name "$name" --label "$LABEL=1" --label "stingray.workspace=$(cd "$ROOT" && pwd -P)"
     --label "stingray.cdp=9223" --shm-size=1g -p "127.0.0.1:$port:9223")
-  [ -n "$repo" ] && args+=(-v "$repo:/seed/repo:ro" -e "SEED_NAME=$(basename "$repo")")
+  # --mount, not -v: paths may contain ':'. Its CSV syntax cannot carry ',' or '"', so such paths are skipped.
+  [ -n "$repo" ] && args+=(--mount "type=bind,source=$repo,target=/seed/repo,readonly" -e "SEED_NAME=$(basename "$repo")")
 
-  local snap=""
+  # Global so the EXIT trap still sees it when set -e aborts inside this function.
+  snap=""
   if [ $mydata -eq 1 ]; then
     # Snapshot only the app database (projects, settings, view state); the real data dir is never mounted.
     local data="${STINGRAY_DATA_DIR:-$HOME/Library/Application Support/Stingray}"
     [ -f "$data/stingray.db" ] || die "no Stingray database at $data"
     command -v sqlite3 >/dev/null || die "sqlite3 not found (needed for a consistent snapshot)"
     snap=$(mktemp -d "${TMPDIR:-/tmp}/stingray-test-data.XXXXXX")
-    sqlite3 -readonly "$data/stingray.db" ".backup '$snap/stingray.db'" || { rm -rf "$snap"; die "could not snapshot $data/stingray.db"; }
-    chmod -R a+rX "$snap"
+    trap 'rm -rf "$snap"' EXIT
+    sqlite3 -readonly "$data/stingray.db" ".backup '$snap/stingray.db'" || die "could not snapshot $data/stingray.db"
     local i=0 path
     while IFS= read -r path; do
       # Repos are mounted read-only and cloned inside; unreadable/missing ones are dropped by the entrypoint.
-      [ -d "$path" ] && args+=(-v "$path:/seed/repos/$i:ro")
+      case $path in *[,\"]*) echo "test-env: skipping repo with , or \" in its path: $path" >&2 ;;
+        *) [ -d "$path" ] && args+=(--mount "type=bind,source=$path,target=/seed/repos/$i,readonly") ;; esac
       i=$((i + 1))
     done < <(sqlite3 -readonly "$snap/stingray.db" 'SELECT path FROM repos ORDER BY position')
   fi
 
   docker create "${args[@]}" "$IMAGE:$slug" >/dev/null
   if [ -n "$snap" ]; then
-    local cp_ok=0; docker cp "$snap" "$name:/seed-data" >/dev/null || cp_ok=$?
+    # The snapshot stays private on the host (0700 dir); the tar stream hands it to the container's node user (1000).
+    local cp_ok=0
+    if tar --version | grep -q bsdtar; then
+      tar -C "$snap" -c --no-xattrs --no-mac-metadata --uid 1000 --gid 1000 -s ',^\.,seed-data,' . | docker cp -a - "$name:/" >/dev/null || cp_ok=$?
+    else
+      tar -C "$snap" -c --owner=1000 --group=1000 --transform 's,^\.,seed-data,' . | docker cp -a - "$name:/" >/dev/null || cp_ok=$?
+    fi
     rm -rf "$snap"
     [ $cp_ok -eq 0 ] || { docker rm -f "$name" >/dev/null; die "could not copy the data snapshot"; }
   fi
@@ -127,11 +136,14 @@ EOF
 
 cmd_down() {
   ensure_docker
-  if [ "${1:-}" = "--all" ] || [ -z "${1:-}" ]; then
+  [ -n "${1:-}" ] || die "usage: down NAME|--all"
+  if [ "$1" = "--all" ]; then
     local ids; ids=$(docker ps -aq --filter "label=$LABEL")
     local n=0; [ -n "$ids" ] && { docker rm -f $ids >/dev/null; n=$(echo "$ids" | wc -l | tr -d ' '); }
     echo "Removed $n test env(s)."
   else
+    # Only containers this script created (labeled), never an arbitrary container name.
+    [ "$(docker inspect -f "{{index .Config.Labels \"$LABEL\"}}" "$1" 2>/dev/null)" = 1 ] || die "$1 is not a test env container"
     docker rm -f "$1" >/dev/null && echo "Removed $1."
   fi
 }
