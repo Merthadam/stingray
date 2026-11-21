@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopAPI, TerminalEvent } from '../src/shared';
 import type { ActivitySnapshot } from '../src/activity';
 import type { ViewsChangedEvent } from '../src/views';
+import type { LiveViewEvent } from '../src/live-view';
 const api: DesktopAPI = {
   mode: 'desktop',
   state: () => ipcRenderer.invoke('state'),
@@ -54,6 +55,15 @@ const api: DesktopAPI = {
     const handler = (_event: unknown, payload: TerminalEvent) => listener(payload);
     ipcRenderer.on('terminal-event', handler);
     return () => ipcRenderer.removeListener('terminal-event', handler);
+  },
+  liveViewStart: options => ipcRenderer.invoke('live-view-start', options),
+  liveViewInput: (sessionId, input) => ipcRenderer.invoke('live-view-input', sessionId, input),
+  liveViewResize: (sessionId, maxWidth, maxHeight) => ipcRenderer.invoke('live-view-resize', sessionId, maxWidth, maxHeight),
+  liveViewStop: sessionId => ipcRenderer.invoke('live-view-stop', sessionId),
+  onLiveView: listener => {
+    const handler = (_event: unknown, payload: LiveViewEvent) => listener(payload);
+    ipcRenderer.on('live-view-event', handler);
+    return () => ipcRenderer.removeListener('live-view-event', handler);
   },
 };
 contextBridge.exposeInMainWorld('stingray', api);

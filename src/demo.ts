@@ -235,4 +235,9 @@ export const demoAPI: DesktopAPI = {
   resizeTerminal: async () => undefined,
   closeTerminal: async id => { terminalList = terminalList.filter(t => t.id !== id); },
   onTerminal: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+  liveViewStart: async () => { throw new Error('Live view is unavailable in the browser demo. It needs the desktop app and a running test instance.'); },
+  liveViewInput: async () => undefined,
+  liveViewResize: async () => undefined,
+  liveViewStop: async () => undefined,
+  onLiveView: () => () => {},
 };

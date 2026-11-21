@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 import type { ActivitySnapshot } from './activity';
 import type { DbSchemaResult } from './db-schema';
+import type { LiveViewEvent, LiveViewInput, LiveViewSession } from './live-view';
 import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
 
 export const idSchema = z.string().uuid();
@@ -128,5 +129,12 @@ export interface DesktopAPI {
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>;
   closeTerminal(id: string): Promise<void>;
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Screencast + input of a test instance's Stingray window over CDP on 127.0.0.1:port; max sizes are frame pixels. */
+  liveViewStart(options: { port: number; maxWidth?: number; maxHeight?: number }): Promise<LiveViewSession>;
+  liveViewInput(sessionId: string, input: LiveViewInput): Promise<void>;
+  liveViewResize(sessionId: string, maxWidth: number, maxHeight: number): Promise<void>;
+  liveViewStop(sessionId: string): Promise<void>;
+  onLiveView(listener: (event: LiveViewEvent) => void): () => void;
 }
+export type LiveViewTarget = { workspaceId: string; url: string; port: number; containerId?: string };
 declare global { interface Window { stingray?: DesktopAPI } }
