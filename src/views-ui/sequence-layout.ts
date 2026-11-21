@@ -43,7 +43,7 @@ export const textWidth = (text: string, char = SEQ.charWidth) => Math.ceil(text.
 export const clip = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 const labelWidth = (m: SequenceMessage) => textWidth(clip(m.label, SEQ.maxLabel) + (m.certain ? '' : UNCERTAIN));
 const noteText = (n: SequenceNote) => clip(n.text, Math.floor((SEQ.noteMax - 20) / SEQ.charWidth));
-const tabWidth = (kind: string) => textWidth(kind) + 18;
+export const tabWidth = (kind: string) => textWidth(kind) + 18;
 
 export function sequenceLayout(data: SequenceData): SequenceLayout {
   const S = SEQ, events = sequenceEvents(data);
@@ -109,7 +109,8 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
       const f = open.pop()!;
       if (f.min > f.max) { f.min = x[0] ?? S.side; f.max = f.min; }
       const left = f.min - S.fragmentPad;
-      const labels = Math.max(tabWidth(f.fragment.kind) + textWidth(`[${f.fragment.label}]`) + 16, ...f.branches.map(b => textWidth(`[${b.label}]`) + 16));
+      const labels = Math.max(tabWidth(f.fragment.kind) + textWidth(`[${clip(f.fragment.label, S.maxLabel)}]`) + 16,
+        ...f.branches.map(b => textWidth(`[${clip(b.label, S.maxLabel)}]`) + 16));
       const right = Math.max(f.max + S.fragmentPad, left + labels);
       fragments.push({ fragment: f.fragment, x: left, y: f.y + 2, width: right - left, height: y + 4 - f.y, depth: f.depth, branches: f.branches });
       for (const parent of open) { parent.min = Math.min(parent.min, left - S.nestPad + S.fragmentPad); parent.max = Math.max(parent.max, right + S.nestPad - S.fragmentPad); }
@@ -121,11 +122,12 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
       // A self message loops from the caller's bar out to the right and back into the callee's (nested) bar.
       const from = self ? Infinity : center(m.to), to = self ? Infinity : center(m.from);
       if (m.kind === 'return') {
+        while (stack.length && stack[stack.length - 1].level > L + 1) end(lastArrow); // the callee's own calls ended before
         x1 = edge(m.from, from);
         while (stack.length && stack[stack.length - 1].level > L) end(arrow);
         x2 = edge(m.to, to);
       } else {
-        while (stack.length && stack[stack.length - 1].level > L && stack[stack.length - 1].participant !== m.from) end(lastArrow);
+        while (stack.length && stack[stack.length - 1].level > L) end(lastArrow);
         if (stack[stack.length - 1]?.participant !== m.from) push(m.from, L, arrow);
         x1 = edge(m.from, from);
         push(m.to, L + 1, arrow + (self ? S.selfDrop : 0));
