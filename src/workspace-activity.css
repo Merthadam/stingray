@@ -3,3 +3,4 @@
 .activity-working{color:#9dc6f0}.activity-waiting-for-you{color:#ecd08f}.activity-needs-review{color:#c6a1e8}.activity-idle{color:var(--green)}.activity-failed{color:#efb4a9}
 .pi-terminal-state{font-size:10px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .activity-harness{flex-shrink:0;font-weight:600;color:var(--muted)}
+.activity-previous{opacity:.75}.activity-dismiss{margin-left:auto;flex-shrink:0;padding:0 2px;line-height:0}

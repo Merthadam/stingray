@@ -6,7 +6,7 @@ import { usePullRequest } from './usePullRequest';
 import { useSidebarGit } from './useSidebarGit';
 import './workspace-git.css';
 import type { AgentActivity } from './activity';
-import { WorkspaceActivity } from './WorkspaceActivity';
+import { PreviousActivity, WorkspaceActivity } from './WorkspaceActivity';
 
 export function WorkspaceStatus({ workspace, selected, status: selectedStatus, statusBusy: selectedBusy, statusError: selectedError, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRefresh, onRemove, children }: {
   workspace: Workspace; selected: boolean; status: GitStatus | null; statusBusy: boolean; statusError: string;
@@ -52,7 +52,8 @@ export function WorkspaceStatus({ workspace, selected, status: selectedStatus, s
       <div className="workspace-git-badges">{children}</div>
       </div>
     </div>
-    <WorkspaceActivity agents={agents} unavailable={activityUnavailable} />
+    <WorkspaceActivity agents={agents.filter(a => !a.restored)} unavailable={activityUnavailable} />
+    <PreviousActivity agents={agents.filter(a => a.restored)} onDismiss={() => { void api.dismissActivity(workspace.id).catch(() => {}); }} />
     <div className="workspace-card-bottom">
       <button disabled={disabled} className={'workspace-link ' + (selected ? 'selected' : '')} aria-label={workspace.name}
         aria-current={selected ? 'page' : undefined} title={`${branch} · ${workspace.name} · ${workspace.managed ? 'Git worktree' : 'Local repository'} · ${workspace.path}`} onClick={onSelect}>
