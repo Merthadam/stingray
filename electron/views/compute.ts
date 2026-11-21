@@ -10,9 +10,10 @@ import type { DbSchemaResult } from '../../src/db-schema';
 import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../src/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
+import { applyExplain, type ReadSource } from './explain';
 import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
-import { explanationOf } from './explanation';
+import { explanationOf, symbolRef } from './explanation';
 import { tablesView, type ViewFileEntry } from './view-file';
 
 export const MAX_WARNINGS = 200;
@@ -22,6 +23,7 @@ export interface ComputeDeps {
   sqlalchemy?: () => Promise<DbSchemaResult>;
   sql?: () => Promise<DbSchemaResult>;
   findSymbols: (queries: SymbolQuery[]) => Promise<(GraphSymbol | null)[]>;
+  readSource?: ReadSource;    // worktree files, for fingerprints of `explain:` entries (unchecked without it)
   graph: GraphStatus;
   workspaceId?: string;
 }
@@ -52,7 +54,12 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
       ...(warnings.length > MAX_WARNINGS ? { warningsDropped: warnings.length - MAX_WARNINGS } : {}) },
     graph: deps.graph, diagnostics: output.diagnostics, layout: entry.layout ?? null,
   };
-  return linkSymbols(result, deps.findSymbols);
+  const linked = await linkSymbols(result, deps.findSymbols);
+  if (!entry.explain?.length) return linked;
+  // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
+  const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
+  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource });
+  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS) };
 }
 
 /** Merge narrowed sqlalchemy tables into engine output (see the header for the key semantics). Pure. */
@@ -66,6 +73,7 @@ export function mergeTables(output: Pick<EvaluateOutput, 'nodes' | 'edges'>, tab
     if (!node) { if (!nodes.has(n.id)) nodes.set(n.id, n); ids.set(n.id, n.id); continue; }
     ids.set(n.id, node.id);
     node.detail ??= n.detail; node.role ??= n.role; node.order ??= n.order; node.symbol ??= n.symbol;
+    if (n.aliases) node.aliases = [...new Set([...node.aliases ?? [], ...n.aliases])];
     if (n.explanation && !node.explanation) node.explanation = n.explanation;
     for (const f of n.fields) if (!node.fields.some(x => x.id === f.id)) node.fields.push(f);
   }
@@ -88,8 +96,7 @@ export async function linkSymbols(result: ViewResult, findSymbols: ComputeDeps['
     if (!queries[i]) return n;
     const s = symbols[found++];
     if (!s) return { ...n, symbol: null };
-    const { docstring: _, ...symbol } = s;
-    return { ...n, symbol, ...(n.explanation ? {} : explanationOf(s)) };
+    return { ...n, symbol: symbolRef(s), ...(n.explanation ? {} : explanationOf(s)) };
   }) };
 }
 

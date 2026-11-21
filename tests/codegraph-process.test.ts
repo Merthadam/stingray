@@ -46,7 +46,7 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
     await state(graph, 'ready');
     assert.equal(children.length, 1);
     assert.match(execFileSync('ps', ['-o', 'args=', '-p', String(children[0].pid)], { encoding: 'utf8' }), /--liftoff-only/);
-    assert.deepEqual({ ...await find(graph, 'User'), id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1 });
+    assert.deepEqual({ ...await find(graph, 'User'), id: undefined }, { id: undefined, name: 'User', kind: 'class', file: 'app/models.py', line: 1, endLine: 2 });
 
     await appendFile(path.join(root, 'app/models.py'), '\nclass Invoice:\n    pass\n');
     await until('models.py change', () => seen.some(c => c.files.includes('app/models.py')));

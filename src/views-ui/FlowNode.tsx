@@ -1,23 +1,31 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronRight } from 'lucide-react';
-import type { DiagramNode } from '../views';
+import type { DiagramNode, ExplanationStatus } from '../views';
 import { cardFields, showsExplanation } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; explanation?: string | null; onOpen?: () => void; onExplain?: () => void }>>) {
+const STALE = 'may be outdated: the code changed since this explanation was written';
+/** Marker in front of a view `explain:` text whose fingerprint no longer matches the code. */
+export const StaleMark = ({ status }: { status?: ExplanationStatus }) =>
+  status === 'stale' ? <b className="flow-explanation-stale" title={STALE}>may be outdated</b> : null;
+/** Hover text of an explanation, with the staleness note. */
+export const explanationTitle = (text: string, status?: ExplanationStatus) => status === 'stale' ? `${text}\n(${STALE})` : text;
+
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; explanation?: string | null; explanationStatus?: ExplanationStatus; onOpen?: () => void; onExplain?: () => void }>>) {
   return <>
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
       : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
-    {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}: ${data.explanation}`}
-      title={data.explanation} onClick={data.onExplain}><span className="flow-explanation">{data.explanation}</span></button>}
+    {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${data.explanationStatus === 'stale' ? ' (may be outdated)' : ''}: ${data.explanation}`}
+      title={explanationTitle(data.explanation, data.explanationStatus)} onClick={data.onExplain}><span className="flow-explanation"><StaleMark status={data.explanationStatus} />{data.explanation}</span></button>}
   </>;
 }
 
 /** A node's explanation (its symbol's docstring summary), clamped in the card; full text on hover and in the inspector. */
 const Explanation = ({ node, chart }: { node: DiagramNode; chart?: boolean }) =>
-  showsExplanation(node, chart) ? <p className="flow-explanation" title={node.explanation!}>{node.explanation}</p> : null;
+  showsExplanation(node, chart) ? <p className="flow-explanation" title={explanationTitle(node.explanation!, node.explanationStatus)}>
+    <StaleMark status={node.explanationStatus} />{node.explanation}</p> : null;
 
 export type FlowStepNode = Node<{ node: DiagramNode }, 'step'>;
 

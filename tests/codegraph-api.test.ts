@@ -50,7 +50,7 @@ test('evaluateView hands the engine a CodeGraph-backed GraphApi and the worktree
 
     const api = input.graph!;
     const [main] = api.findSymbols('main', 'app/flow.py');
-    assert.deepEqual({ ...main, id: undefined }, { id: undefined, name: 'main', kind: 'function', file: 'app/flow.py', line: 13 });
+    assert.deepEqual({ ...main, id: undefined }, { id: undefined, name: 'main', kind: 'function', file: 'app/flow.py', line: 13, endLine: 15 });
     assert.deepEqual(api.findSymbols('main').map(s => s.id), [main.id]);
     assert.deepEqual(api.findSymbols('main', 'other.py'), []);
     const calls = api.outgoing([main.id], ['calls']);

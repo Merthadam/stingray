@@ -42,7 +42,8 @@ await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a val
   + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(name)\n\n\n'
   + 'def handle(request):\n    """Handle a request end to end."""\n    record = load(request)\n    return clean(record)\n');
 await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n');
-await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
+await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n'
+  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: "000000000000" }\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('.stingray/views/broken.yaml', 'version: 1\nname: Broken\nkind: nope\nuse: [sqlalchemy]\n');
 git('add', '.'); git('commit', '-m', 'fixture');
@@ -94,6 +95,10 @@ try {
     && (await chart.locator('.flow-chart-call').innerText()).includes('+3 steps'));
   check('a call box shows its callee docstring summary as a visible explanation',
     await chart.locator('.flow-chart-call .flow-explanation').innerText() === 'Reject inactive users, then verify the password.');
+  const startExplanation = chart.locator('.flow-pill.start .flow-explanation');
+  check('a stale explain: entry replaces the explanation and is marked "may be outdated"',
+    await startExplanation.locator('.flow-explanation-stale').innerText() === 'may be outdated'
+    && (await startExplanation.innerText()).endsWith('Sign a user in by email'));
   check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
   const depth = page.getByRole('slider', { name: 'Flowchart depth' });

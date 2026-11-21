@@ -4,6 +4,7 @@
 import path from 'node:path';
 import type { DiagramEdge, DiagramGroup, DiagramNode, LayersDiagnostic, ViewWarning } from '../../../src/views';
 import type { GraphApi, GraphRelation, GraphRollupEdge, GraphSymbol, LayersStep } from './types';
+import { symbolRef } from '../explanation';
 
 /** The edge kinds stinggraph's roll-up counts (ROLLUP_EDGE_KINDS), used for symbol-level edges too. */
 const ROLLUP_KINDS = ['calls', 'references', 'imports', 'instantiates', 'extends', 'implements'];
@@ -65,7 +66,7 @@ export function runLayers(step: LayersStep, graph: GraphApi, inScope: (file: str
     nodes.delete(fid);
     groups.set(fid, { id: fid, label: drawn.label, source: { file, line: 1 }, parent: drawn.group });
     for (const s of children) nodes.set(symbolId(s), node(symbolId(s), s.name, s.kind, { group: fid, source: { file: s.file, line: s.line },
-      symbol: { id: s.id, name: s.name, kind: s.kind, file: s.file, line: s.line } }));
+      symbol: symbolRef(s) }));
   }
 
   const rolled: GraphRollupEdge[] = graph.rollup(units);
