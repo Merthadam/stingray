@@ -190,7 +190,7 @@ const initial: State = {
 };
 let state = structuredClone(initial);
 try { const saved = localStorage.getItem('stingray-demo-v1'); if (saved) { const { stateSchema } = await import('./shared'); state = stateSchema.parse(JSON.parse(saved)); } } catch { /* Invalid demo data is disposable; desktop data never uses this adapter. */ }
-let terminalList: TerminalInfo[] = [];
+let terminalList: (TerminalInfo & { buffer: string })[] = [];
 const listeners = new Set<(event: TerminalEvent) => void>();
 const snapshot = () => structuredClone(state);
 const save = () => { localStorage.setItem('stingray-demo-v1', JSON.stringify(state)); return snapshot(); };
@@ -274,11 +274,15 @@ export const demoAPI: DesktopAPI = {
   acknowledgeActivity: async () => undefined,
   onActivity: () => () => {},
   onViewsChanged: () => () => {},
-  terminals: async () => structuredClone(terminalList),
+  terminals: async () => terminalList.map(({ buffer: _, ...t }) => structuredClone(t)),
+  terminalSnapshot: async id => {
+    const t = terminalList.find(t => t.id === id); if (!t) throw new Error('Terminal not found.');
+    return { id, data: t.buffer, sequence: t.sequence, cols: 100, rows: 30 };
+  },
   createTerminal: async workspaceId => {
     if (terminalList.length >= 24) throw new Error('Terminal limit reached.');
     const t = { id: crypto.randomUUID(), workspaceId, title: 'Terminal ' + (terminalList.length + 1), exited: false, sequence: 0, buffer: '\x1b[38;2;224;120;80mStingray\x1b[0m · browser demo\r\n\r\nSimulated terminal. Commands are not executed.\r\nUse the Electron app for a real shell and installed agents.\r\n\r\n❯ ' };
-    terminalList.push(t); return { ...t };
+    terminalList.push(t); const { buffer: _, ...info } = t; return info;
   },
   writeTerminal: async (id, data) => {
     const output = data === '\r' ? '\r\nDemo only — no command was executed.\r\n❯ ' : data === '\x7f' ? '\b \b' : data;

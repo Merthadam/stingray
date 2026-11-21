@@ -79,7 +79,11 @@ export type ContainerInfo = {
   ports: { port: number; target: string; url: string }[];
 };
 export type WorkspacePort = { workspaceId: string; terminalId?: string; port: number; url: string; label: string; source: 'terminal' | 'docker' };
-export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; buffer: string; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
+export type TerminalInfo = { id: string; workspaceId: string; title: string; exited: boolean; sequence: number; cols?: number; rows?: number; piTracking?: 'available' | 'unavailable' };
+/** Scrollback lines kept by terminal panes and the main-process mirror they restore from. */
+export const terminalScrollback = 5000;
+/** Serialized screen/scrollback/modes of a terminal at `sequence`, at the PTY's size. */
+export type TerminalSnapshot = { id: string; data: string; sequence: number; cols: number; rows: number; exitCode?: number };
 export type TerminalEvent = { id: string; data?: string; exitCode?: number; sequence?: number };
 export interface DesktopAPI {
   mode: 'desktop' | 'demo';
@@ -125,6 +129,7 @@ export interface DesktopAPI {
   activityView(terminalIds: string[]): Promise<void>;
   acknowledgeActivity(id: string, terminalId: string, reviewRevision: number): Promise<void>;
   terminals(): Promise<TerminalInfo[]>;
+  terminalSnapshot(id: string): Promise<TerminalSnapshot>;
   createTerminal(workspaceId: string): Promise<TerminalInfo>;
   writeTerminal(id: string, data: string): Promise<void>;
   openTerminalLink(id: string, uri: string): Promise<void>;

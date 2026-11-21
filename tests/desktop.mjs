@@ -77,7 +77,7 @@ try {
   const terminal = (await page.evaluate(() => window.stingray.terminals()))[0];
   await page.locator('.xterm-helper-textarea').click();
   await page.keyboard.type("printf 'STINGRAY_NATIVE_OK\\n'"); await page.keyboard.press('Enter');
-  await waitFor(() => page.evaluate(async () => (await window.stingray.terminals())[0]?.buffer.includes('STINGRAY_NATIVE_OK\r\n')), 'real terminal output');
+  await waitFor(() => page.evaluate(async () => { const [t] = await window.stingray.terminals(); return Boolean(t) && (await window.stingray.terminalSnapshot(t.id)).data.includes('STINGRAY_NATIVE_OK\r\n'); }), 'real terminal output');
   check('real PTY accepted keyboard input and returned command output', true);
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
@@ -187,7 +187,7 @@ try {
   await page.getByRole('heading', { name: 'main', exact: true }).waitFor();
   check('renderer reload retains PTY and saved preview URL', await page.evaluate(async () => {
     const ts = await window.stingray.terminals(); const s = await window.stingray.state();
-    return ts.length === 1 && ts[0].buffer.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
+    return ts.length === 1 && (await window.stingray.terminalSnapshot(ts[0].id)).data.includes('STINGRAY_NATIVE_OK') && s.workspaces[0].previewUrl.startsWith('http://127.0.0.1:');
   }));
   await page.getByRole('tab', { name: /Repo Map/ }).click();
   await page.getByRole('button', { name: 'Unchanged file README.md', exact: true }).waitFor();
