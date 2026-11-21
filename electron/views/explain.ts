@@ -50,7 +50,8 @@ export function explainTargets(key: string, nodes: DiagramNode[], groups: Diagra
 export interface PieceDeps { read: ReadSource; callees?: ComputeDeps['callees']; fileSymbols?: ComputeDeps['fileSymbols'] }
 export interface Pieces { pieces: Record<string, string> | null; skipped: string[]; files: string[]; why?: string }
 
-const pieceKey = (s: SymbolRef | GraphSymbol) => s.qualifiedName ?? `${s.file}::${s.name}`;
+// CodeGraph's qualified name is file-relative (e.g. "Store::get"), so the file is part of the key.
+const pieceKey = (s: SymbolRef | GraphSymbol) => `${s.file}::${s.qualifiedName || s.name}`;
 const CONSTRUCTORS = new Set(['__init__', 'constructor']);
 
 /** The pieces of code an entry's targets stand for, keyed by qualified name (or `drawn:<id>` for targets without a symbol):
