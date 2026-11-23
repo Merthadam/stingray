@@ -97,12 +97,14 @@ export function RepoMap({ workspace, reveal }: Props) {
     const load = async (foreground = false) => {
       if (running) return;
       running = true; if (foreground) setFileBusy(true);
+      let stamp = '';
       try {
-        const stamp = JSON.stringify(await api.statFile(workspace.id, selected).catch(() => null));
+        stamp = JSON.stringify(await api.statFile(workspace.id, selected).catch(() => null));
         const next = await api.inspectFile(workspace.id, selected);
         if (!cancelled) { fileStamp.current = stamp; setInspection(previous => previous?.revision === next.revision ? previous : next); setFileError(''); }
       } catch (e) {
-        if (!cancelled) { setInspection(null); setFileError((e as Error).message); }
+        // Record the stamp anyway so the 5s stat check retries only after the file changes again.
+        if (!cancelled) { fileStamp.current = stamp; setInspection(null); setFileError((e as Error).message); }
       } finally { running = false; if (foreground && !cancelled) setFileBusy(false); }
     };
     refreshFile.current = () => { void load(); };
