@@ -16,7 +16,7 @@ child.stdout.resume();
 const exited = new Promise(resolve => child.on('exit', (code, signal) => resolve({ code, signal })));
 let browser;
 try {
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 180000;
   let endpoint;
   while (Date.now() < deadline) {
     endpoint = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1];

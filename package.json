@@ -12,7 +12,7 @@
     "prototype:home": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
     "typecheck": "tsc --noEmit",
-    "start": "electron .",
+    "start": "npm run build && electron .",
     "package:mac": "npm run build && node scripts/package-mac.mjs",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "node scripts/run-e2e.mjs",

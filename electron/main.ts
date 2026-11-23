@@ -35,7 +35,11 @@ if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.
 const devUrl = process.env.STINGRAY_DEV_URL;
 if (devUrl && devUrl !== 'http://127.0.0.1:5178') throw new Error('Unexpected development URL.');
 const rendererUrl = (devUrl ? new URL(devUrl).href : undefined) || pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
-if (!app.requestSingleInstanceLock()) app.exit(0);
+if (!app.requestSingleInstanceLock()) {
+  console.error(`Stingray is already running with data dir ${app.getPath('userData')}. ` +
+    'Quit it, or set STINGRAY_DATA_DIR to another folder.');
+  app.exit(1);
+}
 let win: BrowserWindow;
 app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 let quitting = false;
