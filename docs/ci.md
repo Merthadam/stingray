@@ -16,7 +16,7 @@ non-blocking step, so a fix shows up immediately; once they pass, move them into
 All suites are required on macOS.
 
 Linux unit tests run in the Docker image rather than directly on the runner: the zsh PTY tests
-(`tests/activity-shell.test.ts`) time out against the hosted Ubuntu runner's zsh setup.
+(`tests/activity/activity-shell.test.ts`) time out against the hosted Ubuntu runner's zsh setup.
 
 Test evidence (screenshots, logs) and the packaged app are attached to each run as artifacts.
 

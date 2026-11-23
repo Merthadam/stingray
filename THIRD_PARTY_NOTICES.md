@@ -131,7 +131,7 @@ Other dependencies retain their own licenses in node_modules and package-lock.js
 ## Cloud architecture icons
 
 Terraform and AWS CDK views draw cloud resources with the providers' official architecture icons, vendored unmodified
-(only the icons the service catalog in `src/infra/catalog.ts` references) in `src/assets/infra-icons/`. They are used only
+(only the icons the service catalog in `shared/views/infra/catalog.ts` references) in `src/features/views/assets/infra-icons/`. They are used only
 to depict those services in architecture diagrams, as each provider permits; they remain the property of their owners and
 no endorsement is implied.
 
@@ -148,4 +148,4 @@ no endorsement is implied.
 
 ## xterm.js serializer
 
-`electron/terminal-serialize.ts` is adapted from `@xterm/addon-serialize` 0.14.0 (`src/SerializeAddon.ts`, HTML output removed, OSC 8 hyperlinks added). MIT License, Copyright (c) 2019 The xterm.js authors; the license text is the MIT text above.
+`electron/adapters/driven/pty/terminal-serialize.ts` is adapted from `@xterm/addon-serialize` 0.14.0 (`src/SerializeAddon.ts`, HTML output removed, OSC 8 hyperlinks added). MIT License, Copyright (c) 2019 The xterm.js authors; the license text is the MIT text above.

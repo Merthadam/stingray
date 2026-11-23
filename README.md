@@ -168,11 +168,11 @@ Keep the window open during cloning. Cancel/Escape/window-close are blocked whil
 For the Pi source checkpoint, the sequential isolated runner creates a fresh evidence directory on every invocation (requires already-installed project dependencies):
 
 ```sh
-node tests/verify-activity.mjs
+node tests/activity/verify-activity.mjs
 # Optional real-Pi smoke: use an existing absolute path, never an installation command.
-PI_TEST_CLI="/absolute/path/to/pi/dist/cli.js" node tests/verify-activity.mjs
+PI_TEST_CLI="/absolute/path/to/pi/dist/cli.js" node tests/activity/verify-activity.mjs
 # Optional stage selection for a justified bounded rerun:
-node tests/verify-activity.mjs unit pi-native
+node tests/activity/verify-activity.mjs unit pi-native
 ```
 
 Without `PI_TEST_CLI`, the real-Pi smoke is explicitly skipped. The runner sanitizes HOME/config/environment and uses test-owned sessions, local Git fixtures and fake gh/docker; the real-Pi smoke additionally requires macOS `sandbox-exec` and denies network except the private activity socket. It never packages/promotes the installed app. See the [capability report](docs/agent-activity-capability-gates.md#verification-status) for the saved eight-stage results, initial npm-config failure, Vite warning and coverage limits. Completed suites were not rerun during the documentation-only review.
@@ -188,7 +188,7 @@ npm run test:terminal-links
 npm run test:workspace-status
 npm run test:pull-requests
 npm run test:add-project
-STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/source-launch" node tests/launch.mjs
+STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/source-launch" node tests/app/launch.mjs
 ```
 
 Native tests use temporary app data, repositories, fixture-only Git commits, PTYs, and a loopback preview server, then clean up their own fixtures. They do not operate on your repositories. The launch smoke test opens `npm start` with an ephemeral local debugging endpoint for inspection, then closes it.
@@ -205,7 +205,7 @@ STINGRAY_TEST_APP="$PWD/release/Stingray.app/Contents/MacOS/Stingray" \
 STINGRAY_TEST_APP="$PWD/release/Stingray.app/Contents/MacOS/Stingray" \
   STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/clone" npm run test:add-project
 STINGRAY_TEST_BUNDLE="$PWD/release/Stingray.app" \
-  STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/launch" node tests/package-launch.mjs
+  STINGRAY_TEST_EVIDENCE="$PWD/artifacts/testing/<run>/launch" node tests/app/package-launch.mjs
 codesign --verify --deep --strict release/Stingray.app
 ```
 
@@ -245,7 +245,7 @@ The recipe builds and packages a self-contained `.app`, generates the existing S
 - `src/WorkspacePortsChip.tsx`, `useWorkspacePorts.ts`, `workspace-status.ts`, `workspace-ports.css`: discovered-port-only badges, popover, discovery and partial-error details.
 - `electron/activity.ts`, `activity-shell.ts`, `agents/pi-extension.ts`, `agents/pi-observer.ts`: private metadata transport, temporary zsh attachment and version-gated Pi lifecycle observation.
 - `src/activity.ts`, `useActivity.ts`, `WorkspaceActivity.tsx`, `workspace-activity.css`: activity aggregation, revisioned snapshots/acknowledgement and sidebar status; `TerminalPane.tsx` supplies terminal observation guards.
-- `tests/verify-activity.mjs`, `pi-activity.mjs`, `pi-smoke.ts`: sequential isolated runner, native synthetic-lifecycle tests and opt-in real-Pi no-provider smoke.
+- `tests/activity/verify-activity.mjs`, `pi-activity.mjs`, `pi-smoke.ts`: sequential isolated runner, native synthetic-lifecycle tests and opt-in real-Pi no-provider smoke.
 - `electron/ports.ts`: bounded macOS terminal-descendant listener discovery; no process command lines or environments.
 - `electron/containers.ts`: bounded, read-only local Docker discovery; no full inspect/environment payloads.
 - `src/shared.ts`: shared types and schemas; `src/demo.ts`: explicitly simulated browser adapter.

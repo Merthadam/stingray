@@ -5,7 +5,7 @@
 // to them by property name — a heuristic, so those edges are dashed (certain: false).
 const NEW = (args: string, predicate = '') =>
   `(new_expression constructor: [(identifier) @type (member_expression property: (property_identifier) @type)] arguments: (arguments ${args})${predicate})`;
-// @type is the constructor as written (`s3.Bucket`, `Bucket`), so the module tells the cloud service apart (src/infra/catalog.ts).
+// @type is the constructor as written (`s3.Bucket`, `Bucket`), so the module tells the cloud service apart (shared/views/infra/catalog.ts).
 const CONSTRUCT = '(new_expression constructor: [(identifier) (member_expression)] @type arguments: (arguments . (this) . (string (string_fragment) @cid)))';
 // A construct reference: `queue`, `this.table`, `props.table`.
 const REF = `[(identifier) @ref (member_expression object: (this) property: (property_identifier) @ref)]`;

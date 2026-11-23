@@ -1,6 +1,6 @@
 // Cloud services that Terraform resources and AWS CDK constructs map to, for drawing infra views like AWS/Azure
 // architecture diagrams. Pure data shared by the main process (matching) and the renderer (icons, inspector).
-// A service id is also its icon path: src/assets/infra-icons/<id>.svg (official AWS, Azure and Google Cloud icons).
+// A service id is also its icon path: src/features/views/assets/infra-icons/<id>.svg (official AWS, Azure and Google Cloud icons).
 
 export type InfraProvider = 'aws' | 'azure' | 'gcp';
 export type InfraCategory = 'compute' | 'containers' | 'storage' | 'database' | 'networking' | 'security' | 'integration'

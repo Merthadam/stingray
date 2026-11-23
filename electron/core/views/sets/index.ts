@@ -1,5 +1,5 @@
 // Builtin rule sets (`use: [name]` in a view). Each YAML set is a TS module exporting its YAML text, so it works under
-// esbuild and tsx alike. `sqlalchemy` is the TypeScript extractor in electron/db-schema.ts, computed by the main process.
+// esbuild and tsx alike. `sqlalchemy` is the TypeScript extractor in electron/core/db-schema/db-schema.ts, computed by the main process.
 import { alembic } from './alembic';
 import { cdk } from './cdk';
 import { langgraph } from './langgraph';

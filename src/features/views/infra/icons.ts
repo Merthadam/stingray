@@ -1,4 +1,4 @@
-// URLs of the vendored cloud service icons (src/assets/infra-icons/<service id>.svg), bundled by Vite.
+// URLs of the vendored cloud service icons (src/features/views/assets/infra-icons/<service id>.svg), bundled by Vite.
 let urls: Record<string, string> = {};
 try {
   urls = import.meta.glob<string>('../assets/infra-icons/*/*.svg', { query: '?url', import: 'default', eager: true });

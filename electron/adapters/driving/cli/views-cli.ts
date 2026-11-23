@@ -1,5 +1,5 @@
 // `stingray-views`: checks repo view files for agents in Stingray terminals (see .superpowers/sdd/views-platform/m3-design.md).
-// Bundled to dist-electron/views-cli.cjs and run by the launcher (electron/views/launcher.ts) with ELECTRON_RUN_AS_NODE=1
+// Bundled to dist-electron/views-cli.cjs and run by the launcher (electron/adapters/driven/fs/launcher.ts) with ELECTRON_RUN_AS_NODE=1
 // and --liftoff-only. Runs the rule engine in-process; opens an existing .codegraph index read-only, never indexes or writes.
 import { execFile } from 'node:child_process';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
