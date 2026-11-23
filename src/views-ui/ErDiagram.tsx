@@ -4,7 +4,7 @@ import { Background, Controls, MarkerType, MiniMap, ReactFlow, ReactFlowProvider
 import { ListFilter, LayoutGrid, Save } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import './er-diagram.css';
-import type { DiagramNode, ViewLocalState } from '../views';
+import type { DiagramNode, ViewLocalState } from '../../shared/contracts/views';
 import type { ErDiagramProps } from './types';
 import { cardSize, handleId, layoutPositions, separateCards, storedPositions, visibleEdges, visibleNodes, type Positions } from './er-layout';
 import { hideIsolated, onlyNeighbours } from './er-filter';

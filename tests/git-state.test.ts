@@ -6,7 +6,7 @@ import path from 'node:path';
 import { git, GitService } from '../electron/git';
 import { Store } from '../electron/store';
 import { GitStateService } from '../electron/git-state';
-import type { PullRequestStatus, WorkspaceGitState } from '../src/shared';
+import type { PullRequestStatus, WorkspaceGitState } from '../shared/contracts/git';
 
 const commit = (repo: string) => git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'fixture']);
 async function waitFor<T>(read: () => T | undefined, ms = 8000): Promise<T> {

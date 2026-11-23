@@ -1,4 +1,4 @@
-import { stateSchema, type State } from '../src/shared';
+import { stateSchema, type State } from '../shared/contracts/git';
 import { database, readState, transaction, writeState } from './database';
 
 /** Repositories and workspaces, in the `repos` and `workspaces` tables of the app database. */

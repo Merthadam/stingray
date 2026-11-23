@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { MonitorPlay, RotateCw, X } from 'lucide-react';
 import { api } from './api';
-import type { LiveViewTarget } from './shared';
-import { framePoint, keyInput, modifierBits, type LiveViewEvent, type LiveViewInput, type LiveViewSession } from './live-view';
+import type { LiveViewTarget } from '../shared/contracts/runtime';
+import { framePoint, keyInput, modifierBits } from './live-view';
+import { type LiveViewEvent, type LiveViewInput, type LiveViewSession } from '../shared/contracts/runtime';
 import './live-view.css';
 
 const BUTTONS = ['left', 'middle', 'right'] as const;

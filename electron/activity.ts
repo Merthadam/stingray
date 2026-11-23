@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ActivitySnapshot, AgentActivity, AgentPhase } from '../src/activity';
+import type { ActivitySnapshot, AgentActivity, AgentPhase } from '../shared/contracts/activity';
 import type { ActivityHistory, ActivityRecord } from './activity-history';
 
 const uuid = z.string().uuid();

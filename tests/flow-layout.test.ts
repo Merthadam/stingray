@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
+import type { DiagramEdge, DiagramNode, ViewResult } from '../shared/contracts/views';
 import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel } from '../src/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({

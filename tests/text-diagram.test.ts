@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatText } from '../src/views-text';
-import type { DiagramEdge, DiagramField, DiagramNode } from '../src/views';
+import type { DiagramEdge, DiagramField, DiagramNode } from '../shared/contracts/views';
 
 const node = (id: string, extra: Partial<DiagramNode> = {}): DiagramNode =>
   ({ id, label: id, kind: 'step', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null, ...extra });

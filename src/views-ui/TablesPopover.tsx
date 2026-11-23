@@ -1,7 +1,7 @@
 // "Tables" popover: search, per-group checkboxes, all/none; clicking a name finds and centres the table.
 import { useState } from 'react';
 import { Search } from 'lucide-react';
-import type { ViewResult } from '../views';
+import type { ViewResult } from '../../shared/contracts/views';
 
 interface Props {
   result: ViewResult;

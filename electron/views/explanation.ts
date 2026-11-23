@@ -1,5 +1,5 @@
 // A symbol's docstring summary, shown as the "explanation" of symbol-backed view nodes and groups. Pure.
-import type { SymbolRef } from '../../src/views';
+import type { SymbolRef } from '../../shared/contracts/views';
 import type { GraphSymbol } from './rules/types';
 
 // The full first paragraph: the UI clamps it to 3 lines with the full text in the tooltip/Inspector; text output cuts at 300.

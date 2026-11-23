@@ -1,7 +1,7 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../src/shared';
+import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../shared/contracts/terminals';
 import { TerminalMirror } from './terminal-mirror';
 import type { ActivityService } from './activity';
 import type { ActivityShell } from './activity-shell';

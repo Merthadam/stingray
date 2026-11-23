@@ -8,7 +8,7 @@ import { Store } from '../electron/store';
 import { aggregate, buildRepoTree, clusterNodes, fileKind, findFolder, inRange, reconcileSnapshot } from '../src/repo-map-model';
 import { parseNumstat, repoSnapshot, readWorkingFile } from '../electron/repo-map';
 import { squarify, treemap } from '../src/repo-map-layout';
-import type { RepoFile, RepoSnapshot } from '../src/shared';
+import type { RepoFile, RepoSnapshot } from '../shared/contracts/repo-map';
 
 async function fixture(unborn = false) {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-map-'));

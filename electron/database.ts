@@ -6,14 +6,12 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
-import { stateSchema } from '../src/shared';
-import { positionsSchema } from './views/rules/schema';
+import { stateSchema } from '../shared/contracts/git';
+import { viewLocalStateSchema } from '../shared/contracts/views';
 
 export const DATABASE_FILE = 'stingray.db';
 export const STORAGE_ERROR = 'Workspace storage could not be read. Your saved file was not overwritten. Restore a valid workspaces.json to continue.';
 
-const nodeIds = (max: number) => z.array(z.string().min(1).max(300)).max(max);
-export const viewLocalStateSchema = z.strictObject({ hidden: nodeIds(2000), positions: positionsSchema, expanded: nodeIds(500) });
 const legacyViewStateSchema = z.strictObject({
   version: z.literal(1),
   views: z.record(z.string().max(400), z.strictObject({ updatedAt: z.number(), state: viewLocalStateSchema })),

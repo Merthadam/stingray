@@ -1,6 +1,6 @@
 // Contract between the view engine and the code-graph host (CodeGraph in a child process, see codegraph-process.ts).
 // The engine only depends on these interfaces, so it can be tested with a fake graph.
-import type { GraphStatus } from '../../src/views';
+import type { GraphStatus } from '../../shared/contracts/views';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 
 export interface GraphChange {

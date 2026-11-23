@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import type { AgentPhase } from '../src/activity';
+import type { AgentPhase } from '../shared/contracts/activity';
 
 // The observer only reads these scalar fields, never messages, prompts, tool data,
 // session files, UI titles, auth, or model output. It never returns a hook decision.

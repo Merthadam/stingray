@@ -8,8 +8,8 @@ import { runCli, worktreeRoot, type CliDeps } from '../electron/views-cli';
 import { drawnFingerprint as drawn } from '../electron/views/explain';
 import { parseViewYaml, type ExplainEntry } from '../electron/views/rules/schema';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
-import type { DbSchemaResult } from '../src/db-schema';
-import type { DiagramNode, RuleDiagnostic, ViewResult, ViewSummary } from '../src/views';
+import type { DbSchemaResult } from '../shared/contracts/db-schema';
+import type { DiagramNode, RuleDiagnostic, ViewResult, ViewSummary } from '../shared/contracts/views';
 
 const summary: ViewSummary = { id: 'flow', name: 'Agent flow', kind: 'flow', description: '', builtin: false, file: '.stingray/views/flow.yaml', error: null };
 const view: ResolvedView = { id: 'flow', kind: 'flow', scope: { include: ['**/*'], exclude: [] }, graph: null, flowchart: null,

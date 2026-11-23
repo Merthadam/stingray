@@ -1,5 +1,5 @@
 // Plain-text rendering of a diagram, shared by the `stingray-views` CLI (agents read it to check a view) and the Views tab. Pure and deterministic.
-import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, ViewKind } from './views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, ExplanationStatus, SequenceData, ViewKind } from '../shared/contracts/views';
 import { sequenceEvents } from './sequence-events';
 
 export interface TextDiagramInput {

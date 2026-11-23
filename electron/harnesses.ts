@@ -1,4 +1,4 @@
-import type { HarnessId } from '../src/activity';
+import type { HarnessId } from '../shared/contracts/activity';
 
 export const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import type { RemovalResult, RemovalReview, Workspace } from './shared';
+import type { RemovalResult, RemovalReview, Workspace } from '../shared/contracts/git';
 import './worktree-removal.css';
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;

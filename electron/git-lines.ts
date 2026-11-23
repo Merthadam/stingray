@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Change, GitLineStats } from '../src/shared';
+import type { Change, GitLineStats } from '../shared/contracts/git';
 
 const exec = promisify(execFile);
 export type LineRunner = (cwd: string, args: string[]) => Promise<string>;

@@ -1,9 +1,8 @@
 // Per-user Views state (hidden nodes, positions, expansions) per worktree and view, in the `view_state` table of the
 // app database. Never written to the repo. Rows go with their workspace (ON DELETE CASCADE).
-import type { ViewLocalState } from '../src/views';
-import { database, transaction, viewLocalStateSchema } from './database';
+import { viewLocalStateSchema, type ViewLocalState } from '../shared/contracts/views';
+import { database, transaction } from './database';
 
-export { viewLocalStateSchema };
 export const MAX_VIEW_STATES = 200, MAX_VIEW_STATE_BYTES = 5 * 1024 * 1024;
 
 type Row = { hidden: string; positions: string; expanded: string };

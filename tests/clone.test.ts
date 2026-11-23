@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Store } from '../electron/store';
 import { GitService, git } from '../electron/git';
 import { cloneGit, cloneFailure } from '../electron/clone';
-import { repositoryUrlSchema, cloneDestinationSchema } from '../src/shared';
+import { repositoryUrlSchema, cloneDestinationSchema } from '../shared/contracts/git';
 
 // Real Git pack transfer/checkout over pipes; this is NOT live SSH authentication.
 async function fixture() {

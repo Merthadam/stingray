@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ContainerService, inspectFormat, parseContainers } from '../electron/containers';
 import { belongsToWorkspace, summarizeChanges, workspacePorts } from '../src/workspace-status';
-import type { Workspace } from '../src/shared';
+import type { Workspace } from '../shared/contracts/git';
 
 const id = 'a'.repeat(64);
 const fixture = (overrides = {}) => JSON.stringify({ id, name: '/web', image: 'node:24', state: 'running', health: 'healthy', workingDir: '/projects/app', mounts: [{ Type: 'bind', Source: '/projects/app/src' }], ports: { '3000/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }, { HostIp: '::', HostPort: '8080' }] }, ...overrides });

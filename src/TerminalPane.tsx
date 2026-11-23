@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
-import { terminalScrollback, type TerminalInfo, type TerminalEvent } from './shared';
+import { terminalScrollback, type TerminalInfo, type TerminalEvent } from '../shared/contracts/terminals';
 import { api } from './api';
 import { installTerminalLinks } from './terminal-links';
 

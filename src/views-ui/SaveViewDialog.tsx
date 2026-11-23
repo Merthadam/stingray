@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { Modal } from '../Modal';
-import type { SaveViewResult, ViewLocalState, ViewResult } from '../views';
+import type { SaveViewResult, ViewLocalState, ViewResult } from '../../shared/contracts/views';
 import { saveViewInput } from '../views-tab-model';
 
 const PREVIEW = 8;

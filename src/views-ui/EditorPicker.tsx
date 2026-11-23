@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { api } from '../api';
-import type { EditorId, EditorSettings } from '../views';
+import type { EditorId, EditorSettings } from '../../shared/contracts/app';
 
 const EDITOR_LABELS: Record<EditorId, string> = { 'repo-map': 'Repo Map (Stingray)', vscode: 'VS Code', cursor: 'Cursor', zed: 'Zed', system: 'System default' };
 

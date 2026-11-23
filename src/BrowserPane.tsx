@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, Globe, ShieldCheck, X, LoaderCircle, Maximize2, Minimize2 } from 'lucide-react';
-import type { Workspace } from './shared';
-import { urlSchema } from './shared';
+import type { Workspace } from '../shared/contracts/git';
+import { urlSchema } from '../shared/contracts/common';
 import { api } from './api';
 
 type Guest = HTMLElement & { src: string; reload(): void; goBack(): void; goForward(): void; canGoBack(): boolean; canGoForward(): boolean; getURL(): string };

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight, CircleHelp, Columns2, FolderGit2, GitBranch, Globe, LayoutGrid, Map as MapIcon, MonitorPlay, Network, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldCheck, TerminalSquare, Trash2, X } from 'lucide-react';
 import { api } from './api';
-import type { LiveViewTarget, State, TerminalInfo, Workspace, WorkspacePort } from './shared';
+import type { LiveViewTarget, WorkspacePort } from '../shared/contracts/runtime';
+import type { State, Workspace } from '../shared/contracts/git';
+import type { TerminalInfo } from '../shared/contracts/terminals';
 import { TerminalPane } from './TerminalPane';
 import { BrowserPane, BrowserSplitter, useBrowserSplit } from './BrowserPane';
 import { Modal } from './Modal';
@@ -18,6 +20,7 @@ import { useWorkspacePorts } from './useWorkspacePorts';
 import { useActivity } from './useActivity';
 import { aggregateActivity, harnessLabel } from './activity';
 import { navigationKey, parseSelection, resolveSelection, type ProjectSelection } from './project-navigation';
+import { DemoBadge } from './app/DemoBadge';
 
 const emptyState: State = { version: 1, repos: [], workspaces: [] };
 const drawerKey = 'stingray.sidebar';
@@ -218,7 +221,7 @@ export default function App() {
       </main>
     </div>
     <footer className="statusbar"><span><span className="local-indicator" />{workspace && !initializing && !loadFailed ? <>{workspaceTerminals.filter(t => !t.exited).length} running<span className="status-divider">/</span><span className="pi-terminal-state" title="Activity tracking attaches to typed pi (1.5.0), claude and codex commands in new zsh terminals. Aliases, absolute paths and disabled/noninteractive invocations may bypass attachment. Codex reports turn completion only. Shell liveness is not agent activity.">{piState}</span><span className="status-divider">/</span><GitBranch size={11} />{status?.branch || workspace.branch}</> : repo?.name || 'Projects home'}</span>
-      <span><span title={api.mode === 'demo' ? 'Simulated GitHub states.' : 'GitHub via your gh login.'}><ShieldCheck size={11} /> {api.mode === 'desktop' ? 'On your machine' : 'Simulated demo'}</span><span className="status-divider">/</span><button className="status-link" onClick={() => openModal('about')}><CircleHelp size={11} /> Help</button><span className="status-divider">/</span>Stingray 0.1.0</span></footer>
+      <span><DemoBadge mode={api.mode} /><span title={api.mode === 'demo' ? 'Simulated GitHub states.' : 'GitHub via your gh login.'}><ShieldCheck size={11} /> {api.mode === 'desktop' ? 'On your machine' : 'Simulated demo'}</span><span className="status-divider">/</span><button className="status-link" onClick={() => openModal('about')}><CircleHelp size={11} /> Help</button><span className="status-divider">/</span>Stingray 0.1.0</span></footer>
     {modal && <Modal title={{ open: 'Add project', create: 'Create a worktree', remove: 'Remove this worktree?', 'close-terminal': 'Close terminal?', about: 'Built for focused work.' }[modal]} busy={busy} onClose={() => { setModal(null); setError(''); }}>
       {api.mode === 'demo' && <p className="info-box">Browser demo: actions here are simulated. No local files or processes will change.</p>}
       {error && <div className="inline-error" role="alert">{error}</div>}

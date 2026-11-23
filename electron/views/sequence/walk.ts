@@ -2,7 +2,7 @@
 // messages in call order, fragment open/branch/close markers from the constructs around call sites, error notes. Which
 // lifeline a function belongs to is decided afterwards (index.ts), when all reached files are known.
 import path from 'node:path';
-import type { SequenceFragmentKind, SourceRef, SymbolRef } from '../../../src/views';
+import type { SequenceFragmentKind, SourceRef, SymbolRef } from '../../../shared/contracts/views';
 import type { Tree } from 'web-tree-sitter';
 import type { FileProvider, GraphApi, GraphRelation, GraphSymbol, SequenceStep } from '../rules/types';
 import type { Call, Code, Construct } from '../flowchart/cfg';

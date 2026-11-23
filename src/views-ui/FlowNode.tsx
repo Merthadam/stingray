@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronRight } from 'lucide-react';
-import type { DiagramNode, ExplanationStatus } from '../views';
+import type { DiagramNode, ExplanationStatus } from '../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../infra/catalog';
 import { infraIconUrl } from '../infra/icons';
 import { cardFields, infraName, showsExplanation } from './flow-layout';

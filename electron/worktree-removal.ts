@@ -1,4 +1,4 @@
-import type { RemovalReview } from '../src/shared';
+import type { RemovalReview } from '../shared/contracts/git';
 
 // Inject the existing bounded, noninteractive Git runner. No fetch or remote calls.
 export async function reviewPushStatus(run: (args: string[]) => Promise<string>, branch: string): Promise<{

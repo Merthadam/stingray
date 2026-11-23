@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { ActivityService } from '../electron/activity';
-import { activityLabel, aggregateActivity, harnessLabel, newerActivity, relativeTime, type AgentActivity } from '../src/activity';
+import { activityLabel, aggregateActivity, harnessLabel, newerActivity, relativeTime } from '../src/activity';
+import { type AgentActivity } from '../shared/contracts/activity';
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => unknown) { for (let i = 0; i < 200; i++) { if (fn()) return; await pause(); } assert.fail('Timed out'); }

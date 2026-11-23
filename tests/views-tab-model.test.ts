@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_FLOW_NODES, computedDepth, diagnosticCount, isFlowDiagram, isSequenceDiagram, textViewNote, viewDepth, matchingLines, pickView, saveViewInput, splitMatches } from '../src/views-tab-model';
-import type { DiagramNode, ViewResult, ViewSummary } from '../src/views';
+import type { DiagramNode, ViewResult, ViewSummary } from '../shared/contracts/views';
 
 const node = (id: string, label: string): DiagramNode => ({ id, label, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });
 const result = (extra: Partial<ViewResult> = {}): ViewResult => ({

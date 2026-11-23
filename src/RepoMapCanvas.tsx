@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { ArrowLeft, Search, X } from 'lucide-react';
-import type { RepoFile, RepoSnapshot } from './shared';
+import type { RepoFile, RepoSnapshot } from '../shared/contracts/repo-map';
 import { aggregate, buildRepoTree, fileKind, findFolder, inRange, kindBadges, kindLabels } from './repo-map-model';
 import { treemap, type LayoutTile, type MapScope } from './repo-map-layout';
 import { LineCounts } from './LineCounts';

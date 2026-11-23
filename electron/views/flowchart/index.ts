@@ -2,7 +2,7 @@
 // tree-sitter and draw its control flow. Pure apart from reading files through the FileProvider; code is never run.
 import path from 'node:path';
 import type { Tree } from 'web-tree-sitter';
-import type { DiagramEdge, DiagramGroup, DiagramNode, FlowchartDiagnostic, ViewWarning } from '../../../src/views';
+import type { DiagramEdge, DiagramGroup, DiagramNode, FlowchartDiagnostic, ViewWarning } from '../../../shared/contracts/views';
 import type { FileProvider, FlowchartStep, GraphApi, GraphSymbol } from '../rules/types';
 import { FlowchartBuilder, type Loaded } from './build';
 import type { Adapter } from './cfg';

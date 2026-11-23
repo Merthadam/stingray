@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { DiagramEdge, DiagramNode, ViewResult } from '../src/views';
+import type { DiagramEdge, DiagramNode, ViewResult } from '../shared/contracts/views';
 import { hideIsolated, neighbours, onlyNeighbours } from '../src/views-ui/er-filter';
 
 const node = (id: string): DiagramNode => ({ id, label: id, kind: 'table', subtitle: null, group: null, fields: [], source: null, symbol: null, role: null, order: null, detail: null });

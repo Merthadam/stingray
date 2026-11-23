@@ -1,7 +1,7 @@
 // Pure ER layout: card geometry, ELK graph with one port per visible field row, and stable/incremental placement.
 // Runs in the renderer (ELK in a worker) and in Node tests (elk.bundled.js); the ELK instance is injected.
 import type { ElkNode, ElkPort, ElkExtendedEdge } from 'elkjs/lib/elk-api.js';
-import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../views';
+import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../../shared/contracts/views';
 
 export type Positions = Record<string, { x: number; y: number }>;
 export interface ElkLayouter { layout(graph: ElkNode): Promise<ElkNode> }

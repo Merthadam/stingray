@@ -6,8 +6,8 @@
 // key is the table node (table properties win, rule fields append); an edge end that is a key points at the table. Rule edges
 // to tables resolve inside the engine first, so they need `create: to|from|both` (the placeholder becomes the table) or a rule
 // node with that id.
-import type { DbSchemaResult } from '../../src/db-schema';
-import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../src/views';
+import type { DbSchemaResult } from '../../shared/contracts/db-schema';
+import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../shared/contracts/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
 import { applyExplain, type ReadSource } from './explain';

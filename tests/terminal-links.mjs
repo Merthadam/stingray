@@ -168,7 +168,7 @@ try {
   }));
   check('invalid IPC requests produce no OS calls', (await calls()).length === before);
   const senderBlocked = await app.evaluate(async ({ ipcMain, BrowserWindow }) => {
-    const handler = ipcMain._invokeHandlers.get('open-terminal-link');
+    const handler = ipcMain._invokeHandlers.get('terminals.openTerminalLink');
     const wc = BrowserWindow.getAllWindows()[0].webContents;
     for (const event of [{ sender: {}, senderFrame: wc.mainFrame }, { sender: wc, senderFrame: {} }]) {
       try { await handler(event, '00000000-0000-4000-8000-000000000000', 'https://example.com'); return false; } catch { /* expected */ }

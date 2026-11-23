@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
-import type { GitStatus, PullRequestStatus, WorkspaceGitState } from '../src/shared';
+import type { GitStatus, PullRequestStatus, WorkspaceGitState } from '../shared/contracts/git';
 import { git, type GitService } from './git';
 import type { PullRequestService } from './pull-requests';
 

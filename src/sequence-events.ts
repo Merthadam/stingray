@@ -1,6 +1,6 @@
 // Reading order of a sequence diagram (kind: sequence), shared by the text printer (views-text.ts) and the SVG layout
 // (views-ui/sequence-layout.ts) so both nest fragments, branches and notes the same way. Pure.
-import type { SequenceData, SequenceFragment, SequenceMessage, SequenceNote } from './views';
+import type { SequenceData, SequenceFragment, SequenceMessage, SequenceNote } from '../shared/contracts/views';
 
 /** `depth` = fragments open around the event (an open/close/branch line counts its own fragment's parents only). */
 export type SequenceEvent =

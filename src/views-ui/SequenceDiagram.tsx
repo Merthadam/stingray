@@ -5,7 +5,7 @@ import { ExternalLink, FoldHorizontal, Maximize2, UnfoldHorizontal, X, ZoomIn, Z
 import './er-diagram.css';
 import './sequence-diagram.css';
 import type { ErDiagramProps } from './types';
-import type { SequenceMessage, SequenceParticipant } from '../views';
+import type { SequenceMessage, SequenceParticipant } from '../../shared/contracts/views';
 import { SEQ, UNCERTAIN, clip, collapseParticipants, collapsible, sequenceLayout, tabWidth, type LaidMessage, type LaidParticipant } from './sequence-layout';
 import { StaleMark } from './FlowNode';
 

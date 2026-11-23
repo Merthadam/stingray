@@ -1,5 +1,5 @@
 // Contract between the Views tab shell (ViewsTab.tsx, lane L3) and the ER diagram (ErDiagram.tsx, lane L2).
-import type { ViewLocalState, ViewResult } from '../views';
+import type { ViewLocalState, ViewResult } from '../../shared/contracts/views';
 
 export const EMPTY_LOCAL_STATE: ViewLocalState = { hidden: [], positions: {}, expanded: [] };
 

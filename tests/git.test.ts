@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Store } from '../electron/store';
 import { GitService, git, parseStatus } from '../electron/git';
-import { stateSchema, urlSchema } from '../src/shared';
+import { stateSchema } from '../shared/contracts/git';
+import { urlSchema } from '../shared/contracts/common';
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-test-'));

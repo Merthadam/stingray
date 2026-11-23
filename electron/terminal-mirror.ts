@@ -1,6 +1,6 @@
 import headless from '@xterm/headless';
 import unicode11 from '@xterm/addon-unicode11';
-import { terminalScrollback } from '../src/shared';
+import { terminalScrollback } from '../shared/contracts/terminals';
 import { serializeTerminal } from './terminal-serialize';
 // CommonJS bundles: Node's ESM loader (tests) cannot see their named exports.
 const Mirror = headless.Terminal; type Mirror = InstanceType<typeof Mirror>;

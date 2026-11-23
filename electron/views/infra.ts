@@ -1,6 +1,6 @@
 // Cloud services of infra views: nodes of the builtin terraform and cdk sets get the catalog service they deploy, and
 // groups whose service nodes are all of one cloud get that provider, so the renderer draws them like AWS/Azure diagrams.
-import type { DiagramGroup, DiagramNode } from '../../src/views';
+import type { DiagramGroup, DiagramNode } from '../../shared/contracts/views';
 import { CDK_CONSTRUCT, cdkService, terraformService, type InfraProvider, type InfraService } from '../../src/infra/catalog';
 import type { ResolvedView } from './rules/types';
 

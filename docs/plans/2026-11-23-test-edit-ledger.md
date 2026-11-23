@@ -13,6 +13,8 @@ Each replacement is at least as strict as the original.
 | 02 | `tests/pull-requests.test.ts:116-129` | test "missing Git, detached HEAD, absent and unsupported origins never make GitHub requests" via `status()` | "detached HEAD, absent and unsupported origins never make GitHub requests" via `resolve(cwd, '', remote)`, `resolve(cwd, branch, null)`, `resolve(cwd, branch, 'https://gitlab.com/owner/app')`; same `unsupported` + no-leak + git-only assertions | Missing Git now covered by new `tests/git-state.test.ts` "a failing status read makes no PR lookup" (no PR call, `pr: null`). |
 | 02 | `tests/pull-requests.test.ts:138-145` | `service.status('/repo')` ×5 | `service.resolve('/repo', branch, remote)` ×5 | Same values the fake returned; assertions unchanged. |
 | 02 | `tests/pull-requests.test.ts:152` | `service.status('/repo')` | `service.resolve('/repo', 'main', 'https://github.com/owner/app')` | Same values; assertions unchanged. |
+| 03 | tests/repo-map.mjs, tests/terminal-links.mjs:171, tests/worktree-removal.mjs:48 | kebab channels | feature.member channels | String renames only (spec 03); no assertion changed. |
+| 03 | tests/desktop.mjs | — | new check "no DEMO badge in desktop mode" | New check. |
 
 Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 
@@ -23,3 +25,6 @@ Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 - 01: `node tests/launch.mjs` — PASS (npm start builds first).
 - 01: `node tests/single-instance.mjs` — FAIL before the main.ts change (exit code 0), PASS after.
 - 01: `npm run dev` — prints `Stingray dev data: ~/Library/Application Support/Stingray-dev`, runs next to the installed app; editing `electron/main.ts` restarts Electron and prints the log line; a syntax error prints the esbuild error and the failed-build line, Electron keeps running; Ctrl-C leaves no Electron/dev/Vite process. `STINGRAY_DATA_DIR=/tmp/stingray-dev-x npm run dev` uses that dir. PASS (rerun on the done bar).
+- 03: browser demo (Vite on 127.0.0.1:5199, since the user's Vite holds 5178; headless Chrome) — demo loads, `DEMO` badge (`role=status`, "Demo data") visible in the status bar, no page errors. PASS.
+- 03: desktop mode, no `DEMO` badge — covered by the new `tests/desktop.mjs` check "no DEMO badge in desktop mode" (PASS in `npm run test:e2e`). `npm run dev` not run (port 5178 in use by the user's Vite).
+- 03: missing preload — built app launched (temp data dir) with `dist-electron/preload.cjs` temporarily hidden instead of editing `electron/main.ts`: the bridge-missing message is shown, no demo data, `window.stingray` undefined; file restored. PASS.

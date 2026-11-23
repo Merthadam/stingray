@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { LIMITS, createEvaluate, evaluate } from '../electron/views/rules/engine';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 import type { Emit, GraphApi, GraphStep, ResolvedView, Rule, RunGraphStep, SourcedRule } from '../electron/views/rules/types';
-import type { GraphStatus } from '../src/views';
+import type { GraphStatus } from '../shared/contracts/views';
 
 const grammarDir = codegraphGrammarDir();
 const READY: GraphStatus = { state: 'ready', message: null };

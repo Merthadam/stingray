@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { framePoint, keyInput, liveViewInputSchema, type LiveViewEvent } from '../src/live-view';
+import { framePoint, keyInput } from '../src/live-view';
+import { liveViewInputSchema, type LiveViewEvent } from '../shared/contracts/runtime';
 import { APP_PAGE, LiveViews, MAX_LIVE_VIEWS, pickTarget, toCdpInput } from '../electron/live-view';
 
 const keys = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };

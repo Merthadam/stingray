@@ -1,7 +1,7 @@
 // Geometry of a sequence diagram (SequenceDiagram.tsx): lifeline columns, one row per message, activation bars, fragment
 // frames, notes. Pure and deterministic; text is measured by character count (monospace labels), so no DOM is needed.
 // Body coordinates start at 0 under the (separately drawn, sticky) participant header.
-import type { SequenceData, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant } from '../views';
+import type { SequenceData, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant } from '../../shared/contracts/views';
 import { sequenceEvents } from '../sequence-events';
 
 export const SEQ = {

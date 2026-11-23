@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { api } from './api';
-import type { WorkspaceGitState } from './shared';
+import type { WorkspaceGitState } from '../shared/contracts/git';
 
 // Renderer mirror of the main process's per-workspace Git state. Sidebar rows, the selected
-// workspace and Repo Map all read this one store, fed by 'git-state-changed' events.
+// workspace and Repo Map all read this one store, fed by git.onStatusChanged events.
 const states = new Map<string, WorkspaceGitState>();
 const listeners = new Set<() => void>();
 let unsubscribe: (() => void) | null = null;
@@ -16,7 +16,7 @@ function publish(state: WorkspaceGitState) {
 const failed = (workspaceId: string, error: unknown): WorkspaceGitState =>
   ({ workspaceId, revision: 0, status: null, pr: null, error: (error as Error).message || 'Git is unavailable for this workspace. Retry after checking repository access.' });
 function subscribe(listener: () => void) {
-  unsubscribe ??= api.onGitStateChanged(publish);
+  unsubscribe ??= api.onStatusChanged(publish);
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }

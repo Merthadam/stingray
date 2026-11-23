@@ -9,7 +9,7 @@ import { runGraphStep } from '../electron/views/rules/graph-steps';
 import { docstringSummary } from '../electron/views/explanation';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
 import type { WorktreeGraph } from '../electron/views/graph';
-import type { GraphState } from '../src/views';
+import type { GraphState } from '../shared/contracts/views';
 
 process.env.CODEGRAPH_TELEMETRY = '0'; process.env.CODEGRAPH_NO_UPDATE_CHECK = '1';
 

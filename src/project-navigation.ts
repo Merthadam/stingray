@@ -1,4 +1,4 @@
-import type { State } from './shared';
+import type { State } from '../shared/contracts/git';
 
 export type ProjectSelection = { repoId: string; workspaceId: string } | null;
 export const navigationKey = 'stingray-navigation-v1';

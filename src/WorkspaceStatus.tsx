@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { GitBranch, GitPullRequest, GitMerge, GitPullRequestClosed, GitPullRequestDraft, LoaderCircle, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from './api';
-import type { GitLineStats, Workspace } from './shared';
+import type { GitLineStats, Workspace } from '../shared/contracts/git';
 import { useGitState } from './useGitState';
 import './workspace-git.css';
-import type { AgentActivity } from './activity';
+import type { AgentActivity } from '../shared/contracts/activity';
 import { PreviousActivity, WorkspaceActivity } from './WorkspaceActivity';
 
 const counts = (lines: GitLineStats) => lines.kind === 'available' ? `+${lines.added} −${lines.deleted}` : 'unavailable';

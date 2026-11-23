@@ -3,10 +3,7 @@
 // repository code is only parsed, never executed.
 import path from 'node:path';
 import { Language, Parser, Query, type Node, type QueryMatch } from 'web-tree-sitter';
-import type {
-  DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SequenceData, SequenceDiagnostic,
-  SourceRef, SymbolRef, UnresolvedLink, ViewWarning,
-} from '../../../src/views';
+import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SequenceData, SequenceDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning } from '../../../shared/contracts/views';
 import { GRAMMAR_FILES, initTreeSitter } from './grammars';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { explanationOf, symbolRef } from '../explanation';

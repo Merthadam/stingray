@@ -1,8 +1,17 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { z } from 'zod';
-import { idSchema, urlSchema, repoPathSchema, removalConsentSchema } from '../src/shared';
+import { urlSchema } from '../shared/contracts/common';
+import { appContract } from '../shared/contracts/app';
+import { gitContract } from '../shared/contracts/git';
+import { repoMapContract } from '../shared/contracts/repo-map';
+import { terminalsContract } from '../shared/contracts/terminals';
+import { activityContract } from '../shared/contracts/activity';
+import { stinggraphContract } from '../shared/contracts/stinggraph';
+import { viewsContract } from '../shared/contracts/views';
+import { runtimeContract } from '../shared/contracts/runtime';
+import { registerContract, type IpcContext } from './app/ipc';
+import { sender } from './adapters/driven/electron-shell/sender';
 import { Store } from './store';
 import { closeDatabase } from './database';
 import { GitService } from './git';
@@ -21,12 +30,10 @@ import { infraServiceById } from '../src/infra/catalog';
 import { createCodeGraphProcessHost } from './codegraph-process';
 import { installLauncher } from './views/launcher';
 import { saveViewAs } from './views/save-view';
-import { positionsSchema } from './views/rules/schema';
-import { ViewStateStore, viewLocalStateSchema } from './view-state';
-import { EDITOR_IDS, EditorService } from './editors';
+import { ViewStateStore } from './view-state';
+import { EditorService } from './editors';
 import { setSharedBase, sharedBaseEnabled, sharedBaseTarget, sharedBaseWorkspaces } from './codegraph-settings';
 import { LiveViews } from './live-view';
-import { liveViewInputSchema } from '../src/live-view';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -39,6 +46,7 @@ if (!app.requestSingleInstanceLock()) {
   app.exit(1);
 }
 let win: BrowserWindow;
+const currentWindow = () => (win && !win.isDestroyed() ? win : undefined);
 app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 let quitting = false;
 let cloning = false;
@@ -46,10 +54,12 @@ let openingLink = false;
 const store = new Store(app.getPath('userData'));
 const viewState = new ViewStateStore(app.getPath('userData'));
 const editors = new EditorService(app.getPath('userData'), { showItemInFolder: file => shell.showItemInFolder(file) });
-const activity = new ActivityService(snapshot => { if (win && !win.isDestroyed()) win.webContents.send('activity-event', snapshot); });
+const activityEvents = sender(activityContract, currentWindow);
+const activity = new ActivityService(snapshot => activityEvents.onActivity(snapshot));
 const activityShell = new ActivityShell();
 let visibleTerminals = new Set<string>();
-const terminals = new Terminals(event => { if (win && !win.isDestroyed()) win.webContents.send('terminal-event', event); }, activity, activityShell);
+const terminalEvents = sender(terminalsContract, currentWindow);
+const terminals = new Terminals(event => terminalEvents.onTerminal(event), activity, activityShell);
 const git = new GitService(store, id => terminals.countWorkspace(id), {
   // Close the workspace's terminals and stop its code graph (.codegraph cache) before the folder is cleaned and removed.
   beforeRemove: id => { terminals.closeWorkspace(id); return views.release(id); }, removeFailed: id => views.reopen(id),
@@ -58,22 +68,18 @@ const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
 const pullRequests = new PullRequestService();
-const gitState = new GitStateService(git, pullRequests, state => { if (win && !win.isDestroyed()) win.webContents.send('git-state-changed', state); },
+const gitEvents = sender(gitContract, currentWindow);
+const gitState = new GitStateService(git, pullRequests, state => gitEvents.onStatusChanged(state),
   () => Boolean(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()));
 git.onStatus = (id, status) => gitState.observe(id, status);
 pullRequests.onListChange = () => gitState.listChanged();
 const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
+const viewsEvents = sender(viewsContract, currentWindow);
 const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
-  emit: event => { if (win && !win.isDestroyed()) win.webContents.send('views-changed', event); } });
-const liveViews = new LiveViews(event => { if (win && !win.isDestroyed()) win.webContents.send('live-view-event', event); });
+  emit: event => viewsEvents.onViewsChanged(event) });
+const runtimeEvents = sender(runtimeContract, currentWindow);
+const liveViews = new LiveViews(event => runtimeEvents.onLiveView(event));
 
-function handle(name: string, schema: z.ZodType, action: (...args: any[]) => unknown) {
-  ipcMain.handle(name, (event, ...args) => {
-    if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame ||
-        event.senderFrame.url.split('#')[0] !== rendererUrl) throw new Error('Untrusted IPC sender.');
-    return action(...(schema.parse(args) as unknown[]));
-  });
-}
 function lockSession(partition: string) {
   if (lockedSessions.has(partition)) return;
   lockedSessions.add(partition);
@@ -122,112 +128,116 @@ app.whenReady().then(async () => {
     guest.on('will-navigate', restrict);
     guest.on('will-redirect', restrict);
   });
-  handle('state', z.tuple([]), () => store.load());
-  handle('pick-repository', z.tuple([]), async () => {
-    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Open a trusted Git repository' });
-    return result.canceled ? null : git.openRepository(result.filePaths[0]);
+  const ipc: IpcContext = { ipcMain, window: () => win, rendererUrl };
+  registerContract(ipc, appContract, {
+    state: () => store.load(),
+    preview: (id, url) => git.preview(id, url),
+    editorSettings: () => editors.settings(),
+    setEditor: editor => editors.select(editor),
+    openSource: async (id, file, line) => editors.openSource((await git.workspace(id)).path, file, line),
   });
-  handle('open-repository', z.tuple([z.string().min(1).max(4096)]), p => git.openRepository(p));
-  handle('pick-clone-parent', z.tuple([]), async () => {
-    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose a parent folder for the new clone' });
-    return result.canceled ? null : result.filePaths[0];
+  registerContract(ipc, gitContract, {
+    pickRepository: async () => {
+      const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Open a trusted Git repository' });
+      return result.canceled ? null : git.openRepository(result.filePaths[0]);
+    },
+    openRepository: p => git.openRepository(p),
+    pickCloneParent: async () => {
+      const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose a parent folder for the new clone' });
+      return result.canceled ? null : result.filePaths[0];
+    },
+    cloneRepository: async (url, destination) => {
+      if (cloning) throw new Error('A clone is already in progress. Wait for it to finish.');
+      cloning = true;
+      try { return await git.cloneRepository(url, destination); } finally { cloning = false; }
+    },
+    createWorkspace: (id, branch) => git.createWorkspace(id, branch),
+    reviewRemoval: id => git.reviewRemoval(id),
+    removeWorkspace: async (id, consent) => {
+      const result = await git.removeWorkspace(id, consent);
+      gitState.forget(id);
+      await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
+      activity.forgetWorkspace(id);
+      return result;
+    },
+    gitState: id => gitState.get(id),
+    refreshGitState: id => gitState.refresh(id, true),
   });
-  // Validate values in the service with fixed errors (no Zod payload echo).
-  handle('clone-repository', z.tuple([z.string().max(2048), z.string().max(4096)]), async (url, destination) => {
-    if (cloning) throw new Error('A clone is already in progress. Wait for it to finish.');
-    cloning = true;
-    try { return await git.cloneRepository(url, destination); } finally { cloning = false; }
+  registerContract(ipc, repoMapContract, { repoSnapshot: id => git.repoSnapshot(id), inspectFile: (id, path) => git.inspectFile(id, path) });
+  registerContract(ipc, terminalsContract, {
+    terminals: () => terminals.list(),
+    terminalSnapshot: id => terminals.snapshot(id),
+    createTerminal: id => git.useWorkspace(id, w => terminals.create(id, w.path)),
+    writeTerminal: (id, data) => terminals.write(id, data),
+    openTerminalLink: async (id, uri) => {
+      if (openingLink) throw new Error('Finish the current link confirmation first.');
+      const terminal = terminals.list().find(t => t.id === id);
+      if (!terminal) throw new Error('Terminal not found.');
+      openingLink = true;
+      try {
+        const workspace = await git.workspace(terminal.workspaceId);
+        await openTerminalLink(uri, workspace.path, {
+          confirm: async link => {
+            const action = link.kind === 'web' ? 'Open in browser' : link.kind === 'file' ? 'Open file' : 'Show in file manager';
+            const { response } = await dialog.showMessageBox(win, { type: 'question', title: 'Open terminal link',
+              message: action + '?', detail: link.target + '\n\nTerminal output can contain misleading links. Only open targets you trust.',
+              buttons: ['Cancel', action], defaultId: 0, cancelId: 0, noLink: true });
+            return response === 1;
+          },
+          openExternal: target => shell.openExternal(target),
+          openPath: target => shell.openPath(target),
+          showItemInFolder: target => shell.showItemInFolder(target),
+        });
+      } finally { openingLink = false; }
+    },
+    resizeTerminal: (id, cols, rows) => terminals.resize(id, cols, rows),
+    closeTerminal: id => terminals.close(id),
   });
-  handle('create-workspace', z.tuple([idSchema, z.string().max(100)]), (id, branch) => git.createWorkspace(id, branch));
-  handle('review-removal', z.tuple([idSchema]), id => git.reviewRemoval(id));
-  handle('remove-workspace', z.tuple([idSchema, removalConsentSchema]), async (id, consent) => {
-    const result = await git.removeWorkspace(id, consent);
-    gitState.forget(id);
-    await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
-    activity.forgetWorkspace(id);
-    return result;
+  registerContract(ipc, activityContract, {
+    activity: () => activity.snapshot(),
+    activityView: ids => {
+      const known = new Set(terminals.list().map(t => t.id));
+      visibleTerminals = new Set(ids.filter(id => known.has(id)));
+    },
+    acknowledgeActivity: (id, terminalId, revision) => {
+      if (win.isFocused() && win.isVisible() && !win.isMinimized() && visibleTerminals.has(terminalId)) activity.acknowledge(id, terminalId, revision);
+    },
+    dismissActivity: workspaceId => activity.dismissRestored(workspaceId),
   });
-  handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
-  handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
-  handle('views', z.tuple([idSchema]), async (id: string) => views.listViews(id, (await git.workspace(id)).path));
-  // ViewService shares concurrent computations of the same view.
-  const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
-  handle('view', z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]),
-    async (id: string, viewId: string, options?: { depth?: number }) => views.computeView(id, (await git.workspace(id)).path, viewId, options));
-  handle('view-state', z.tuple([idSchema, viewIdSchema]), (id: string, viewId: string) => viewState.get(id, viewId));
-  handle('save-view-state', z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), (id, viewId, state) => viewState.set(id, viewId, state));
-  handle('save-view-as', z.tuple([idSchema, z.strictObject({
-    name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
-    layout: z.strictObject({ positions: positionsSchema }).nullable(),
-  })]), async (id, input) => saveViewAs((await git.workspace(id)).path, input));
-  handle('editor-settings', z.tuple([]), () => editors.settings());
-  handle('set-editor', z.tuple([z.enum(EDITOR_IDS)]), editor => editors.select(editor));
-  handle('codegraph-settings', z.tuple([]), () => ({ sharedBase: sharedBaseEnabled(app.getPath('userData')) }));
-  handle('set-codegraph-shared-base', z.tuple([z.boolean()]), enabled => setSharedBase(app.getPath('userData'), enabled));
-  handle('codegraph-conflicts', z.tuple([idSchema]), (id: string) => {
-    const shared = sharedBaseWorkspaces(app.getPath('userData'), id);
-    return shared ? codegraph.conflicts(shared.target, shared.workspaceIds) : null;
-  });
-  handle('open-source', z.tuple([idSchema, repoPathSchema, z.number().int().positive().max(10_000_000).nullable()]), async (id, file, line) =>
-    editors.openSource((await git.workspace(id)).path, file, line));
-  // Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs.
-  handle('open-service-docs', z.tuple([z.string().max(100)]), serviceId => {
-    const service = infraServiceById(serviceId);
-    if (!service) throw new Error('Unknown cloud service.');
-    return shell.openExternal(service.docUrl);
-  });
-  handle('containers', z.tuple([]), () => containers.list());
-  handle('container-stop', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.stop(id));
-  handle('container-logs', z.tuple([z.string().regex(/^[a-f0-9]{64}$/)]), (id: string) => containers.logs(id));
-  handle('inspect-cdp', z.tuple([z.number().int().min(1).max(65535)]), (port: number) => inspectCdp(port));
-  handle('ports', z.tuple([]), () => ports.list());
-  handle('preview', z.tuple([idSchema, z.union([z.literal(''), urlSchema])]), (id, url) => git.preview(id, url));
-  handle('activity', z.tuple([]), () => activity.snapshot());
-  handle('activity-view', z.tuple([z.array(idSchema).max(2)]), (ids: string[]) => {
-    const known = new Set(terminals.list().map(t => t.id));
-    visibleTerminals = new Set(ids.filter(id => known.has(id)));
-  });
-  handle('acknowledge-activity', z.tuple([idSchema, idSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)]), (id, terminalId, revision) => {
-    if (win.isFocused() && win.isVisible() && !win.isMinimized() && visibleTerminals.has(terminalId)) activity.acknowledge(id, terminalId, revision);
-  });
-  handle('dismiss-activity', z.tuple([idSchema]), workspaceId => activity.dismissRestored(workspaceId));
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
-  handle('terminals', z.tuple([]), () => terminals.list());
-  handle('terminal-snapshot', z.tuple([idSchema]), id => terminals.snapshot(id));
-  handle('create-terminal', z.tuple([idSchema]), id => git.useWorkspace(id, w => terminals.create(id, w.path)));
-  handle('write-terminal', z.tuple([idSchema, z.string().max(65536)]), (id, data) => terminals.write(id, data));
-  handle('open-terminal-link', z.tuple([idSchema, z.string().min(1).max(8192)]), async (id, uri) => {
-    if (openingLink) throw new Error('Finish the current link confirmation first.');
-    const terminal = terminals.list().find(t => t.id === id);
-    if (!terminal) throw new Error('Terminal not found.');
-    openingLink = true;
-    try {
-      const workspace = await git.workspace(terminal.workspaceId);
-      await openTerminalLink(uri, workspace.path, {
-        confirm: async link => {
-          const action = link.kind === 'web' ? 'Open in browser' : link.kind === 'file' ? 'Open file' : 'Show in file manager';
-          const { response } = await dialog.showMessageBox(win, { type: 'question', title: 'Open terminal link',
-            message: action + '?', detail: link.target + '\n\nTerminal output can contain misleading links. Only open targets you trust.',
-            buttons: ['Cancel', action], defaultId: 0, cancelId: 0, noLink: true });
-          return response === 1;
-        },
-        openExternal: target => shell.openExternal(target),
-        openPath: target => shell.openPath(target),
-        showItemInFolder: target => shell.showItemInFolder(target),
-      });
-    } finally { openingLink = false; }
+  registerContract(ipc, stinggraphContract, {
+    codegraphSettings: () => ({ sharedBase: sharedBaseEnabled(app.getPath('userData')) }),
+    setCodegraphSharedBase: enabled => setSharedBase(app.getPath('userData'), enabled),
+    codegraphConflicts: id => {
+      const shared = sharedBaseWorkspaces(app.getPath('userData'), id);
+      return shared ? codegraph.conflicts(shared.target, shared.workspaceIds) : null;
+    },
   });
-  handle('resize-terminal', z.tuple([idSchema, z.number().int().min(2).max(500), z.number().int().min(1).max(300)]), (id, cols, rows) => terminals.resize(id, cols, rows));
-  handle('close-terminal', z.tuple([idSchema]), id => terminals.close(id));
-  handle('git-state', z.tuple([idSchema]), id => gitState.get(id));
-  handle('refresh-git-state', z.tuple([idSchema]), id => gitState.refresh(id, true));
-  const frameSize = z.number().int().min(16).max(8192);
-  handle('live-view-start', z.tuple([z.strictObject({ port: z.number().int().min(1).max(65535), maxWidth: frameSize.optional(), maxHeight: frameSize.optional() })]),
-    options => liveViews.start(options));
-  handle('live-view-input', z.tuple([idSchema, liveViewInputSchema]), (id, input) => liveViews.input(id, input));
-  handle('live-view-resize', z.tuple([idSchema, frameSize, frameSize]), (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight));
-  handle('live-view-stop', z.tuple([idSchema]), id => liveViews.stop(id));
-  handle('live-view-ack', z.tuple([idSchema]), id => liveViews.ack(id));
+  registerContract(ipc, viewsContract, {
+    views: async id => views.listViews(id, (await git.workspace(id)).path),
+    // ViewService shares concurrent computations of the same view.
+    view: async (id, viewId, options) => views.computeView(id, (await git.workspace(id)).path, viewId, options),
+    viewState: (id, viewId) => viewState.get(id, viewId),
+    saveViewState: (id, viewId, state) => viewState.set(id, viewId, state),
+    saveViewAs: async (id, input) => saveViewAs((await git.workspace(id)).path, input),
+    openServiceDocs: serviceId => {
+      const service = infraServiceById(serviceId);
+      if (!service) throw new Error('Unknown cloud service.');
+      return shell.openExternal(service.docUrl);
+    },
+  });
+  registerContract(ipc, runtimeContract, {
+    containers: () => containers.list(),
+    stopContainer: id => containers.stop(id),
+    containerLogs: id => containers.logs(id),
+    inspectCdp: port => inspectCdp(port),
+    ports: () => ports.list(),
+    liveViewStart: options => liveViews.start(options),
+    liveViewInput: (id, input) => liveViews.input(id, input),
+    liveViewResize: (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight),
+    liveViewStop: id => liveViews.stop(id),
+    liveViewAck: id => liveViews.ack(id),
+  });
   // A reloaded renderer has lost its session ids; a closed window has no viewer.
   win.webContents.on('did-start-loading', () => liveViews.stopAll());
   win.on('closed', () => liveViews.stopAll());

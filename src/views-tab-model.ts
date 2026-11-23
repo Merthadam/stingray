@@ -1,5 +1,5 @@
 // Pure helpers of the Views tab (ViewsTab.tsx and its panels); no DOM, no API.
-import type { SaveViewInput, ViewLocalState, ViewResult, ViewSummary } from './views';
+import type { SaveViewInput, ViewLocalState, ViewResult, ViewSummary } from '../shared/contracts/views';
 
 /** Errors + warnings shown on the Diagnostics toggle. */
 export function diagnosticCount(result: ViewResult): number {

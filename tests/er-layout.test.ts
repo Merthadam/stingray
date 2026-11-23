@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../src/views';
+import type { DiagramEdge, DiagramField, DiagramNode, ViewResult } from '../shared/contracts/views';
 import { cardRows, cardSize, elkGraph, EXPLANATION_HEIGHT, HEADER_HEIGHT, handleId, layoutPositions, MAX_ROWS, portId, ROW_HEIGHT, separateCards, storedPositions, type Positions } from '../src/views-ui/er-layout';
 
 const elk = new ELK();

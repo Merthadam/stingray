@@ -1,7 +1,7 @@
 // Pure adapter: DbSchemaResult -> generic ViewResult. Shared by the main process and the browser demo,
 // so it must not import Node modules.
-import type { DbSchemaResult } from './db-schema';
-import type { DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, ViewResult, ViewSummary, ViewWarning } from './views';
+import type { DbSchemaResult } from '../shared/contracts/db-schema';
+import type { DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, ViewResult, ViewSummary, ViewWarning } from '../shared/contracts/views';
 
 export const DATABASE_VIEW: ViewSummary = {
   id: 'database', name: 'Database', kind: 'tables',

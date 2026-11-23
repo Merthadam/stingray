@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, Circle, CirclePause, Eye, History, LoaderCircle, Unplug, X } from 'lucide-react';
-import { activityLabel, aggregateActivity, harnessLabel, harnessNames, relativeTime, type AgentActivity } from './activity';
+import { activityLabel, aggregateActivity, harnessLabel, harnessNames, relativeTime } from './activity';
+import { type AgentActivity } from '../shared/contracts/activity';
 import './workspace-activity.css';
 
 export function WorkspaceActivity({ agents, unavailable = false }: { agents: AgentActivity[]; unavailable?: boolean }) {

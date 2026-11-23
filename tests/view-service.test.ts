@@ -6,7 +6,7 @@ import path from 'node:path';
 import { ViewService } from '../electron/views/service';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../electron/views/graph';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../electron/views/rules/types';
-import type { DiagramNode, GraphStatus, SymbolRef, ViewsChangedEvent } from '../src/views';
+import type { DiagramNode, GraphStatus, SymbolRef, ViewsChangedEvent } from '../shared/contracts/views';
 
 const grammar = path.join(import.meta.dirname, '../electron/tree-sitter-python.wasm');
 const model = (name: string, table: string, fk?: string) => [

@@ -1,9 +1,13 @@
 // Main <-> renderer contract for Views: named, generic diagrams computed from a worktree's source.
 // Every view type (database tables today; flows, timelines, ... later) produces the same diagram model,
 // so one renderer can draw all of them. Results come from static analysis; repository code is never executed.
-import type { InfraProvider, InfraService } from './infra/catalog';
+import { z } from 'zod';
+import type { InfraProvider, InfraService } from '../../src/infra/catalog';
+import { idSchema } from './common';
+import { defineContract, event, returns } from './define';
 
-export type ViewKind = 'tables' | 'flow' | 'timeline' | 'graph' | 'flowchart' | 'sequence';
+export const VIEW_KINDS = ['tables', 'flow', 'timeline', 'graph', 'flowchart', 'sequence'] as const;
+export type ViewKind = typeof VIEW_KINDS[number];
 
 /** Worktree-relative POSIX path and 1-based line. */
 export interface SourceRef { file: string; line: number }
@@ -192,12 +196,6 @@ export interface ViewLocalState {
   expanded: string[];          // node ids whose long field lists are expanded (max 500)
 }
 
-export type EditorId = 'repo-map' | 'vscode' | 'cursor' | 'zed' | 'system';
-export interface EditorSettings {
-  selected: EditorId;          // 'system' = the OS default app (no line number)
-  available: EditorId[];       // detected on this machine; always includes 'repo-map' and 'system'
-}
-
 /** "Save as view…": a new repo view file derived from a shown view. */
 export interface SaveViewInput {
   name: string;                // 1-80 chars; the slug (file name) is derived from it
@@ -291,3 +289,32 @@ export interface ViewDiagnostics {
   limits: { filesScanned: number; matches: number; truncated: boolean };
   ms: number;
 }
+
+const point = z.strictObject({ x: z.number(), y: z.number() }); // zod 4 numbers reject Infinity/NaN
+/** Node positions keyed by DiagramNode.id (shared with the local view state). */
+export const positionsSchema = z.record(z.string().min(1).max(300), point)
+  .refine(p => Object.keys(p).length <= 1000, { error: 'At most 1000 positions' });
+
+const nodeIds = (max: number) => z.array(z.string().min(1).max(300)).max(max);
+export const viewLocalStateSchema = z.strictObject({ hidden: nodeIds(2000), positions: positionsSchema, expanded: nodeIds(500) });
+
+const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
+export const viewsContract = defineContract('views', {
+  invoke: {
+    views: [z.tuple([idSchema]), returns<ViewSummary[]>()],
+    /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
+     * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it. */
+    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]), returns<ViewResult>()],
+    /** Local (app data) state of a view in a worktree; null when none saved yet. */
+    viewState: [z.tuple([idSchema, viewIdSchema]), returns<ViewLocalState | null>()],
+    saveViewState: [z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), returns<void>()],
+    /** Writes .stingray/views/<slug>.yaml; rejects if that file exists. */
+    saveViewAs: [z.tuple([idSchema, z.strictObject({
+      name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
+      layout: z.strictObject({ positions: positionsSchema }).nullable(),
+    })]), returns<SaveViewResult>()],
+    /** Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs. */
+    openServiceDocs: [z.tuple([z.string().max(100)]), returns<void>()],
+  },
+  events: { onViewsChanged: event<ViewsChangedEvent>() },
+});

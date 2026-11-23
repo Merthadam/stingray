@@ -4,7 +4,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { repoPathSchema, type FileInspection, type GitStatus, type RepoFile, type RepoSnapshot, type LineStats } from '../src/shared';
+import { repoPathSchema, type GitStatus } from '../shared/contracts/git';
+import { type FileInspection, type RepoFile, type RepoSnapshot, type LineStats } from '../shared/contracts/repo-map';
 import { git } from './git';
 import { measureSizes } from './repo-map-size';
 

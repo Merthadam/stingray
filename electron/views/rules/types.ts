@@ -1,9 +1,7 @@
 // Contracts of the rule-based view engine (M3, see .superpowers/sdd/views-platform/m3-design.md).
 // The engine is pure: it reads files and the code graph only through the interfaces below, so the CodeGraph child
 // process, the `stingray-views` CLI and tests can all drive it.
-import type {
-  DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, GraphStepDiagnostic, SequenceData, ViewDiagnostics, ViewKind, ViewWarning,
-} from '../../../src/views';
+import type { DiagramEdge, DiagramGroup, DiagramNode, GraphStatus, GraphStepDiagnostic, SequenceData, ViewDiagnostics, ViewKind, ViewWarning } from '../../../shared/contracts/views';
 
 // ---- Definitions (parsed from YAML; templates are unrendered strings like "@name") ----
 

@@ -1,7 +1,7 @@
 // React Flow node for one table card: header, explanation band (when explained), field rows with one source/target handle each, "+N more" toggle.
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import type { DiagramNode } from '../views';
+import type { DiagramNode } from '../../shared/contracts/views';
 import { cardRows } from './er-layout';
 import { StaleMark, explanationTitle } from './FlowNode';
 

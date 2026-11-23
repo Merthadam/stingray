@@ -1,6 +1,6 @@
 // Flow geometry stays in absolute coordinates so local state and saved views share the tables contract.
 import type { ElkNode } from 'elkjs/lib/elk-api.js';
-import type { DiagramNode, ViewResult } from '../views';
+import type { DiagramNode, ViewResult } from '../../shared/contracts/views';
 import type { ElkLayouter, Positions } from './er-layout';
 
 // Flowchart shapes (kind: flowchart): pills for start/end/error, diamonds for decision/loop, boxes otherwise.

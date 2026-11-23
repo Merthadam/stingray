@@ -2,7 +2,7 @@
 // modules (L2), files (L3) and top-level symbols (L4) are nodes down to `depth`, the levels above them nested groups;
 // edges between files roll up to the drawn nodes and are labelled with their counts. Pure.
 import path from 'node:path';
-import type { DiagramEdge, DiagramGroup, DiagramNode, LayersDiagnostic, ViewWarning } from '../../../src/views';
+import type { DiagramEdge, DiagramGroup, DiagramNode, LayersDiagnostic, ViewWarning } from '../../../shared/contracts/views';
 import type { GraphApi, GraphRelation, GraphRollupEdge, GraphSymbol, LayersStep } from './types';
 import { symbolRef } from '../explanation';
 

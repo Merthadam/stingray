@@ -98,7 +98,7 @@ try {
       ipcMain.removeHandler(channel);
       ipcMain.handle(channel, async (event, ...args) => {
         const result = await original(event, ...args);
-        if (!gate.entered && (channel === 'inspect-file' ? args[1] : args[0]) === match) {
+        if (!gate.entered && (channel === 'repo-map.inspectFile' ? args[1] : args[0]) === match) {
           gate.entered = true; await new Promise(resolve => { gate.release = resolve; });
         }
         return result;
@@ -134,9 +134,9 @@ try {
   await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5);
   await page.getByRole('tooltip').waitFor({ state: 'detached' }); await page.waitForTimeout(150);
   await app.evaluate(({ ipcMain }) => {
-    const original = ipcMain._invokeHandlers.get('repo-snapshot');
+    const original = ipcMain._invokeHandlers.get('repo-map.repoSnapshot');
     globalThis.idleMapPolls = 0;
-    ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', async (...args) => { const result = await original(...args); globalThis.idleMapPolls++; return result; });
+    ipcMain.removeHandler('repo-map.repoSnapshot'); ipcMain.handle('repo-map.repoSnapshot', async (...args) => { const result = await original(...args); globalThis.idleMapPolls++; return result; });
   });
   await page.evaluate(() => {
     window.idleMapMutations = 0; window.idleMapRecords = [];
@@ -258,7 +258,7 @@ try {
   check('Back restores prior scope', (await page.locator('.map-summary').innerText()).includes('2,048 files'));
   await find('bulk/file-2047.ts'); await page.getByLabel('File content', { exact: true }).waitFor();
   check('search reveals final file beyond rendered aggregates', await button('Unchanged file bulk/file-2047.ts').isVisible()); await screenshot('map-large-search');
-  await gateResponse('inspect-file', 'README.md');
+  await gateResponse('repo-map.inspectFile', 'README.md');
   await find('README.md'); await waitGate(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await releaseGate(); await page.waitForTimeout(150);
   check('late inspection cannot replace newer file or mode', (await page.locator('.inspector-file-heading').innerText()).includes('src/App.tsx') && await page.getByRole('tab', { name: 'Git diff', exact: true }).getAttribute('aria-selected') === 'true');
@@ -305,7 +305,7 @@ try {
   // Focus src so its real measured hierarchy is visible, not dominated by bulk.
   await focusFolder('src'); await page.waitForTimeout(1000); await screenshot('map-focused-folder');
   await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
-  await gateResponse('repo-snapshot', id);
+  await gateResponse('repo-map.repoSnapshot', id);
   // Hold a real automatic refresh. Background checks must remain visually
   // quiet; the gate, not a spinner, proves the request is in flight.
   await waitGate();
@@ -318,7 +318,7 @@ try {
   check('workspace switch resets an open inspector without renderer reload', await sidebar.count() === 0 && state.workspaces.length === 2);
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor(); await releaseGate(); await page.waitForTimeout(150);
   check('late snapshot cannot overwrite new workspace inventory or inspector', (await page.locator('.inspector-file-heading').innerText()).includes('README.md') && (await page.locator('.map-title').innerText()).includes('0 changes') && await page.locator('.inline-error').count() === 0);
-  await gateResponse('inspect-file', 'README.md'); await button('Refresh repository map').click(); await waitGate();
+  await gateResponse('repo-map.inspectFile', 'README.md'); await button('Refresh repository map').click(); await waitGate();
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main', exact: true }).click();
   await page.locator('.map-tile').first().waitFor(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Whole file', exact: true }).click(); await releaseGate(); await page.waitForTimeout(150);
@@ -326,14 +326,14 @@ try {
   // An actual IPC rejection must remain visible with the last successful map,
   // and recovery must clear it without resetting navigation or reader state.
   await app.evaluate(({ ipcMain }) => {
-    globalThis.mapSnapshotHandler = ipcMain._invokeHandlers.get('repo-snapshot');
-    ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', () => { throw new Error('Fixture snapshot unavailable'); });
+    globalThis.mapSnapshotHandler = ipcMain._invokeHandlers.get('repo-map.repoSnapshot');
+    ipcMain.removeHandler('repo-map.repoSnapshot'); ipcMain.handle('repo-map.repoSnapshot', () => { throw new Error('Fixture snapshot unavailable'); });
   });
   await button('Refresh repository map').click();
   await page.locator('.repo-map-view > .inline-error').filter({ hasText: 'Showing the last successful map.' }).waitFor();
   check('snapshot failure is explicit and keeps the prior map', await button('Modified file src/App.tsx').count() === 1);
   await screenshot('map-refresh-error');
-  await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('repo-snapshot'); ipcMain.handle('repo-snapshot', globalThis.mapSnapshotHandler); delete globalThis.mapSnapshotHandler; });
+  await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('repo-map.repoSnapshot'); ipcMain.handle('repo-map.repoSnapshot', globalThis.mapSnapshotHandler); delete globalThis.mapSnapshotHandler; });
   await button('Refresh repository map').click(); await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh repository map"]').disabled);
   check('snapshot recovery preserves navigation and reading mode', await page.locator('.repo-map-view > .inline-error').count() === 0 && await page.getByRole('tab', { name: 'Whole file', exact: true }).getAttribute('aria-selected') === 'true' && await button('Modified file src/App.tsx').count() === 1);
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'clean-worktree', exact: true }).click(); await page.locator('.map-tile').first().waitFor();

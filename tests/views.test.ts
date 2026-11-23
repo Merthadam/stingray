@@ -6,7 +6,7 @@ import path from 'node:path';
 import { databaseView } from '../electron/views/database';
 import { ViewService } from '../electron/views';
 import { createCodeGraphHost } from '../electron/codegraph';
-import type { DbColumn, DbSchemaResult, DbTable } from '../src/db-schema';
+import type { DbColumn, DbSchemaResult, DbTable } from '../shared/contracts/db-schema';
 
 const grammar = path.join(import.meta.dirname, '../electron/tree-sitter-python.wasm');
 

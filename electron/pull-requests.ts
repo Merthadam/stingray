@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import type { PullRequestStatus } from '../src/shared';
+import type { PullRequestStatus } from '../shared/contracts/git';
 
 const exec = promisify(execFile);
 export type PRRunner = (command: 'git' | 'gh', args: string[], cwd: string) => Promise<string>;

@@ -1,6 +1,6 @@
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
-import type { RepoFile } from '../src/shared';
+import type { RepoFile } from '../shared/contracts/repo-map';
 import { inventoryGit } from './repo-map';
 
 export async function measureSizes(root: string, files: RepoFile[], unborn = false) {

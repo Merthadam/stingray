@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { Language, Parser, type Node } from 'web-tree-sitter';
 import { initTreeSitter } from './views/rules/grammars';
-import type { DbBaseGroup, DbColumn, DbRelationship, DbSchemaResult, DbTable, DbWarning } from '../src/db-schema';
+import type { DbBaseGroup, DbColumn, DbRelationship, DbSchemaResult, DbTable, DbWarning } from '../shared/contracts/db-schema';
 
 const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'venv', 'site-packages', 'dist', 'build']);
 const MAX_ENTRIES = 20000, MAX_PY_FILES = 5000, MAX_FILE_BYTES = 1024 * 1024, MAX_WARNINGS = 200;

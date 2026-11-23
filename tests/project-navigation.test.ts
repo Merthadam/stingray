@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSelection, resolveSelection } from '../src/project-navigation';
-import type { State } from '../src/shared';
+import type { State } from '../shared/contracts/git';
 
 const state: State = { version: 1,
   repos: [{ id: 'a', name: 'Alpha', path: '/fixtures/alpha' }, { id: 'b', name: 'Beta', path: '/fixtures/beta' }],

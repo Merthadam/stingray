@@ -1,5 +1,5 @@
 import { createConnection } from 'node:net';
-import type { AgentPhase } from '../src/activity';
+import type { AgentPhase } from '../shared/contracts/activity';
 
 // Short-lived reporter run once per Claude Code hook / Codex notify invocation.
 // Bundled to dist-electron/hook-client.cjs and run with Stingray's Electron binary as plain Node

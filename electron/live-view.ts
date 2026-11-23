@@ -1,7 +1,7 @@
 // Clickable live view of a Stingray test instance (scripts/test-env.sh): CDP screencast of its window, forwarded input.
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { LiveViewEvent, LiveViewInput, LiveViewSession } from '../src/live-view';
+import type { LiveViewEvent, LiveViewInput, LiveViewSession } from '../shared/contracts/runtime';
 
 export const APP_PAGE = 'file:///app/dist/index.html'; // the test container's renderer; also keeps us off any other CDP endpoint's pages
 export const MAX_LIVE_VIEWS = 4;

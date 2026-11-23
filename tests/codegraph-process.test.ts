@@ -10,7 +10,7 @@ import { createCodeGraphProcessHost, type WorkerRequest } from '../electron/code
 import { serveCodeGraph } from '../electron/codegraph';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../electron/views/rules/types';
 import type { GraphChange, WorktreeGraph } from '../electron/views/graph';
-import type { GraphState, ViewsChangedEvent } from '../src/views';
+import type { GraphState, ViewsChangedEvent } from '../shared/contracts/views';
 import { ViewService } from '../electron/views/service';
 
 const worker = path.join(import.meta.dirname, '../electron/codegraph-worker.ts');

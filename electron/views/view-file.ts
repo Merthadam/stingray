@@ -4,7 +4,7 @@
 import { lstat, open, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
-import type { DiagramNode, ViewKind, ViewLayout, ViewResult, ViewSummary, ViewWarning } from '../../src/views';
+import type { DiagramNode, ViewKind, ViewLayout, ViewResult, ViewSummary, ViewWarning } from '../../shared/contracts/views';
 import { SLUG, YamlError, inScope, parseRuleFileYaml, parseViewYaml, type ExplainEntry } from './rules/schema';
 import type { ResolvedView, SourcedRule } from './rules/types';
 import { BUILTIN_SETS, TS_EXTRACTORS } from './sets';

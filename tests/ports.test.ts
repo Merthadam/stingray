@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PortService, processOwners, parseListeners, type PortRoot } from '../electron/ports';
 import { workspacePorts } from '../src/workspace-status';
-import type { Workspace } from '../src/shared';
+import type { Workspace } from '../shared/contracts/git';
 
 const a: PortRoot = { id: 'a', workspaceId: 'one', pid: 10, title: 'Terminal 1' };
 const b: PortRoot = { id: 'b', workspaceId: 'two', pid: 20, title: 'Terminal 2' };

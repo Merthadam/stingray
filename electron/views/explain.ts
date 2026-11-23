@@ -4,7 +4,7 @@
 // recomputes it and flags explanations whose code changed since ("may be outdated: X changed"). `stingray-views check
 // --restamp` writes the current fingerprints back into the file.
 import { createHash } from 'node:crypto';
-import type { DiagramGroup, DiagramNode, ExplainChanges, ExplainDiagnostic, ExplanationStatus, SymbolRef, UnresolvedLink, ViewResult, ViewWarning } from '../../src/views';
+import type { DiagramGroup, DiagramNode, ExplainChanges, ExplainDiagnostic, ExplanationStatus, SymbolRef, UnresolvedLink, ViewResult, ViewWarning } from '../../shared/contracts/views';
 import type { ComputeDeps } from './compute';
 import { MAX_PIECES, type ExplainEntry } from './rules/schema';
 import type { GraphSymbol } from './rules/types';

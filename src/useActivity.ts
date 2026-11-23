@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from './api';
-import { newerActivity, type ActivitySnapshot } from './activity';
+import { newerActivity } from './activity';
+import { type ActivitySnapshot } from '../shared/contracts/activity';
 
 export function useActivity(visibleIds: string[]) {
   const [snapshot, setSnapshot] = useState<ActivitySnapshot>({ revision: -1, agents: [] });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Copy, Search } from 'lucide-react';
-import type { ViewResult } from '../views';
+import type { ViewResult } from '../../shared/contracts/views';
 import { formatText } from '../views-text';
 import { matchingLines, splitMatches } from '../views-tab-model';
 

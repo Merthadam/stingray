@@ -1,5 +1,5 @@
 // Pure filters for the ER diagram's hidden set.
-import type { ViewResult } from '../views';
+import type { ViewResult } from '../../shared/contracts/views';
 
 export function adjacency(result: ViewResult): Map<string, Set<string>> {
   const adj = new Map<string, Set<string>>(result.nodes.map(n => [n.id, new Set()]));

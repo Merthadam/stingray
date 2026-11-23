@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Database, FileText, GanttChart, Network, PanelLeftClose, PanelLeftOpen, RefreshCw, Stethoscope, Table2, TriangleAlert, Workflow, X, ArrowRightLeft } from 'lucide-react';
 import { api } from './api';
-import type { Workspace } from './shared';
-import type { ViewKind, ViewLocalState, ViewResult, ViewSummary } from './views';
+import type { Workspace } from '../shared/contracts/git';
+import type { ViewKind, ViewLocalState, ViewResult, ViewSummary } from '../shared/contracts/views';
 import { EMPTY_LOCAL_STATE } from './views-ui/types';
 import { ErDiagram } from './views-ui/ErDiagram';
 import { FlowDiagram } from './views-ui/FlowDiagram';

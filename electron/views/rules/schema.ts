@@ -3,12 +3,11 @@
 import path from 'node:path';
 import { LineCounter, isMap, isScalar, parseDocument, type Document, type Pair } from 'yaml';
 import { z } from 'zod';
-import type { ViewKind, ViewLayout } from '../../../src/views';
+import { VIEW_KINDS, positionsSchema, type ViewKind, type ViewLayout } from '../../../shared/contracts/views';
 import { GRAMMAR_FILES } from './grammars';
 import { LINK_SETS, SEQUENCE_PARTICIPANTS, type Emit, type FlowchartStep, type GraphStep, type LayersStep, type Rule, type RuleSourceName, type Scope, type SequenceStep, type SourcedRule } from './types';
 
 export const SLUG = /^[a-z0-9-]{1,64}$/;
-export const KINDS: ViewKind[] = ['tables', 'flow', 'timeline', 'graph', 'flowchart', 'sequence'];
 export const MAX_USE = 8, MAX_RULES = 50, MAX_QUERY_BYTES = 8 * 1024;
 
 // Globs run on the main thread (path.matchesGlob compiles to backtracking regexes), so repo-controlled patterns are
@@ -99,10 +98,6 @@ const layersSchema = z.strictObject({
   expand: z.array(z.string().min(1).max(200)).max(50).optional(),
 });
 
-const point = z.strictObject({ x: z.number(), y: z.number() }); // zod 4 numbers reject Infinity/NaN
-/** Node positions keyed by DiagramNode.id (shared with the local view state). */
-export const positionsSchema = z.record(z.string().min(1).max(300), point)
-  .refine(p => Object.keys(p).length <= 1000, { error: 'At most 1000 positions' });
 export const layoutSchema = z.strictObject({ positions: positionsSchema.optional() });
 
 export const FINGERPRINT = /^[0-9a-f]{12}$/, MAX_EXPLAIN = 200, MAX_PIECES = 200;
@@ -130,7 +125,7 @@ export const viewSchema = z.strictObject({
   version: z.literal(1),
   name: z.string().min(1).max(80),
   description: z.string().max(500).optional(),
-  kind: z.enum(KINDS),
+  kind: z.enum(VIEW_KINDS),
   scope: z.strictObject({ include: globs.default(['**/*']), exclude: globs.default([]) }).default({ include: ['**/*'], exclude: [] }),
   use: z.array(z.string().regex(SLUG, { error: 'Set names are 1-64 characters a-z, 0-9 or "-"' })).max(MAX_USE).optional(),
   rules: rulesSchema.optional(),

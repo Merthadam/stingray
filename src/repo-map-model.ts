@@ -1,4 +1,5 @@
-import type { GitStatus, RepoFile, RepoSnapshot } from './shared';
+import type { GitStatus } from '../shared/contracts/git';
+import type { RepoFile, RepoSnapshot } from '../shared/contracts/repo-map';
 
 export function sameGitStatus(a: GitStatus, b: GitStatus) {
   return a.branch === b.branch && a.base === b.base && JSON.stringify([a.lines, a.uncommitted]) === JSON.stringify([b.lines, b.uncommitted]) &&

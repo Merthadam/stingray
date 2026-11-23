@@ -1,5 +1,5 @@
 // Pure diff between two results of the same view, for live-update flashes, fades and the toolbar note.
-import type { DiagramNode, ViewResult } from '../views';
+import type { DiagramNode, ViewResult } from '../../shared/contracts/views';
 
 export interface ResultDiff { added: string[]; removed: DiagramNode[]; changed: string[] }
 

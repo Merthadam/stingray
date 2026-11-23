@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Language, Parser, type Node } from 'web-tree-sitter';
-import type { DbBaseGroup, DbSchemaResult, DbWarning } from '../src/db-schema';
+import type { DbBaseGroup, DbSchemaResult, DbWarning } from '../shared/contracts/db-schema';
 import { applySqlConstraints, parseSqlDdl, sameSqlName } from './sql-ddl';
 import { codegraphGrammarDir, GRAMMAR_FILES, initTreeSitter } from './views/rules/grammars';
 

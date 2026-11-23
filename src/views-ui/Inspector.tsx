@@ -1,6 +1,6 @@
 // Right-hand panel for the selected table: all fields, relations (both directions) and source links.
 import { ExternalLink, X } from 'lucide-react';
-import type { DiagramEdge, DiagramNode, SourceRef } from '../views';
+import type { DiagramEdge, DiagramNode, SourceRef } from '../../shared/contracts/views';
 import { infraIconUrl } from '../infra/icons';
 import { ExplanationReason, StaleMark } from './FlowNode';
 

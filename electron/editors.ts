@@ -6,10 +6,9 @@ import { access, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import type { EditorId, EditorSettings } from '../src/views';
+import { EDITOR_IDS, type EditorId, type EditorSettings } from '../shared/contracts/app';
 import { database } from './database';
 
-export const EDITOR_IDS = ['repo-map', 'vscode', 'cursor', 'zed', 'system'] as const satisfies readonly EditorId[];
 const CLIS: Record<Exclude<EditorId, 'system' | 'repo-map'>, { command: string; bundle: string }> = {
   vscode: { command: 'code', bundle: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' },
   cursor: { command: 'cursor', bundle: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor' },

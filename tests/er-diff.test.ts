@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { DiagramNode, ViewResult } from '../src/views';
+import type { DiagramNode, ViewResult } from '../shared/contracts/views';
 import { describeDiff, diffResults } from '../src/views-ui/er-diff';
 
 const node = (id: string, type = 'Integer'): DiagramNode => ({ id, label: id, kind: 'table', subtitle: 'M', group: null, source: null, symbol: null, role: null, order: null, detail: null,

@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Document, isMap, isSeq, parseDocument } from 'yaml';
-import type { SaveViewInput, SaveViewResult } from '../../src/views';
+import type { SaveViewInput, SaveViewResult } from '../../shared/contracts/views';
 import { MAX_VIEW_FILE_BYTES, MAX_VIEW_FILES, VIEWS_DIR, VIEW_SLUG, readBounded } from './view-file';
 import { parseViewYaml } from './rules/schema';
 

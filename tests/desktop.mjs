@@ -96,6 +96,7 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Open repository', exact: true }).click();
   await page.getByRole('button', { name: 'Open project other-project', exact: true }).waitFor();
   check('one project card per registered repository', await page.locator('.project-card').count() === 2);
+  check('no DEMO badge in desktop mode', await page.getByRole('status', { name: 'Demo data', exact: true }).count() === 0);
   await page.screenshot({ path: path.join(evidence, 'projects-home.png') });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
   await page.waitForFunction(() => innerWidth === 760);

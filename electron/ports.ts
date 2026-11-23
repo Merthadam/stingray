@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { WorkspacePort } from '../src/shared';
+import type { WorkspacePort } from '../shared/contracts/runtime';
 
 const exec = promisify(execFile);
 export type PortRoot = { id: string; workspaceId: string; pid: number; title: string };

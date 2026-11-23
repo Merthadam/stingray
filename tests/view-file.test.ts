@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises
 import os from 'node:os';
 import path from 'node:path';
 import { MAX_VIEW_FILES, inScope, listViewFiles, loadViewPath, readViewFile, tablesView } from '../electron/views/view-file';
-import type { DiagramNode, ViewResult } from '../src/views';
+import type { DiagramNode, ViewResult } from '../shared/contracts/views';
 
 const valid = 'version: 1\nname: Core\nkind: tables\nuse: [sqlalchemy]\n';
 const rule = (id: string) => `  - { id: ${id}, language: python, query: "(call) @c", emit: { node: { id: "@c" } } }\n`;

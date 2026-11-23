@@ -4,7 +4,7 @@ import { evaluate } from '../electron/views/rules/engine';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';
 import { MAX_FLOWCHART_NODES } from '../electron/views/flowchart/build';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol, ResolvedView } from '../electron/views/rules/types';
-import type { DiagramNode } from '../src/views';
+import type { DiagramNode } from '../shared/contracts/views';
 import { formatText } from '../src/views-text';
 
 const grammarDir = codegraphGrammarDir();

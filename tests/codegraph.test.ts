@@ -7,7 +7,7 @@ import path from 'node:path';
 import { git } from '../electron/git';
 import { createCodeGraphHost } from '../electron/codegraph';
 import type { GraphChange, WorktreeGraph } from '../electron/views/graph';
-import type { GraphState } from '../src/views';
+import type { GraphState } from '../shared/contracts/views';
 
 // The app sets CodeGraph's opt-outs on its child process (codegraph-process.ts); this file runs the host in-process.
 process.env.CODEGRAPH_TELEMETRY = '0'; process.env.CODEGRAPH_NO_UPDATE_CHECK = '1';

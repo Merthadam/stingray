@@ -2,7 +2,7 @@
 // a LinkProvider (the other sets in *-links.ts, registered in index.ts); link rules of the view become `rule:<id>` providers.
 import path from 'node:path';
 import type { Node, Tree } from 'web-tree-sitter';
-import type { SourceRef } from '../../../src/views';
+import type { SourceRef } from '../../../shared/contracts/views';
 import type { FileProvider, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
 import type { Call } from '../flowchart/cfg';
 import { FUNCTION_KINDS, LANGUAGES } from '../flowchart';

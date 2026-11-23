@@ -1,8 +1,8 @@
 // Computes views per worktree and pushes ViewsChangedEvent when code, view files or the code graph change.
 import { extractDbSchema } from '../db-schema';
 import { extractSqlSchema, isSqlSource } from '../sql-schema';
-import type { DbSchemaResult } from '../../src/db-schema';
-import type { ViewResult, ViewSummary, ViewsChangedEvent } from '../../src/views';
+import type { DbSchemaResult } from '../../shared/contracts/db-schema';
+import type { ViewResult, ViewSummary, ViewsChangedEvent } from '../../shared/contracts/views';
 import type { GraphChange, GraphHost, WorktreeGraph } from './graph';
 import { DATABASE_VIEW, databaseView } from './database';
 import { combineSchemas, computeView, linkSymbols } from './compute';

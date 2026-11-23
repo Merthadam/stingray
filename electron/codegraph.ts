@@ -5,7 +5,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
-import type { GraphState, GraphStatus } from '../src/views';
+import type { GraphState, GraphStatus } from '../shared/contracts/views';
 import type { Evaluate, GraphApi, GraphSymbol, ResolvedView } from './views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './codegraph-process';
 import { evaluate } from './views/rules/engine';

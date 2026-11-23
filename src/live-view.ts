@@ -1,22 +1,5 @@
-// Live view of a Stingray test instance over CDP: input schema shared by LiveView.tsx and electron/live-view.ts, plus pure helpers.
-import { z } from 'zod';
-
-const unit = z.number().finite().min(0).max(1); // position normalized to the frame, so the renderer never needs page metadata
-const modifiers = z.number().int().min(0).max(15); // CDP bit field: Alt 1, Ctrl 2, Meta 4, Shift 8
-const delta = z.number().finite().min(-10_000).max(10_000);
-export const liveViewInputSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('mouse'), action: z.enum(['mousePressed', 'mouseReleased', 'mouseMoved']), x: unit, y: unit,
-    button: z.enum(['none', 'left', 'middle', 'right']), clickCount: z.number().int().min(0).max(3), modifiers }),
-  z.strictObject({ type: z.literal('wheel'), x: unit, y: unit, deltaX: delta, deltaY: delta, modifiers }),
-  z.strictObject({ type: z.literal('key'), action: z.enum(['keyDown', 'keyUp']), key: z.string().min(1).max(32), code: z.string().max(32),
-    keyCode: z.number().int().min(0).max(255), text: z.string().max(4).optional(), modifiers }),
-  z.strictObject({ type: z.literal('text'), text: z.string().min(1).max(10_000) }),
-]);
-export type LiveViewInput = z.infer<typeof liveViewInputSchema>;
-export type LiveViewSession = { sessionId: string; targetUrl: string; title: string };
-export type LiveViewEvent =
-  | { sessionId: string; kind: 'frame'; data: string }
-  | { sessionId: string; kind: 'closed'; reason: string };
+// Live view of a Stingray test instance over CDP: pure helpers for LiveView.tsx (the input schema is in shared/contracts/runtime).
+import type { LiveViewInput } from '../shared/contracts/runtime';
 
 export const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 } as const;
 export const modifierBits = (e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) =>

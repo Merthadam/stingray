@@ -1,6 +1,6 @@
 // Graph steps (m3-design.md "Graph steps"): expand start symbols through the code graph into nodes and edges. Pure.
 import path from 'node:path';
-import type { DiagramEdge, DiagramField, DiagramNode } from '../../../src/views';
+import type { DiagramEdge, DiagramField, DiagramNode } from '../../../shared/contracts/views';
 import { explanationOf, symbolRef } from '../explanation';
 import type { FollowKind, GraphRelation, GraphSymbol, RunGraphStep } from './types';
 

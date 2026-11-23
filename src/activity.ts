@@ -1,17 +1,5 @@
-// Renderer-safe metadata only. Never include transport credentials or agent content.
-export type AgentPhase = 'idle' | 'working' | 'waiting' | 'failed' | 'interrupted' | 'unknown';
-export type HarnessId = 'pi' | 'claude' | 'codex';
+import type { ActivitySnapshot, AgentActivity, HarnessId } from '../shared/contracts/activity';
 export const harnessNames: Record<HarnessId, string> = { pi: 'Pi', claude: 'Claude Code', codex: 'Codex' };
-export type AgentActivity = {
-  id: string; terminalId: string; workspaceId: string; harness: HarnessId;
-  connection: 'connected' | 'disconnected' | 'unsupported';
-  phase: AgentPhase;
-  reviewRevision: number | null;
-  /** From a previous app session: its terminal is gone, so it is dismissed rather than acknowledged. */
-  restored: boolean;
-  lastEventAt: number;
-};
-export type ActivitySnapshot = { revision: number; agents: AgentActivity[] };
 export type ActivityLabel = 'Working' | 'Waiting for you' | 'Needs review' | 'Idle' | 'Failed' | 'Interrupted' | 'Disconnected' | 'Tracking unavailable';
 export function activityLabel(agent: AgentActivity): ActivityLabel {
   if (agent.restored) return agent.reviewRevision !== null ? 'Needs review' : agent.phase === 'failed' ? 'Failed'

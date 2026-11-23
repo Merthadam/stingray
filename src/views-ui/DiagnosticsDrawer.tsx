@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
-import type { RuleDiagnostic, ViewResult, ViewWarning } from '../views';
+import type { RuleDiagnostic, ViewResult, ViewWarning } from '../../shared/contracts/views';
 
 type OpenSource = (file: string, line: number | null) => void;
 

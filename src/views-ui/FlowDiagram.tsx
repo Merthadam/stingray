@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import './er-diagram.css';
 import './flow-diagram.css';
 import type { ErDiagramProps } from './types';
-import type { DiagramNode, ViewLocalState } from '../views';
+import type { DiagramNode, ViewLocalState } from '../../shared/contracts/views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
 import { bandEntry, flowFrames, flowGrid, frameIndex, flowPositions, flowSize } from './flow-layout';

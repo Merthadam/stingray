@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { FolderOpen, LoaderCircle } from 'lucide-react';
 import { api } from './api';
-import { cloneDestinationSchema, repositoryUrlSchema, type State } from './shared';
+import { cloneDestinationSchema, repositoryUrlSchema, type State } from '../shared/contracts/git';
 import './add-project.css';
 
 export function AddProjectForm({ busy, run, onAdded, onCancel, clearError }: {

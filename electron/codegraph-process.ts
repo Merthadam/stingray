@@ -10,7 +10,7 @@ import path from 'node:path';
 import { ignoredDirs, short } from './codegraph';
 import { excludeCodeGraphCache } from './git-exclude';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './views/graph';
-import type { GraphState, GraphStatus } from '../src/views';
+import type { GraphState, GraphStatus } from '../shared/contracts/views';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './views/rules/types';
 import type { SharedBaseTarget } from './codegraph-overlay';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';

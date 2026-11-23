@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, FileCode2, RefreshCw, X, Maximize2, Minimize2 } from 'lucide-react';
 import { api } from './api';
-import type { FileInspection, RepoFile, RepoSnapshot, Workspace } from './shared';
+import type { FileInspection, RepoFile, RepoSnapshot } from '../shared/contracts/repo-map';
+import type { Workspace } from '../shared/contracts/git';
 import { fileKind, kindBadges, reconcileSnapshot } from './repo-map-model';
 import { RepoMapCanvas } from './RepoMapCanvas';
 import { LineCounts } from './LineCounts';

@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import { ArrowUpRight, FolderGit2, GitBranch, LoaderCircle, Plus, Search, ShieldCheck, TerminalSquare, X } from 'lucide-react';
-import type { State, TerminalInfo } from './shared';
+import type { State } from '../shared/contracts/git';
+import type { TerminalInfo } from '../shared/contracts/terminals';
 import './project-home.css';
 
 export function ProjectHome({ state, terminals, query, setQuery, searchRef, loading, failed, onOpen, onAdd, onRetry }: {

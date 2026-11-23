@@ -2,7 +2,7 @@
 // join at invisible merge points (their dangling edges continue to the next node). Calls resolved through the code graph
 // are expanded inline as groups up to `depth`, else drawn as `call` nodes.
 import path from 'node:path';
-import type { DiagramEdge, DiagramGroup, DiagramNode } from '../../../src/views';
+import type { DiagramEdge, DiagramGroup, DiagramNode } from '../../../shared/contracts/views';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
 import type { Call, Code, Construct, Handler } from './cfg';
 import { explanationOf, symbolRef } from '../explanation';

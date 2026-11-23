@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import type { ViewKind } from '../src/views';
+import type { ViewKind } from '../shared/contracts/views';
 import { evaluate } from '../electron/views/rules/engine';
 import { createFileProvider } from '../electron/views/rules/files';
 import { codegraphGrammarDir } from '../electron/views/rules/grammars';

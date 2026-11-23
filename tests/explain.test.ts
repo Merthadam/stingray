@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-import type { DiagramGroup, DiagramNode, ViewResult } from '../src/views';
+import type { DiagramGroup, DiagramNode, ViewResult } from '../shared/contracts/views';
 import { YamlError, parseViewYaml } from '../electron/views/rules/schema';
 import { applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets } from '../electron/views/explain';
 import type { GraphSymbol } from '../electron/views/rules/types';

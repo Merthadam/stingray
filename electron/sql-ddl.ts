@@ -1,5 +1,5 @@
 // Tolerant static DDL reader. No SQL or repository code is executed.
-import type { DbColumn, DbForeignKey, DbTable, DbWarning } from '../src/db-schema';
+import type { DbColumn, DbForeignKey, DbTable, DbWarning } from '../shared/contracts/db-schema';
 
 interface Token { text: string; value: string; line: number; kind: 'word' | 'identifier' | 'string' | 'symbol' }
 interface Constraint { kind: 'primary' | 'unique' | 'foreign'; columns: string[]; references?: { table: string; columns: string[]; ondelete: string | null; onupdate: string | null } }

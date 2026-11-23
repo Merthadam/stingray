@@ -1,9 +1,7 @@
 // `kind: sequence` views (docs/sequence-view-spec.md): resolve the entry (function or HTTP route), walk it (walk.ts), then
 // turn the trace into lifelines, rows, fragments and notes. Pure apart from reading files through the FileProvider.
 import path from 'node:path';
-import type {
-  DiagramNode, SequenceData, SequenceDiagnostic, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant, ViewWarning,
-} from '../../../src/views';
+import type { DiagramNode, SequenceData, SequenceDiagnostic, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant, ViewWarning } from '../../../shared/contracts/views';
 import type { FileProvider, GraphApi, GraphLayers, GraphSymbol, LinkSet, SequenceStep } from '../rules/types';
 import { FUNCTION_KINDS, at, createLoader, type ParseText } from '../flowchart';
 import { explanationOf, symbolRef } from '../explanation';

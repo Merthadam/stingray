@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { SequenceData, SequenceMessage, SequenceParticipant } from '../src/views';
+import type { SequenceData, SequenceMessage, SequenceParticipant } from '../shared/contracts/views';
 import { SEQ, collapseParticipants, collapsible, sequenceLayout } from '../src/views-ui/sequence-layout';
 import { sequenceEvents } from '../src/sequence-events';
 import { formatText, type TextDiagramInput } from '../src/views-text';

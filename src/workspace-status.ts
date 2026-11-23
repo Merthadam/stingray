@@ -1,4 +1,5 @@
-import type { ContainerInfo, GitStatus, Workspace, WorkspacePort } from './shared';
+import type { ContainerInfo, WorkspacePort } from '../shared/contracts/runtime';
+import type { GitStatus, Workspace } from '../shared/contracts/git';
 
 export function workspacePorts(workspace: Workspace, terminalPorts: WorkspacePort[], containers: ContainerInfo[]) {
   const ports = new Map<number, WorkspacePort>();

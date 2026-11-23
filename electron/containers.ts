@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ContainerInfo } from '../src/shared';
+import type { ContainerInfo } from '../shared/contracts/runtime';
 
 const exec = promisify(execFile);
 const binding = z.object({ HostIp: z.string(), HostPort: z.string() });
