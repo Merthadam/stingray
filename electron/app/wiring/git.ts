@@ -3,15 +3,13 @@ import { cloneGit } from '../../adapters/driven/git/clone';
 import { ghRunner } from '../../adapters/driven/git/gh';
 import { git } from '../../adapters/driven/git/runner';
 import { nodeGitDirWatcher } from '../../adapters/driven/git/watcher';
-import { nodeHasher } from '../../adapters/driven/fs/hash';
 import { nodeWorkspaceFiles } from '../../adapters/driven/fs/workspace-files';
 import { sqliteStateRepository } from '../../adapters/driven/sqlite/state-repository';
 import { GitService as CoreGitService, GitStateService as CoreGitStateService, PullRequestService as CorePullRequestService, Store as CoreStore,
   WorkspaceLifecycle, originMainBase as coreOriginMainBase, readGitLines as coreReadGitLines, type GitStateOptions, type GitStatePublisher, type LineRunner, type PRRunner } from '../../core/git';
 import type { Change } from '../../../shared/contracts/git';
-import { provideHasher } from '../../core/shared/ports';
-
-provideHasher(nodeHasher);
+import './core-ports';
+import { createRepoMapService } from './repo-map';
 
 export { git, WorkspaceLifecycle };
 export { parseStatus, parseNumstat } from '../../core/git';
@@ -25,6 +23,10 @@ export class GitService extends CoreGitService {
     if (hooks) { lifecycle.onBeforeRemove('hooks', hooks.beforeRemove, { blocking: true }); lifecycle.onRemoveFailed('hooks', hooks.removeFailed); }
     super({ store, runner: git, files: nodeWorkspaceFiles, cloner: cloneGit, lifecycle, terminalCount });
   }
+  /** Repo Map for this service (production IPC and the existing tests' service.repoSnapshot/inspectFile). */
+  readonly repoMap = createRepoMapService(this);
+  repoSnapshot(id: string) { return this.repoMap.repoSnapshot(id); }
+  inspectFile(id: string, relative: string) { return this.repoMap.inspectFile(id, relative); }
 }
 
 export class GitStateService extends CoreGitStateService {

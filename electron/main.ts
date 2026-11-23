@@ -16,6 +16,7 @@ import { closeDatabase, database, readState } from './adapters/driven/sqlite/dat
 import { sqliteSettingsRepository } from './adapters/driven/sqlite/settings-repository';
 import { GitService, GitStateService, PullRequestService, Store, WorkspaceLifecycle } from './app/wiring/git';
 import { gitHandlers } from './adapters/driving/ipc/git';
+import { repoMapHandlers } from './adapters/driving/ipc/repo-map';
 import { Terminals, openTerminalLink } from './app/wiring/terminals';
 import { terminalsHandlers } from './adapters/driving/ipc/terminals';
 import { electronShell } from './adapters/driven/electron-shell/shell';
@@ -156,7 +157,7 @@ app.whenReady().then(async () => {
       try { return await git.cloneRepository(url, destination); } finally { cloning = false; }
     },
   }));
-  registerContract(ipc, repoMapContract, { repoSnapshot: id => git.repoSnapshot(id), inspectFile: (id, path) => git.inspectFile(id, path) });
+  registerContract(ipc, repoMapContract, repoMapHandlers(git.repoMap));
   registerContract(ipc, terminalsContract, terminalsHandlers({
     terminals, git,
     openLink: async (id, uri) => {

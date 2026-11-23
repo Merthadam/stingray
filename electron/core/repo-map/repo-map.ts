@@ -1,24 +1,12 @@
-import { constants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
-import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { repoPathSchema, type GitStatus } from '../../../shared/contracts/git';
-import { type FileInspection, type RepoFile, type RepoSnapshot, type LineStats } from '../../../shared/contracts/repo-map';
-import { git, runGit } from '../../adapters/driven/git/runner';
+import type { FileInspection, LineStats, RepoFile, RepoSnapshot } from '../../../shared/contracts/repo-map';
+import { sha256 } from '../shared/ports';
+import type { RepoInventory, WorkingFiles } from './ports';
 import { measureSizes } from './repo-map-size';
 
-const maxBytes = 512 * 1024;
-const maxFiles = 100000;
+export type RepoMapPorts = { inventory: RepoInventory; files: WorkingFiles };
 
-export async function inventoryGit(root: string, args: string[]) {
-  try {
-    return await runGit(root, args, { timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
-  } catch (error) {
-    const failure = error as { code?: number; stdout?: string };
-    if (args[0] === 'grep' && failure.code === 1 && failure.stdout === '') return '';
-    throw new Error('Repository inventory exceeds the 16 MiB / 15 second limit, or Git is unavailable.');
-  }
-}
+const maxFiles = 100000;
 
 export function parseNumstat(output: string): Map<string, LineStats | null> {
   const records = output.split('\0');
@@ -37,8 +25,8 @@ export function parseNumstat(output: string): Map<string, LineStats | null> {
   return result;
 }
 
-export async function repoSnapshot(root: string, status: GitStatus, withStats = true): Promise<RepoSnapshot> {
-  const listed = await inventoryGit(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
+export async function repoSnapshot(root: string, status: GitStatus, withStats = true, ports: RepoMapPorts): Promise<RepoSnapshot> {
+  const listed = await ports.inventory.run(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
   const paths = new Set(listed.split('\0').filter(Boolean));
   // Staged deletions are no longer in the index, but must remain navigable.
   for (const change of status.changes) paths.add(change.path);
@@ -57,21 +45,8 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
   try {
     // A missing HEAD is expected only on an unborn branch. Other failures keep
     // counts unknown rather than silently treating every file as newly added.
-    try { await git(root, ['rev-parse', '--verify', 'HEAD^{commit}']); } catch {
-      const branch = (await git(root, ['symbolic-ref', '-q', 'HEAD'])).trim();
-      if (!branch.startsWith('refs/heads/')) throw new Error('HEAD unavailable');
-      // Check this exact branch, not all refs: an orphan branch may coexist
-      // with other branches/tags. Only exit 1 means absent; corrupt refs and
-      // timeouts must remain errors, not turn tracked files into additions.
-      try {
-        await runGit(root, ['show-ref', '--verify', '--quiet', branch], { timeout: 10000, maxBuffer: 4096 });
-      } catch (error) {
-        if ((error as { code?: number }).code === 1) unborn = true;
-        else throw error;
-      }
-      if (!unborn) throw new Error('HEAD unavailable');
-    }
-    if (!unborn) counts = parseNumstat(await inventoryGit(root, ['diff', 'HEAD', '--numstat', '-z', '--find-renames', '-l1000', '--no-ext-diff', '--no-textconv', '--no-color', '--submodule=short', '--']));
+    unborn = (await ports.inventory.head(root)) === 'unborn';
+    if (!unborn) counts = parseNumstat(await ports.inventory.run(root, ['diff', 'HEAD', '--numstat', '-z', '--find-renames', '-l1000', '--no-ext-diff', '--no-textconv', '--no-color', '--submodule=short', '--']));
   } catch { failed = true; }
   // A staged rename can become a delete/add in the net diff after heavy
   // unstaged edits. Keep the old-path removals on its destination tile when
@@ -92,77 +67,24 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
     else if (failed) { file.lines = null; file.lineNotice = 'Git line counts unavailable'; }
     else { file.lines = counts.get(file.path) ?? (counts.has(file.path) ? null : { added: 0, removed: 0 }); if (file.lines === null) file.lineNotice = 'Binary file'; }
   }
-  await measureSizes(root, files, unborn);
+  await measureSizes(root, files, unborn, ports);
   const unknown = files.filter(file => file.status && file.lines == null).length;
   return { ...status, files, statsNotice: unknown ? `${unknown} changed file(s) have unavailable line counts; totals include known counts only.` : '' };
 }
 
-async function boundedGit(root: string, args: string[]) {
-  return runGit(root, args, { timeout: 10000, maxBuffer: maxBytes, encoding: 'buffer' });
-}
-function decode(data: Buffer): string | null {
+const utf8 = (data: Uint8Array) => new TextDecoder().decode(data);
+function decode(data: Uint8Array): string | null {
   if (data.includes(0)) return null;
   try { return new TextDecoder('utf-8', { fatal: true }).decode(data); } catch { return null; }
 }
 
-// Never follow repository symlinks, including symlinked parent directories.
-// This is a read-only viewer, not a general filesystem API.
-export async function readWorkingFile(root: string, relative: string, openFile: typeof open = open): Promise<Buffer | null> {
-  repoPathSchema.parse(relative);
-  const base = await realpath(root);
-  let current = base;
-  const validated: { path: string; dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }[] = [];
-  const parts = relative.split('/');
-  for (let i = 0; i < parts.length; i++) {
-    current = path.join(current, parts[i]);
-    let stat;
-    try { stat = await lstat(current); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw error;
-    }
-    if (stat.isSymbolicLink()) throw new Error('Symlink contents are not opened by the inspector.');
-    if (i < parts.length - 1 && !stat.isDirectory()) throw new Error('The file’s parent is not a directory.');
-    validated.push({ path: current, dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs });
-  }
-  const resolved = await realpath(current);
-  if (!resolved.startsWith(base + path.sep)) throw new Error('The file is outside this workspace.');
-  const file = await openFile(current, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const stat = await file.stat();
-    const expected = validated.at(-1)!;
-    if (stat.dev !== expected.dev || stat.ino !== expected.ino || stat.size !== expected.size || stat.mtimeMs !== expected.mtimeMs || stat.ctimeMs !== expected.ctimeMs) throw new Error('File changed before it could be opened safely.');
-    // O_NOFOLLOW alone only protects the final component. Check the opened
-    // descriptor against the validated identity and recheck every ancestor
-    // before reading any bytes. A swapped parent cannot redirect this fd.
-    for (const entry of validated) {
-      const now = await lstat(entry.path);
-      if (now.isSymbolicLink() || now.dev !== entry.dev || now.ino !== entry.ino) throw new Error('File ancestry changed before it could be opened safely.');
-    }
-    if (await realpath(current) !== resolved) throw new Error('File ancestry changed before it could be opened safely.');
-    if (!stat.isFile()) throw new Error('Directories and submodules cannot be opened as files.');
-    if (stat.size > maxBytes) throw new Error('File exceeds the 512 KiB inspector limit.');
-    // A bounded read also protects against a file growing after stat().
-    const bytes = Buffer.alloc(maxBytes + 1);
-    let bytesRead = 0;
-    while (bytesRead < bytes.length) {
-      const chunk = await file.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
-      if (!chunk.bytesRead) break;
-      bytesRead += chunk.bytesRead;
-    }
-    if (bytesRead > maxBytes) throw new Error('File exceeds the 512 KiB inspector limit.');
-    const after = await file.stat();
-    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error('File changed during read. Refresh and try again.');
-    return bytes.subarray(0, bytesRead);
-  } finally { await file.close(); }
-}
-
-export async function inspectFile(root: string, relative: string, snapshot: RepoSnapshot): Promise<FileInspection> {
+export async function inspectFile(root: string, relative: string, snapshot: RepoSnapshot, ports: RepoMapPorts): Promise<FileInspection> {
   repoPathSchema.parse(relative);
   const entry = snapshot.files.find(file => file.path === relative);
   if (!entry) throw new Error('File is not in this workspace’s Git inventory. Refresh the map.');
   const result: FileInspection = { path: relative, content: null, source: 'working tree', staged: '', unstaged: '', notice: '', revision: '' };
-  let bytes: Buffer | null;
-  try { bytes = await readWorkingFile(root, relative); } catch (error) {
+  let bytes: Uint8Array | null;
+  try { bytes = await ports.files.read(root, relative); } catch (error) {
     result.notice = (error as Error).message;
     // Do not run diff on symlinks, special files or unbounded files either.
     return finish(result);
@@ -172,7 +94,7 @@ export async function inspectFile(root: string, relative: string, snapshot: Repo
     // still have newly added/staged contents there. Preserve that distinction.
     const source = entry.status[0] === 'D' ? 'HEAD' : 'index';
     try {
-      bytes = await boundedGit(root, ['show', source === 'HEAD' ? `HEAD:${relative}` : `:${relative}`]);
+      bytes = await ports.inventory.bytes(root, ['show', source === 'HEAD' ? `HEAD:${relative}` : `:${relative}`]);
       result.source = source;
       result.notice = `Deleted file · showing ${source} contents.`;
     } catch {
@@ -191,7 +113,7 @@ export async function inspectFile(root: string, relative: string, snapshot: Repo
     result.unstaged = `--- /dev/null\n+++ ${relative}\n@@ -0,0 +${lines.length ? 1 : 0},${lines.length} @@\n` + lines.map(line => '+' + line).join('\n');
     if (result.content && !result.content.endsWith('\n')) result.unstaged += '\n\\ No newline at end of file';
     if (entry.untrackedReplacement) {
-      try { result.staged = (await boundedGit(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--', `:(literal)${relative}`])).toString('utf8'); }
+      try { result.staged = utf8(await ports.inventory.bytes(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--', `:(literal)${relative}`])); }
       catch { result.notice = 'Staged deletion diff unavailable (512 KiB limit or Git error).'; }
     }
   } else if (entry.status) {
@@ -201,10 +123,10 @@ export async function inspectFile(root: string, relative: string, snapshot: Repo
     const options = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--submodule=short'];
     try {
       const [staged, unstaged] = await Promise.all([
-        boundedGit(root, ['diff', '--cached', ...options, '--', ...paths]),
-        boundedGit(root, ['diff', ...options, '--', ...paths]),
+        ports.inventory.bytes(root, ['diff', '--cached', ...options, '--', ...paths]),
+        ports.inventory.bytes(root, ['diff', ...options, '--', ...paths]),
       ]);
-      result.staged = staged.toString('utf8'); result.unstaged = unstaged.toString('utf8');
+      result.staged = utf8(staged); result.unstaged = utf8(unstaged);
     } catch {
       result.notice = 'Diff unavailable (512 KiB limit or Git error). File contents are still available.';
     }
@@ -212,6 +134,6 @@ export async function inspectFile(root: string, relative: string, snapshot: Repo
   return finish(result);
 }
 function finish(result: FileInspection) {
-  result.revision = createHash('sha256').update(JSON.stringify(result)).digest('hex');
+  result.revision = sha256(JSON.stringify(result));
   return result;
 }

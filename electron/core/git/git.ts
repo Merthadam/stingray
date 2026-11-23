@@ -7,11 +7,8 @@ import type { Cloner, GitRunner, WorkspaceFiles } from './ports';
 import type { WorkspaceLifecycle } from './workspace-lifecycle';
 import { urlSchema } from '../../../shared/contracts/common';
 import { repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus } from '../../../shared/contracts/git';
-import { type RepoSnapshot } from '../../../shared/contracts/repo-map';
-import { repoSnapshot, inspectFile } from '../repo-map/repo-map';
 import { readGitLines, originMainBase } from './git-lines';
 
-const snapshotsInFlight = new Map<string, Promise<RepoSnapshot>>();
 /** Consent identity of a removal review: any change to it invalidates an earlier confirmation (audit 3). */
 export function removalFingerprint(r: { branch: string; changes: Change[]; blockers: string[]; push: RemovalReview['push']; merged: string | null; identity: string }): string {
   const changes = r.changes.map(c => JSON.stringify([c.path, c.status, c.originalPath ?? null])).sort();
@@ -222,23 +219,6 @@ export class GitService {
     const result: GitStatus = { branch: branch.trim() || 'detached HEAD', changes, lines: lineStats, uncommitted, base: base ? 'origin/main' : 'HEAD' };
     this.onStatus?.(id, result);
     return result;
-  }
-  async repoSnapshot(id: string) {
-    const w = await this.workspace(id);
-    const root = await this.files.realpath(w.path);
-    let job = snapshotsInFlight.get(root);
-    if (!job) {
-      job = (async () => repoSnapshot(root, await this.status(id), true))();
-      snapshotsInFlight.set(root, job);
-    }
-    try {
-      // Concurrent requests share one entire status/inventory/count operation.
-      return await job;
-    } finally { if (snapshotsInFlight.get(root) === job) snapshotsInFlight.delete(root); }
-  }
-  async inspectFile(id: string, relative: string) {
-    const w = await this.workspace(id);
-    return inspectFile(w.path, relative, await repoSnapshot(w.path, await this.status(id), false));
   }
   preview(id: string, input: string) {
     return this.serial(async () => {

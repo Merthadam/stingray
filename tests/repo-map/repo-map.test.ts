@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GitService, Store, git } from '../../electron/app/wiring/git';
 import { aggregate, buildRepoTree, clusterNodes, fileKind, findFolder, inRange, reconcileSnapshot } from '../../src/features/repo-map/repo-map-model';
-import { parseNumstat, repoSnapshot, readWorkingFile } from '../../electron/core/repo-map/repo-map';
+import { parseNumstat, repoSnapshot, readWorkingFile } from '../../electron/app/wiring/repo-map';
 import { squarify, treemap } from '../../src/features/repo-map/repo-map-layout';
 import type { RepoFile, RepoSnapshot } from '../../shared/contracts/repo-map';
 

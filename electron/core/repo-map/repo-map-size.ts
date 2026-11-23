@@ -1,10 +1,8 @@
-import { lstat } from 'node:fs/promises';
-import path from 'node:path';
 import type { RepoFile } from '../../../shared/contracts/repo-map';
-import { inventoryGit } from './repo-map';
+import type { RepoMapPorts } from './repo-map';
 
-export async function measureSizes(root: string, files: RepoFile[], unborn = false) {
-  const output = await inventoryGit(root, ['grep', '-z', '-c', '-I', '--untracked', '-e', '']);
+export async function measureSizes(root: string, files: RepoFile[], unborn = false, ports: RepoMapPorts) {
+  const output = await ports.inventory.run(root, ['grep', '-z', '-c', '-I', '--untracked', '-e', '']);
   const counts = new Map<string, number>();
   for (const match of output.matchAll(/([^\0]+)\0(\d+)\n/g)) counts.set(match[1], Number(match[2]));
   for (const file of files) {
@@ -14,10 +12,9 @@ export async function measureSizes(root: string, files: RepoFile[], unborn = fal
       ? { state: 'unavailable', source: 'working tree', reason: 'Binary, empty or unreadable' }
       : { state: 'known', source: 'working tree', textLines: count };
     if (count === undefined) {
-      try {
-        const stat = await lstat(path.join(root, file.path));
-        if (stat.isFile() && stat.size === 0) file.size = { state: 'known', source: 'working tree', textLines: 0 };
-      } catch (error) { absent = (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+      const probe = await ports.files.probe(root, file.path);
+      if (probe === 'emptyFile') file.size = { state: 'known', source: 'working tree', textLines: 0 };
+      absent = probe === 'missing';
       if (absent && file.status.includes('D') && file.lines) file.size = { state: 'known', source: 'HEAD', textLines: file.lines.removed };
     }
     if (file.status === '??' || file.untrackedReplacement || unborn && file.status && !file.status.includes('U') && !['AA', 'DD'].includes(file.status)) {
