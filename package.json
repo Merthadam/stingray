@@ -9,7 +9,6 @@
     "setup": "node scripts/setup.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite --host 127.0.0.1 --port 5178 --strictPort",
-    "prototype:home": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
     "typecheck": "tsc --noEmit",
     "start": "npm run build && exec electron .",

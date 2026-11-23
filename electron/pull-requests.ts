@@ -105,15 +105,6 @@ export class PullRequestService {
   onListChange?: () => void;
   constructor(private execute: PRRunner = run, private now = Date.now) {}
 
-  async status(cwd: string, refresh = false): Promise<PullRequestStatus> {
-    let branch: string;
-    try { branch = (await this.execute('git', ['-c', 'core.hooksPath=/dev/null', 'branch', '--show-current'], cwd)).trim(); }
-    catch { return { kind: 'unavailable', branch: '', message: 'Git is unavailable. Restore access to this workspace and retry.' }; }
-    let remote: string | null = null;
-    if (branch) try { remote = await this.execute('git', ['-c', 'core.hooksPath=/dev/null', 'config', '--get', 'remote.origin.url'], cwd); } catch { /* no origin */ }
-    return this.resolve(cwd, branch, remote, refresh);
-  }
-
   /** branch '' is detached HEAD; remote null is a missing origin. Repository lists are fresh for 15s; refresh has a 5s cooldown. */
   async resolve(cwd: string, branch: string, remote: string | null, refresh = false): Promise<PullRequestStatus> {
     if (!branch) return { kind: 'unsupported', branch: 'detached HEAD', message: 'Detached HEAD has no branch PR. Check out a branch to look up its pull request.' };

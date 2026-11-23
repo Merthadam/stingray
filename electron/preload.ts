@@ -15,7 +15,6 @@ const api: DesktopAPI = {
   removeWorkspace: (id, consent) => ipcRenderer.invoke('remove-workspace', id, consent),
   repoSnapshot: id => ipcRenderer.invoke('repo-snapshot', id),
   inspectFile: (id, path) => ipcRenderer.invoke('inspect-file', id, path),
-  dbSchema: id => ipcRenderer.invoke('db-schema', id),
   views: id => ipcRenderer.invoke('views', id),
   view: (id, viewId, options) => ipcRenderer.invoke('view', id, viewId, ...(options ? [options] : [])),
   onViewsChanged: listener => {

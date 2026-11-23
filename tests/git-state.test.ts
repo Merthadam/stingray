@@ -135,3 +135,21 @@ test('a failed watcher is re-created on the next refresh; forget() during track(
     assert.equal(watchers.size, 0, 'not watched after forget()');
   } finally { await f.cleanup(); }
 });
+
+test('a failing status read makes no PR lookup', async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'stingray-git-state-nogit-')));
+  const branches: string[] = [];
+  const gitState = new GitStateService({
+    workspace: async id => ({ id, repoId: id, name: 'x', branch: 'x', path: root, managed: false, previewUrl: '' }),
+    status: async () => { throw new Error('Git operation failed.'); },
+  }, {
+    resolve: async (_cwd, branch): Promise<PullRequestStatus> => { branches.push(branch); return { kind: 'none', branch, repository: 'owner/app', checkedAt: 0 }; },
+  }, () => {});
+  try {
+    const state = await gitState.refresh('00000000-0000-4000-8000-000000000001');
+    assert.equal(state.status, null);
+    assert.equal(state.pr, null);
+    assert.equal(state.error, 'Git operation failed.');
+    assert.deepEqual(branches, [], 'no PR lookup without a status');
+  } finally { gitState.dispose(); await rm(root, { recursive: true, force: true }); }
+});

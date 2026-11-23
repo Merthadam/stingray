@@ -71,7 +71,7 @@ test('service makes one conditional request per repository for all branches, the
     return reply();
   }, () => now);
   let changes = 0; service.onListChange = () => { changes++; };
-  const results = await Promise.all([service.status('/repo'), service.resolve('/worktree', 'other', 'https://github.com/owner/app'),
+  const results = await Promise.all([service.resolve('/repo', 'feature/ui', 'git@github.com:owner/app.git'), service.resolve('/worktree', 'other', 'https://github.com/owner/app'),
     service.resolve('/worktree2', 'unmatched', 'https://github.com/owner/app.git')]);
   assert.deepEqual(results.map(r => r.kind === 'pr' ? r.number : r.kind), [42, 43, 'none']);
   const gh = () => calls.filter(c => c.command === 'gh').map(c => c.args);
@@ -113,17 +113,12 @@ test('a full repository page uses a shared open list, then a cached per-branch l
   now += 600000; head = 'def'; await resolveAll();
   assert.equal(gh().filter(args => args[0] === 'pr').length, 12, 'history expires after 10 minutes');
 });
-test('missing Git, detached HEAD, absent and unsupported origins never make GitHub requests', async () => {
-  for (const mode of ['git-fails', 'detached', 'no-remote', 'unsupported']) {
-    const service = new PullRequestService(async (command, args) => {
-      assert.equal(command, 'git');
-      if (mode === 'git-fails') throw Error('private path');
-      if (args.includes('branch')) return mode === 'detached' ? '' : 'main';
-      if (mode === 'no-remote') throw Error('no origin');
-      return 'https://gitlab.com/owner/app';
-    });
-    const result = await service.status('/repo');
-    assert.equal(result.kind, mode === 'git-fails' ? 'unavailable' : 'unsupported');
+test('detached HEAD, absent and unsupported origins never make GitHub requests', async () => {
+  for (const mode of ['detached', 'no-remote', 'unsupported']) {
+    const service = new PullRequestService(async command => { assert.equal(command, 'git'); return ''; });
+    const result = mode === 'detached' ? await service.resolve('/repo', '', 'https://github.com/owner/app')
+      : await service.resolve('/repo', 'main', mode === 'no-remote' ? null : 'https://gitlab.com/owner/app');
+    assert.equal(result.kind, 'unsupported');
     assert.ok(!JSON.stringify(result).includes('private path'));
   }
 });
@@ -135,21 +130,21 @@ test('service isolates remotes, and sanitizes failures rather than retaining sta
     if (fail) throw Object.assign(Error('secret stderr payload'), { stdout: 'HTTP/2.0 401 Unauthorized\r\n\r\nsecret body' });
     return response([pull({ head: { ref: branch, repo: { full_name: 'owner/app' } } })]);
   }, () => now);
-  assert.equal((await service.status('/repo')).kind, 'pr');
-  branch = 'other'; assert.equal((await service.status('/repo')).branch, 'other');
-  remote = 'https://github.com/other/app'; assert.equal((await service.status('/repo')).kind, 'none');
+  assert.equal((await service.resolve('/repo', branch, remote)).kind, 'pr');
+  branch = 'other'; assert.equal((await service.resolve('/repo', branch, remote)).branch, 'other');
+  remote = 'https://github.com/other/app'; assert.equal((await service.resolve('/repo', branch, remote)).kind, 'none');
   assert.equal(requests, 2);
   now += 16000; fail = true;
-  const failed = await service.status('/repo'); assert.equal(failed.kind, 'unavailable');
+  const failed = await service.resolve('/repo', branch, remote); assert.equal(failed.kind, 'unavailable');
   assert.ok(!JSON.stringify(failed).includes('secret'));
-  fail = false; now += 11000; assert.equal((await service.status('/repo')).kind, 'none');
+  fail = false; now += 11000; assert.equal((await service.resolve('/repo', branch, remote)).kind, 'none');
 });
 test('missing gh gives actionable guidance without installing it or triggering authentication', async () => {
   const service = new PullRequestService(async (command, args) => {
     if (command === 'git') return args.includes('branch') ? 'main' : 'https://github.com/owner/app';
     throw Object.assign(Error('private'), { code: 'ENOENT' });
   });
-  const value = await service.status('/repo');
+  const value = await service.resolve('/repo', 'main', 'https://github.com/owner/app');
   assert.equal(value.kind, 'unavailable');
   assert.ok('message' in value && value.message.includes('not found'));
 });

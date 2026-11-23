@@ -245,8 +245,6 @@ export const demoAPI: DesktopAPI = {
       revision: 'demo-' + path,
     };
   },
-  // Fixed sample schema: the browser demo never reads or parses repository files.
-  dbSchema: async id => { await new Promise(resolve => setTimeout(resolve, 400)); return demoDbSchema(id); },
   views: async () => [DATABASE_VIEW, ...repoViews(), ...[...savedViews.values()].map(v => v.summary)],
   view: async (id, viewId, options) => { await new Promise(resolve => setTimeout(resolve, 400)); return demoView(id, viewId, options?.depth); },
   viewState: async (id, viewId) => structuredClone(viewStates.get(`${id}:${viewId}`) ?? null),

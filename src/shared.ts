@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 import type { ActivitySnapshot } from './activity';
-import type { DbSchemaResult } from './db-schema';
 import type { LiveViewEvent, LiveViewInput, LiveViewSession } from './live-view';
 import type { EditorId, EditorSettings, SaveViewInput, SaveViewResult, ViewLocalState, ViewResult, ViewSummary, ViewsChangedEvent } from './views';
 
@@ -104,7 +103,6 @@ export interface DesktopAPI {
   removeWorkspace(id: string, consent: RemovalConsent): Promise<RemovalResult>;
   repoSnapshot(id: string): Promise<RepoSnapshot>;
   inspectFile(id: string, path: string): Promise<FileInspection>;
-  dbSchema(workspaceId: string): Promise<DbSchemaResult>;
   views(workspaceId: string): Promise<ViewSummary[]>;
   /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
    * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it. */

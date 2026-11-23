@@ -16,8 +16,6 @@ import { GitStateService } from './git-state';
 import { ActivityService } from './activity';
 import { ActivityShell } from './activity-shell';
 import { ActivityHistory } from './activity-history';
-import { extractDbSchema } from './db-schema';
-import type { DbSchemaResult } from '../src/db-schema';
 import { ViewService } from './views';
 import { infraServiceById } from '../src/infra/catalog';
 import { createCodeGraphProcessHost } from './codegraph-process';
@@ -151,17 +149,6 @@ app.whenReady().then(async () => {
   });
   handle('repo-snapshot', z.tuple([idSchema]), id => git.repoSnapshot(id));
   handle('inspect-file', z.tuple([idSchema, repoPathSchema]), (id, path) => git.inspectFile(id, path));
-  // Static parse only; concurrent requests for the same workspace share one scan.
-  const dbScans = new Map<string, Promise<DbSchemaResult>>();
-  handle('db-schema', z.tuple([idSchema]), (id: string) => {
-    let scan = dbScans.get(id);
-    if (!scan) {
-      scan = git.workspace(id).then(w => extractDbSchema(id, w.path, path.join(__dirname, 'tree-sitter-python.wasm')))
-        .finally(() => dbScans.delete(id));
-      dbScans.set(id, scan);
-    }
-    return scan;
-  });
   handle('views', z.tuple([idSchema]), async (id: string) => views.listViews(id, (await git.workspace(id)).path));
   // ViewService shares concurrent computations of the same view.
   const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);

@@ -99,7 +99,7 @@ try {
   await page.screenshot({ path: path.join(evidence, 'projects-home.png') });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 540));
   await page.waitForFunction(() => innerWidth === 760);
-  check('compact project cards fit without horizontal overflow or a prototype switcher', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('.project-home').scrollWidth <= document.querySelector('.project-home').clientWidth && !document.querySelector('.ph-switcher')));
+  check('compact project cards fit without horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('.project-home').scrollWidth <= document.querySelector('.project-home').clientWidth));
   await page.screenshot({ path: path.join(evidence, 'projects-home-compact.png') });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 940));
   await page.reload();
