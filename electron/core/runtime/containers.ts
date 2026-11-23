@@ -1,12 +1,7 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { homedir } from 'node:os';
-import { readdir, realpath, stat } from 'node:fs/promises';
-import path from 'node:path';
 import { z } from 'zod';
 import type { ContainerInfo } from '../../../shared/contracts/runtime';
+import type { DockerRunner, DockerSocketFiles } from './ports';
 
-const exec = promisify(execFile);
 const binding = z.object({ HostIp: z.string(), HostPort: z.string() });
 const containerSchema = z.object({
   id: z.string(), name: z.string(), image: z.string(), state: z.string(), health: z.string(),
@@ -45,23 +40,6 @@ export function parseContainers(output: string): ContainerInfo[] {
   }).filter(c => c.state === 'running').sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export type DockerRunner = (args: string[], options?: { timeout?: number; stderr?: boolean }) => Promise<string>;
-async function runDocker(args: string[], options: { timeout?: number; stderr?: boolean } = {}) {
-  const candidates = ['docker', '/usr/local/bin/docker', '/opt/homebrew/bin/docker', path.join(homedir(), '.docker/bin/docker')];
-  for (const executable of candidates) {
-    try {
-      const env = { ...process.env };
-      if (args[0] === '--host') { delete env.DOCKER_CONTEXT; delete env.DOCKER_HOST; }
-      const { stdout, stderr } = await exec(executable, args, { timeout: options.timeout ?? 5000, maxBuffer: 2 * 1024 * 1024, env });
-      return options.stderr ? stdout + stderr : stdout;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-      throw new Error('Docker is unavailable. Start your local container engine, then refresh.');
-    }
-  }
-  throw new Error('Docker CLI not found. Install Docker or make its CLI available to Stingray.');
-}
-
 const TEST_ENV_ONLY = 'Only running Stingray test environments (scripts/test-env.sh) can be stopped or read here.';
 
 export class ContainerService {
@@ -70,7 +48,7 @@ export class ContainerService {
   private expires = 0;
   /** Docker endpoint each discovered container was found on, for test-env stop/logs. */
   private hosts = new Map<string, string>();
-  constructor(private run: DockerRunner = runDocker, private env: NodeJS.ProcessEnv = process.env) {}
+  constructor(private run: DockerRunner, private env: Record<string, string | undefined>, private files: DockerSocketFiles) {}
   list(): Promise<ContainerInfo[]> {
     if (this.pending) return this.pending;
     if (Date.now() < this.expires) return Promise.resolve(this.cached);
@@ -114,17 +92,12 @@ export class ContainerService {
     } catch (error) { errors.push(error as Error); }
     if (this.env.DOCKER_HOST) add(this.env.DOCKER_HOST);
     const home = this.env.HOME;
-    if (home) {
-      const colima = path.join(home, '.colima');
-      const profiles = await readdir(colima).catch(() => [] as string[]);
-      const sockets = [path.join(colima, 'docker.sock'), ...profiles.filter(p => !p.startsWith('_')).map(p => path.join(colima, p, 'docker.sock'))];
-      for (const socket of sockets) if (await stat(socket).then(s => !s.isDirectory(), () => false)) add('unix://' + socket);
-    }
+    if (home) for (const socket of await this.files.colimaSockets(home)) add('unix://' + socket);
     // ~/.colima/docker.sock links to the default profile socket: dedupe by the resolved path.
     const unique = new Map<string, string>();
     for (const host of hosts) {
       const socket = host.slice('unix://'.length);
-      const key = await realpath(socket).catch(() => socket);
+      const key = await this.files.realpath(socket);
       if (!unique.has(key)) unique.set(key, host);
     }
     if (!unique.size) throw errors[0] || new Error(remote ? 'Select a local Docker context. Remote container discovery is not supported.' : 'No local Docker endpoint found.');
@@ -151,7 +124,7 @@ export class ContainerService {
     // Git registrations are canonical paths; Compose and bind mounts can use
     // symlinks (notably /var versus /private/var on macOS).
     return Promise.all(containers.map(async container => ({ ...container,
-      paths: await Promise.all(container.paths.map(p => realpath(p).catch(() => p))),
+      paths: await Promise.all(container.paths.map(p => this.files.realpath(p))),
     })));
   }
 }

@@ -20,9 +20,11 @@ import { repoMapHandlers } from './adapters/driving/ipc/repo-map';
 import { Terminals, openTerminalLink } from './app/wiring/terminals';
 import { terminalsHandlers } from './adapters/driving/ipc/terminals';
 import { electronShell } from './adapters/driven/electron-shell/shell';
-import { ContainerService } from './core/runtime/containers';
-import { PortService } from './core/runtime/ports';
-import { inspectCdp } from './core/runtime/chrome-inspect';
+import { ContainerService, LiveViews, PortService } from './app/wiring/runtime';
+import { runtimeHandlers } from './adapters/driving/ipc/runtime';
+import { inspectCdp } from './core/runtime';
+import { electronClipboard } from './adapters/driven/electron-shell/clipboard';
+import { openApp } from './adapters/driven/process/open-app';
 import { ActivityService, ActivityHistory, ActivityShell } from './app/wiring/activity';
 import { activityHandlers } from './adapters/driving/ipc/activity';
 import { ViewService, ViewStateStore, saveViewAs } from './app/wiring/views';
@@ -32,7 +34,6 @@ import { stinggraphHandlers } from './adapters/driving/ipc/stinggraph';
 import { installLauncher } from './adapters/driven/fs/launcher';
 import { EditorService } from './core/app/editors';
 import { StinggraphSettings, releaseWorkspace } from './core/stinggraph';
-import { LiveViews } from './core/runtime/live-view';
 
 app.setName('Stingray');
 if (process.env.STINGRAY_DATA_DIR) app.setPath('userData', path.resolve(process.env.STINGRAY_DATA_DIR));
@@ -189,18 +190,8 @@ app.whenReady().then(async () => {
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
   registerContract(ipc, stinggraphContract, stinggraphHandlers({ settings: stinggraphSettings, host: codegraph }));
   registerContract(ipc, viewsContract, viewsHandlers({ views, viewState, git, saveViewAs, openExternal: url => electronShell.openExternal(url) }));
-  registerContract(ipc, runtimeContract, {
-    containers: () => containers.list(),
-    stopContainer: id => containers.stop(id),
-    containerLogs: id => containers.logs(id),
-    inspectCdp: port => inspectCdp(port),
-    ports: () => ports.list(),
-    liveViewStart: options => liveViews.start(options),
-    liveViewInput: (id, input) => liveViews.input(id, input),
-    liveViewResize: (id, maxWidth, maxHeight) => liveViews.resize(id, maxWidth, maxHeight),
-    liveViewStop: id => liveViews.stop(id),
-    liveViewAck: id => liveViews.ack(id),
-  });
+  registerContract(ipc, runtimeContract, runtimeHandlers({ containers, ports, liveViews,
+    inspectCdp: port => inspectCdp(port, { clipboard: electronClipboard, openApp, platform: process.platform }) }));
   // A reloaded renderer has lost its session ids; a closed window has no viewer.
   win.webContents.on('did-start-loading', () => liveViews.stopAll());
   win.on('closed', () => liveViews.stopAll());

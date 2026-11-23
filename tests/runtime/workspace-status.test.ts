@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ContainerService, inspectFormat, parseContainers } from '../../electron/core/runtime/containers';
+import { ContainerService, inspectFormat, parseContainers } from '../../electron/app/wiring/runtime';
 import { belongsToWorkspace, summarizeChanges, workspacePorts } from '../../src/features/runtime/workspace-status';
 import type { Workspace } from '../../shared/contracts/git';
 

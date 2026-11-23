@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { framePoint, keyInput } from '../../src/features/runtime/live-view';
 import { liveViewInputSchema, type LiveViewEvent } from '../../shared/contracts/runtime';
-import { APP_PAGE, LiveViews, MAX_LIVE_VIEWS, pickTarget, toCdpInput } from '../../electron/core/runtime/live-view';
+import { APP_PAGE, LiveViews, MAX_LIVE_VIEWS, pickTarget, toCdpInput } from '../../electron/app/wiring/runtime';
 
 const keys = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };
 const meta = { deviceWidth: 1440, deviceHeight: 900 };

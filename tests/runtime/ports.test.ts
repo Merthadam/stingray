@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PortService, processOwners, parseListeners, type PortRoot } from '../../electron/core/runtime/ports';
+import { PortService, processOwners, parseListeners, type PortRoot } from '../../electron/app/wiring/runtime';
 import { workspacePorts } from '../../src/features/runtime/workspace-status';
 import type { Workspace } from '../../shared/contracts/git';
 

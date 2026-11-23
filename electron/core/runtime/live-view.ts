@@ -1,7 +1,7 @@
 // Clickable live view of a Stingray test instance (scripts/test-env.sh): CDP screencast of its window, forwarded input.
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { LiveViewEvent, LiveViewInput, LiveViewSession } from '../../../shared/contracts/runtime';
+import type { LiveViewInput, LiveViewSession } from '../../../shared/contracts/runtime';
+import type { CdpConnection, CdpSocket, LiveViewPublisher } from './ports';
 
 export const APP_PAGE = 'file:///app/dist/index.html'; // the test container's renderer; also keeps us off any other CDP endpoint's pages
 export const MAX_LIVE_VIEWS = 4;
@@ -33,14 +33,18 @@ export function toCdpInput(input: LiveViewInput, metadata: Metadata): [string, R
   }
 }
 
-type Session = { socket: WebSocket; nextId: number; pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
+type Session = { socket: CdpSocket; nextId: number; pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
   metadata: Metadata | null; size: { maxWidth?: number; maxHeight?: number }; stopped: boolean; unacked: number[] };
 export class LiveViews {
   private sessions = new Map<string, Session>();
   private starting = 0;
   /** Bumped by stopAll() so starts still connecting at that moment are discarded. */
   private generation = 0;
-  constructor(private emit: (event: LiveViewEvent) => void) {}
+  private cdp: CdpConnection;
+  private callTimeoutMs: number;
+  constructor(private emit: LiveViewPublisher, options: { cdp: CdpConnection; callTimeoutMs?: number }) {
+    this.cdp = options.cdp; this.callTimeoutMs = options.callTimeoutMs ?? 10_000;
+  }
   async start(options: LiveViewStartOptions): Promise<LiveViewSession> {
     if (this.sessions.size + this.starting >= MAX_LIVE_VIEWS) throw new Error(`Close a live view before opening another (limit ${MAX_LIVE_VIEWS}).`);
     this.starting++;
@@ -48,22 +52,16 @@ export class LiveViews {
   }
   private async connect({ port, ...size }: LiveViewStartOptions, generation: number): Promise<LiveViewSession> {
     let list: unknown;
-    try { list = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json(); }
-    catch { throw new Error(`No test instance answers on 127.0.0.1:${port}. Is it running?`); }
+    try { list = await this.cdp.list(port); } catch { throw new Error(`No test instance answers on 127.0.0.1:${port}. Is it running?`); }
     const target = pickTarget(list);
     if (!target) throw new Error(`No Stingray window found on 127.0.0.1:${port}.`);
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/devtools/page/${target.id}`);
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { socket.close(); reject(new Error('Timed out connecting to the test instance.')); }, 5000);
-      socket.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
-      socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Could not connect to the test instance.')); }, { once: true });
-    });
+    const socket = await this.cdp.connect(port, target.id);
     if (generation !== this.generation) { socket.close(); throw new Error('The live view was closed.'); }
-    const id = randomUUID(), session: Session = { socket, nextId: 1, pending: new Map(), metadata: null, size, stopped: false, unacked: [] };
+    const id = globalThis.crypto.randomUUID(), session: Session = { socket, nextId: 1, pending: new Map(), metadata: null, size, stopped: false, unacked: [] };
     this.sessions.set(id, session);
-    socket.addEventListener('message', ({ data }) => {
+    socket.onMessage(data => {
       let message: { id?: number; method?: string; params?: unknown; error?: { message?: string }; result?: unknown };
-      try { message = JSON.parse(String(data)); } catch { return; }
+      try { message = JSON.parse(data); } catch { return; }
       if (message.id !== undefined) {
         const call = session.pending.get(message.id); session.pending.delete(message.id);
         if (message.error) call?.reject(new Error(String(message.error.message || 'CDP error'))); else call?.resolve(message.result);
@@ -76,7 +74,7 @@ export class LiveViews {
         this.emit({ sessionId: id, kind: 'frame', data: frame.data.data });
       } else if (message.method === 'Inspector.detached' || message.method === 'Inspector.targetCrashed') socket.close();
     });
-    socket.addEventListener('close', () => {
+    socket.onClose(() => {
       this.sessions.delete(id);
       for (const call of session.pending.values()) call.reject(new Error('The live view disconnected.'));
       session.pending.clear();
@@ -113,8 +111,12 @@ export class LiveViews {
     return this.call(session, 'Page.startScreencast', { format: 'jpeg', quality: 70, everyNthFrame: 1, ...session.size });
   }
   private call(session: Session, method: string, params: Record<string, unknown>) {
-    if (session.socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('The live view disconnected.'));
+    if (!session.socket.open) return Promise.reject(new Error('The live view disconnected.'));
     const id = session.nextId++;
-    return new Promise((resolve, reject) => { session.pending.set(id, { resolve, reject }); session.socket.send(JSON.stringify({ id, method, params })); });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { session.pending.delete(id); reject(new Error('The live view did not respond.')); }, this.callTimeoutMs);
+      session.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+      session.socket.send(JSON.stringify({ id, method, params }));
+    });
   }
 }
