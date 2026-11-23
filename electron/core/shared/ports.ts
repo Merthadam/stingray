@@ -8,3 +8,6 @@ export function provideHasher(value: Hasher) { hasher = value; }
 export function sha256(text: string): string { if (!hasher) throw missing('Hasher'); return hasher.sha256(text); }
 /** Tests only: forget every provided port. */
 export function resetCorePorts() { hasher = undefined; }
+
+/** Key/value rows of the app database's settings table (synchronous: read on every graph open). */
+export interface SettingsRepository { get(key: string): string | undefined; set(key: string, value: string): void }

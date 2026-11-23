@@ -4,28 +4,25 @@
 // Everything here throws on failure; codegraph.ts then falls back to the full per-worktree index.
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import type { ExtractionResult, Overlay, OverlayConflicts, OverlayFile } from '@colbymchenry/codegraph';
-import { runGit } from '../git/runner';
+import type { SharedBaseTarget } from '../../../core/stinggraph';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
-/** Where a managed worktree's shared base lives; null/absent means the full per-worktree index. */
-export interface SharedBaseTarget { repoId: string; repoPath: string; dataDir: string }
+/** Runs git and returns stdout (the driven/git runner, injected by electron/app/wiring/stinggraph.ts). */
+export type OverlayGit = (cwd: string, args: string[], env?: Record<string, string>) => Promise<string>;
 
 export const BASE_REF = 'origin/main';
 // Beyond this an overlay update stops paying off against a full index (stinggraph findings §9, §11).
 export const MAX_OVERLAY_FILES = 300;
 
-export async function gitOut(cwd: string, args: string[], env: Record<string, string> = {}) {
-  return runGit(cwd, args, { timeout: 0, maxBuffer: 1 << 28, env });
-}
-
 const repoDir = (t: SharedBaseTarget) => path.join(t.dataDir, 'codegraph', t.repoId);
 export const baseRoot = (t: SharedBaseTarget) => path.join(repoDir(t), 'base');
 export const overlayPath = (t: SharedBaseTarget, workspaceId: string) => path.join(repoDir(t), 'overlays', `${workspaceId}.db`);
 
-async function lsTree(cwd: string, commit: string) {
+async function lsTree(cwd: string, commit: string, git: OverlayGit) {
   const blobs = new Map<string, string>();
-  for (const line of (await gitOut(cwd, ['ls-tree', '-r', '-z', commit])).split('\0')) {
+  for (const line of (await git(cwd, ['ls-tree', '-r', '-z', commit])).split('\0')) {
     const m = /^\d+ blob ([0-9a-f]+)\t(.+)$/s.exec(line);
     if (m) blobs.set(m[2]!, m[1]!);
   }
@@ -34,14 +31,14 @@ async function lsTree(cwd: string, commit: string) {
 
 const baseRuns = new Map<string, Promise<string>>(); // repoId -> latest base update; one base writer per repo
 /** Bring the repo's base index to the latest fetched origin/main and return that commit. Serialized per repo. */
-export function ensureBase(lib: CodeGraphLibrary, t: SharedBaseTarget): Promise<string> {
-  const next = (baseRuns.get(t.repoId) ?? Promise.resolve('')).catch(() => '').then(() => updateBase(lib, t));
+export function ensureBase(lib: CodeGraphLibrary, t: SharedBaseTarget, git: OverlayGit): Promise<string> {
+  const next = (baseRuns.get(t.repoId) ?? Promise.resolve('')).catch(() => '').then(() => updateBase(lib, t, git));
   baseRuns.set(t.repoId, next);
   return next;
 }
 
-async function updateBase(lib: CodeGraphLibrary, t: SharedBaseTarget) {
-  const commit = (await gitOut(t.repoPath, ['rev-parse', '--verify', '--quiet', `${BASE_REF}^{commit}`]).catch(() => '')).trim();
+async function updateBase(lib: CodeGraphLibrary, t: SharedBaseTarget, git: OverlayGit) {
+  const commit = (await git(t.repoPath, ['rev-parse', '--verify', '--quiet', `${BASE_REF}^{commit}`]).catch(() => '')).trim();
   if (!commit) throw new Error(`${BASE_REF} not found in ${t.repoPath}`);
   const root = baseRoot(t), dbPath = lib.getDatabasePath(root);
   if (existsSync(dbPath)) {
@@ -52,8 +49,8 @@ async function updateBase(lib: CodeGraphLibrary, t: SharedBaseTarget) {
   mkdirSync(root, { recursive: true });
   for (const entry of readdirSync(root)) if (entry !== '.codegraph') rmSync(path.join(root, entry), { recursive: true, force: true });
   const env = { GIT_INDEX_FILE: path.join(repoDir(t), 'base.index') };
-  await gitOut(t.repoPath, ['read-tree', commit], env);
-  await gitOut(t.repoPath, ['checkout-index', '-a', '-f', `--prefix=${root}${path.sep}`], env);
+  await git(t.repoPath, ['read-tree', commit], env);
+  await git(t.repoPath, ['checkout-index', '-a', '-f', `--prefix=${root}${path.sep}`], env);
   const fresh = !lib.CodeGraph.isInitialized(root);
   const cg = fresh ? await lib.CodeGraph.init(root) : await lib.CodeGraph.open(root);
   try {
@@ -62,16 +59,16 @@ async function updateBase(lib: CodeGraphLibrary, t: SharedBaseTarget) {
   } finally { cg.close(); }
   const conn = lib.DatabaseConnection.open(dbPath);
   try {
-    lib.setGitBlobIds(conn.getDb(), await lsTree(t.repoPath, commit));
+    lib.setGitBlobIds(conn.getDb(), await lsTree(t.repoPath, commit, git));
     lib.setBaseInfo(conn.getDb(), { baseCommit: commit, baseRef: BASE_REF }); // last: marks the base complete
   } finally { conn.close(); }
   return commit;
 }
 
 /** git diff --name-status -M between two commits, as overlay ownership rows. */
-async function changedFiles(root: string, from: string, to: string): Promise<OverlayFile[]> {
-  const [fromBlobs, toBlobs] = await Promise.all([lsTree(root, from), lsTree(root, to)]);
-  const fields = (await gitOut(root, ['diff', '--name-status', '-z', '-M', from, to])).split('\0');
+async function changedFiles(root: string, from: string, to: string, git: OverlayGit): Promise<OverlayFile[]> {
+  const [fromBlobs, toBlobs] = await Promise.all([lsTree(root, from, git), lsTree(root, to, git)]);
+  const fields = (await git(root, ['diff', '--name-status', '-z', '-M', from, to])).split('\0');
   const files: OverlayFile[] = [];
   for (let i = 0; i < fields.length - 1;) {
     const code = fields[i++]![0], a = fields[i++]!;
@@ -93,11 +90,11 @@ export interface BuiltOverlay { path: string; head: string; mergeBase: string; f
  * shortcut: rebuilds the whole overlay on every commit; upgrade to upserting only the changed files' delta when
  * long-lived branches make rebuilds slow.
  */
-export async function buildOverlay(lib: CodeGraphLibrary, t: SharedBaseTarget, workspaceId: string, root: string, baseCommit: string): Promise<BuiltOverlay> {
-  const head = (await gitOut(root, ['rev-parse', 'HEAD'])).trim();
-  const mergeBase = (await gitOut(root, ['merge-base', baseCommit, head])).trim();
-  const branch = (await gitOut(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
-  const changes = await changedFiles(root, mergeBase, head);
+export async function buildOverlay(lib: CodeGraphLibrary, t: SharedBaseTarget, workspaceId: string, root: string, baseCommit: string, git: OverlayGit): Promise<BuiltOverlay> {
+  const head = (await git(root, ['rev-parse', 'HEAD'])).trim();
+  const mergeBase = (await git(root, ['merge-base', baseCommit, head])).trim();
+  const branch = (await git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+  const changes = await changedFiles(root, mergeBase, head, git);
   if (changes.length > MAX_OVERLAY_FILES) throw new Error(`${changes.length} files changed since ${BASE_REF} (limit ${MAX_OVERLAY_FILES})`);
   const target = overlayPath(t, workspaceId) + '.new';
   removeDb(target);
@@ -109,7 +106,7 @@ export async function buildOverlay(lib: CodeGraphLibrary, t: SharedBaseTarget, w
       // Non-source and deleted files still get an ownership row (conflicts), with nothing extracted.
       const source = file.status !== 'deleted' && lib.detectLanguage(file.path) !== 'unknown';
       entries.push({ file, extraction: source
-        ? await lib.extractFile(file.path, await gitOut(root, ['show', `${head}:${file.path}`]), undefined, frameworksFor(file.path))
+        ? await lib.extractFile(file.path, await git(root, ['show', `${head}:${file.path}`]), undefined, frameworksFor(file.path))
         : { nodes: [], edges: [], unresolvedReferences: [], errors: [], durationMs: 0 } });
     }
     if (entries.length) await overlay.upsertFiles(entries, root);
@@ -134,4 +131,10 @@ export function overlayConflicts(lib: CodeGraphLibrary, t: SharedBaseTarget, wor
   const dbPath = lib.getDatabasePath(baseRoot(t));
   if (!existsSync(dbPath)) return null;
   return lib.findConflicts(dbPath, workspaceIds.map(id => overlayPath(t, id)).filter(file => existsSync(file)));
+}
+
+/** Deletes a removed workspace's overlay (db, -wal, -shm); missing files are fine. Runs whether or not shared base is on. */
+export async function removeOverlay(dataDir: string, repoId: string, workspaceId: string): Promise<void> {
+  const file = overlayPath({ repoId, repoPath: '', dataDir }, workspaceId);
+  await Promise.all(['', '-wal', '-shm'].map(suffix => rm(file + suffix, { force: true })));
 }

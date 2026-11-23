@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { git } from '../../electron/app/wiring/git';
 import { EventEmitter } from 'node:events';
-import { createCodeGraphProcessHost, type WorkerRequest } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-process';
-import { serveCodeGraph } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
+import { createCodeGraphProcessHost, serveCodeGraph, type WorkerRequest } from '../../electron/app/wiring/stinggraph';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../../electron/core/views/rules/types';
 import type { GraphChange, WorktreeGraph } from '../../electron/core/views/graph';
 import type { GraphState, ViewsChangedEvent } from '../../shared/contracts/views';
 import { ViewService } from '../../electron/core/views/service';
+import { releaseWorkspace } from '../../electron/core/stinggraph';
 
 const worker = path.join(import.meta.dirname, '../../electron/app/stinggraph-worker.ts');
 async function repo() {
@@ -73,12 +73,13 @@ test('runs CodeGraph in a --liftoff-only child, forwards changes, recovers from 
     await state(graph, 'ready');
     assert.equal(children.length, 2);
     assert.ok(await find(graph, 'Invoice'));
-    // An open() right after a crash respawns immediately.
+    // An open() right after a crash does not spawn; the backoff timer respawns once and the graph reopens.
     children[1].kill('SIGKILL');
     await state(graph, 'unavailable');
     assert.equal(host.open('w1', root), graph);
-    assert.equal(children.length, 3);
+    assert.equal(children.length, 2, 'open() during the backoff does not spawn');
     await state(graph, 'ready');
+    assert.equal(children.length, 3, 'the backoff timer respawned exactly once');
 
     const started = Date.now();
     await host.closeAll();
@@ -226,4 +227,60 @@ test('ViewService computes a rule + graph-step view in the real CodeGraph child'
     await until('flow re-queued', () => events.some(e => e.viewIds.includes('flow')));
     assert.ok((await service.computeView('w1', root, 'flow')).nodes.some(n => n.id === 'act'));
   } finally { await service.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('crash limit: after more than 3 quick crashes open() does not spawn until 30 s after the last crash', async () => {
+  let now = 1_000_000;
+  const children: (EventEmitter & { pid: number; send(): boolean; kill(): boolean; exitCode: null; signalCode: null })[] = [];
+  const spawn = () => {
+    const child = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true, kill: () => true });
+    children.push(child); return child as never;
+  };
+  const host = createCodeGraphProcessHost({ spawn, now: () => now, restartBaseMs: 5, timeoutMs: 50, exclude: async () => {} });
+  try {
+    host.open('w1', '/tmp/does-not-matter');
+    for (let i = 0; i < 4; i++) { children.at(-1)!.emit('exit', null, 'SIGKILL'); await new Promise(r => setTimeout(r, 60)); }
+    const count = children.length;
+    host.open('w1', '/tmp/does-not-matter');
+    assert.equal(children.length, count, 'limit reached: no spawn within 30 s');
+    now += 30_001;
+    host.open('w1', '/tmp/does-not-matter');
+    assert.equal(children.length, count + 1);
+  } finally { await host.closeAll(); }
+});
+
+test('kill() stops the worker without counting a crash; the next open() respawns', async () => {
+  const children: (EventEmitter & { pid: number; exitCode: number | null; signalCode: string | null; send(): boolean; kill(): boolean })[] = [];
+  const spawn = () => {
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true });
+    child.kill = () => { child.signalCode = 'SIGKILL'; setImmediate(() => child.emit('exit', null, 'SIGKILL')); return true; };
+    children.push(child); return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 50, exclude: async () => {} });
+  try {
+    const graph = host.open('w1', '/tmp/does-not-matter');
+    await host.kill();
+    assert.equal(graph.status().state, 'unavailable');
+    host.open('w1', '/tmp/does-not-matter');
+    assert.equal(children.length, 2);
+  } finally { await host.closeAll(); }
+});
+
+test('a running child that never confirms close: close() rejects, kill() succeeds, the stinggraph release lets removal proceed', async () => {
+  const children: (EventEmitter & { pid: number; exitCode: number | null; signalCode: string | null; send(): boolean; kill(): boolean })[] = [];
+  const spawn = () => {
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true });
+    child.kill = () => { child.signalCode = 'SIGKILL'; setImmediate(() => child.emit('exit', null, 'SIGKILL')); return true; };
+    children.push(child); return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 50, exclude: async () => {} });
+  try {
+    host.open('w1', '/tmp/does-not-matter');
+    await assert.rejects(host.close('w1'), /did not confirm closing w1/);
+    host.open('w1', '/tmp/does-not-matter');
+    const logged: string[] = [];
+    await releaseWorkspace(host, 'w1', message => { logged.push(message); });
+    assert.equal(children[0].signalCode, 'SIGKILL', 'the worker was killed');
+    assert.deepEqual(logged, ['Code graph release failed; stopping the worker:']);
+  } finally { await host.closeAll(); }
 });

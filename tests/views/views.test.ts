@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { databaseView } from '../../electron/core/views/database';
 import { ViewService } from '../../electron/core/views';
-import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
+import { createCodeGraphHost } from '../../electron/app/wiring/stinggraph';
 import type { DbColumn, DbSchemaResult, DbTable } from '../../shared/contracts/db-schema';
 
 const grammar = path.join(import.meta.dirname, '../../electron/adapters/driven/tree-sitter/tree-sitter-python.wasm');

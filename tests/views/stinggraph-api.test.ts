@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { git } from '../../electron/app/wiring/git';
-import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
+import { createCodeGraphHost } from '../../electron/app/wiring/stinggraph';
 import { runGraphStep } from '../../electron/core/views/rules/graph-steps';
 import { docstringSummary } from '../../electron/core/views/explanation';
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../../electron/core/views/rules/types';

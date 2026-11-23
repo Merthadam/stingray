@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { git } from '../../electron/app/wiring/git';
-import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
+import { createCodeGraphHost } from '../../electron/app/wiring/stinggraph';
 import type { GraphChange, WorktreeGraph } from '../../electron/core/views/graph';
 import type { GraphState } from '../../shared/contracts/views';
 

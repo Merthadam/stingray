@@ -12,7 +12,8 @@ import { viewsContract } from '../shared/contracts/views';
 import { runtimeContract } from '../shared/contracts/runtime';
 import { registerContract, type IpcContext } from './app/ipc';
 import { sender } from './adapters/driven/electron-shell/sender';
-import { closeDatabase } from './adapters/driven/sqlite/database';
+import { closeDatabase, database, readState } from './adapters/driven/sqlite/database';
+import { sqliteSettingsRepository } from './adapters/driven/sqlite/settings-repository';
 import { GitService, GitStateService, PullRequestService, Store, WorkspaceLifecycle } from './app/wiring/git';
 import { gitHandlers } from './adapters/driving/ipc/git';
 import { Terminals, openTerminalLink } from './app/wiring/terminals';
@@ -25,12 +26,13 @@ import { ActivityService, ActivityHistory, ActivityShell } from './app/wiring/ac
 import { activityHandlers } from './adapters/driving/ipc/activity';
 import { ViewService } from './core/views';
 import { infraServiceById } from '../shared/views/infra/catalog';
-import { createCodeGraphProcessHost } from './adapters/driven/stinggraph-worker/stinggraph-process';
+import { createCodeGraphProcessHost, removeOverlay } from './app/wiring/stinggraph';
+import { stinggraphHandlers } from './adapters/driving/ipc/stinggraph';
 import { installLauncher } from './adapters/driven/fs/launcher';
 import { saveViewAs } from './core/views/save-view';
 import { ViewStateStore } from './core/views/view-state';
 import { EditorService } from './core/app/editors';
-import { setSharedBase, sharedBaseEnabled, sharedBaseTarget, sharedBaseWorkspaces } from './core/stinggraph/stinggraph-settings';
+import { StinggraphSettings, releaseWorkspace } from './core/stinggraph';
 import { LiveViews } from './core/runtime/live-view';
 
 app.setName('Stingray');
@@ -62,11 +64,16 @@ const lifecycle = new WorkspaceLifecycle();
 const git = new GitService(store, id => terminals.countWorkspace(id), undefined, lifecycle);
 // Close the workspace's terminals and stop its code graph (.codegraph cache) before the folder is cleaned and removed.
 lifecycle.onBeforeRemove('terminals', id => terminals.closeWorkspace(id), { blocking: true });
-lifecycle.onBeforeRemove('views', id => views.release(id), { blocking: true }); // split into views (non-blocking) + stinggraph release in plan 05d
+lifecycle.onBeforeRemove('views', id => views.release(id)); // never blocks (logged)
+lifecycle.onBeforeRemove('stinggraph', id => releaseWorkspace(codegraph, id), { blocking: true });
+const overlayRepos = new Map<string, string>(); // workspaceId -> repoId, captured before the registration is gone
+lifecycle.onBeforeRemove('stinggraph overlay', async id => { const w = (await store.load()).workspaces.find(x => x.id === id); if (w) overlayRepos.set(id, w.repoId); });
 lifecycle.onRemoveFailed('views', id => views.reopen(id));
+lifecycle.onRemoveFailed('stinggraph overlay', id => { overlayRepos.delete(id); });
 lifecycle.onAfterRemove('git-state', id => gitState.forget(id));
 lifecycle.onAfterRemove('view state', id => viewState.forget(id)); // stale view state must not block a completed removal (logged)
 lifecycle.onAfterRemove('activity', id => activity.forgetWorkspace(id));
+lifecycle.onAfterRemove('stinggraph overlay', async id => { const repoId = overlayRepos.get(id); overlayRepos.delete(id); if (repoId) await removeOverlay(app.getPath('userData'), repoId, id); });
 const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
@@ -76,7 +83,8 @@ const gitState = new GitStateService(git, pullRequests, state => gitEvents.onSta
   () => Boolean(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()));
 git.onStatus = (id, status) => gitState.observe(id, status);
 pullRequests.onListChange = () => gitState.listChanged();
-const codegraph = createCodeGraphProcessHost({ sharedBase: id => sharedBaseTarget(app.getPath('userData'), id) });
+const stinggraphSettings = new StinggraphSettings(sqliteSettingsRepository(app.getPath('userData')), () => readState(database(app.getPath('userData'))), app.getPath('userData'));
+const codegraph = createCodeGraphProcessHost({ sharedBase: id => stinggraphSettings.sharedBaseTarget(id) });
 const viewsEvents = sender(viewsContract, currentWindow);
 const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
   emit: event => viewsEvents.onViewsChanged(event) });
@@ -179,14 +187,7 @@ app.whenReady().then(async () => {
     },
   }));
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
-  registerContract(ipc, stinggraphContract, {
-    codegraphSettings: () => ({ sharedBase: sharedBaseEnabled(app.getPath('userData')) }),
-    setCodegraphSharedBase: enabled => setSharedBase(app.getPath('userData'), enabled),
-    codegraphConflicts: id => {
-      const shared = sharedBaseWorkspaces(app.getPath('userData'), id);
-      return shared ? codegraph.conflicts(shared.target, shared.workspaceIds) : null;
-    },
-  });
+  registerContract(ipc, stinggraphContract, stinggraphHandlers({ settings: stinggraphSettings, host: codegraph }));
   registerContract(ipc, viewsContract, {
     views: async id => views.listViews(id, (await git.workspace(id)).path),
     // ViewService shares concurrent computations of the same view.

@@ -1,18 +1,18 @@
 // Main-process proxy for CodeGraph, which runs in a child (codegraph-worker.ts). V8 must compile tree-sitter's grammar wasm
 // with --liftoff-only or it may abort the whole process ("Fatal process out of memory: Zone"); the flag only works on the
 // command line, so it cannot be applied to Electron's main process.
-// Crashes: open graphs turn 'unavailable' and the child is respawned after 1s, 2s, 4s; after 3 quick crashes (each within
-// 30s of its start) it stays down until the next open(). While the child is down, the .stingray watcher reports all files.
+// Crashes: open graphs turn 'unavailable' and the child is respawned after 1s, 2s, 4s; after more than 3 quick crashes (each
+// within 30s of its start) it stays down until an open() 30 s after the last crash (RestartPolicy). A deliberate kill() is
+// not a crash. While the child is down, the .stingray watcher reports all files.
 import { fork, type ChildProcess } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ignoredDirs, short } from './stinggraph';
-import { excludeCodeGraphCache } from '../git/git-exclude';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
-import type { SharedBaseTarget } from './stinggraph-overlay';
+import { RestartPolicy, type SharedBaseTarget } from '../../../core/stinggraph';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 
 type Call = { type: 'close'; workspaceId: string } | { type: 'closeAll' } | { type: 'findSymbols'; workspaceId: string; queries: SymbolQuery[] }
@@ -34,11 +34,17 @@ export interface CodeGraphProcessHostOptions {
   evaluateTimeoutMs?: number; // bound on evaluateView
   /** Shared-base mode for a worktree (codegraph.sharedBase), or null for its full index; asked on every open. */
   sharedBase?: (workspaceId: string) => SharedBaseTarget | null;
+  /** Adds .codegraph/ to the repository's info/exclude (driven/git, injected by electron/app). */
+  exclude: (root: string) => Promise<void>;
+  now?: () => number;      // RestartPolicy clock (tests)
+  restartBaseMs?: number;  // backoff unit, default 1000 (tests)
 }
 
 export interface CodeGraphProcessHost extends GraphHost {
   /** Conflicts between these worktrees' overlays over the repo's base; null when there is none or the child is down. */
   conflicts(shared: SharedBaseTarget, workspaceIds: string[]): Promise<OverlayConflicts | null>;
+  /** Stop the worker now (rule 3 fallback); not counted as a crash. */
+  kill(): Promise<void>;
 }
 
 const forkWorker = () => fork(path.join(__dirname, 'codegraph-worker.cjs'), [], {
@@ -51,8 +57,9 @@ const within = (promise: Promise<unknown>, ms: number) => {
   return Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, ms); })]).finally(() => clearTimeout(timer));
 };
 
-export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions = {}): CodeGraphProcessHost {
-  const { spawn = forkWorker, maxOpen = 4, debounceMs = 300, timeoutMs = 3000, evaluateTimeoutMs = 30_000, sharedBase = () => null } = options;
+export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions): CodeGraphProcessHost {
+  const { spawn = forkWorker, maxOpen = 4, debounceMs = 300, timeoutMs = 3000, evaluateTimeoutMs = 30_000, sharedBase = () => null,
+    exclude, now, restartBaseMs = 1000 } = options;
   const openRequest = (workspaceId: string, root: string): WorkerRequest => {
     let shared: SharedBaseTarget | null = null;
     try { shared = sharedBase(workspaceId); } catch (error) { console.warn('Code graph shared base setting unreadable:', short(error)); }
@@ -62,7 +69,9 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
   const pending = new Map<number, (reply: Reply | 'down') => void>();
   // In-flight info/exclude writes by root: close awaits them so the caller can delete the folder (worktree removal).
   const excluding = new Map<string, Promise<void>>();
-  let child: ChildProcess | null = null, nextId = 0, crashes = 0, startedAt = 0, restart: NodeJS.Timeout | undefined;
+  let child: ChildProcess | null = null, nextId = 0, restart: NodeJS.Timeout | undefined;
+  const policy = new RestartPolicy({ now });
+  const closing = new Map<string, Promise<void>>(); // workspaceId -> in-flight close (views and stinggraph release share it)
 
   const post = (message: WorkerRequest, to = child) => { try { to?.send(message, () => { /* exit is handled below */ }); } catch { /* channel closed */ } };
   // 'down': no child, or it exited before replying.
@@ -158,14 +167,13 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
   };
 
   const exited = (c: ChildProcess, why: string) => {
-    if (child !== c) return; // closeAll or an earlier error already handled it
+    if (child !== c) return; // closeAll, kill() or an earlier error already handled it
     child = null; settleAll();
     try { c.kill('SIGKILL'); } catch { /* already gone */ }
-    crashes = Date.now() - startedAt < 30_000 ? crashes + 1 : 1;
-    const retry = crashes <= 3 && active().length > 0;
-    const message = `Code graph process stopped (${why}); ${retry ? 'restarting' : 'reopen the view to retry'}.`;
+    const delay = policy.crashed(active().length > 0);
+    const message = `Code graph process stopped (${why}); ${delay !== null ? 'restarting' : 'reopen the view to retry'}.`;
     for (const graph of active()) graph.setStatus('unavailable', message);
-    if (retry) restart = setTimeout(() => { restart = undefined; if (!child) respawn(); }, 1000 * 2 ** (crashes - 1));
+    if (delay !== null) restart = setTimeout(() => { restart = undefined; policy.timerFired(); if (!child) respawn(); }, delay / 1000 * restartBaseMs);
   };
 
   // Start a child and reopen every active graph in it.
@@ -176,7 +184,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       for (const graph of active()) graph.setStatus('unavailable', 'Code graph process failed to start: ' + short(error));
       return;
     }
-    child = c; startedAt = Date.now();
+    child = c; policy.started();
     try { if (c.pid) os.setPriority(c.pid, 10); } catch { /* best effort */ }
     c.on('message', onEvent);
     c.on('error', error => exited(c, short(error)));
@@ -186,13 +194,13 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
 
   const evict = (graph: ProxyGraph, message: string) => {
     graph.stop(message);
-    return request({ type: 'close', workspaceId: graph.workspaceId });
+    return call({ type: 'close', workspaceId: graph.workspaceId }, timeoutMs);
   };
 
   return {
     open(workspaceId, root) {
       if (!excluding.has(root)) {
-        const work = excludeCodeGraphCache(root).catch(error => console.warn('Could not add .codegraph/ to info/exclude:', short(error)))
+        const work = exclude(root).catch(error => console.warn('Could not add .codegraph/ to info/exclude:', short(error)))
           .finally(() => excluding.delete(root));
         excluding.set(root, work);
       }
@@ -201,16 +209,37 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       graph ??= new ProxyGraph(workspaceId, root);
       graphs.delete(workspaceId); graphs.set(workspaceId, graph);
       if (!graph.active) graph.start();
-      if (child) post(openRequest(workspaceId, root)); else respawn();
+      if (child) post(openRequest(workspaceId, root)); else if (policy.mayRespawnOnOpen()) respawn();
       let open = active().length;
       for (const other of graphs.values()) if (open > maxOpen && other !== graph && other.active) { void evict(other, 'Closed to limit open code graphs; reopens when viewed.'); open--; }
       return graph;
     },
-    async close(workspaceId) {
-      const graph = graphs.get(workspaceId);
-      graphs.delete(workspaceId);
-      if (graph?.active) await evict(graph, 'Closed.');
-      if (graph) await excluding.get(graph.root);
+    // Idempotent: a second close of the same workspace waits for the first. Rejects when a running child does not
+    // confirm in time (it may still hold the worktree's files); 'down' means nothing holds them.
+    close(workspaceId) {
+      const inFlight = closing.get(workspaceId);
+      if (inFlight) return inFlight;
+      const job = (async () => {
+        const graph = graphs.get(workspaceId);
+        graphs.delete(workspaceId);
+        const reply = graph?.active ? await evict(graph, 'Closed.') : undefined;
+        if (graph) await excluding.get(graph.root);
+        if (reply === 'timeout') throw new Error(`Code graph did not confirm closing ${workspaceId}.`);
+      })().finally(() => closing.delete(workspaceId));
+      closing.set(workspaceId, job);
+      return job;
+    },
+    async kill() {
+      const c = child;
+      if (restart) policy.timerFired(); // a cancelled backoff must not block the next open()
+      clearTimeout(restart); restart = undefined;
+      if (!c) return;
+      child = null; settleAll();
+      for (const graph of active()) graph.stop('Code graph process stopped; reopen the view to retry.');
+      const gone = new Promise(resolve => { if (c.exitCode !== null || c.signalCode !== null) resolve(null); else c.once('exit', resolve); });
+      try { c.kill('SIGKILL'); } catch { /* already gone */ }
+      await within(gone, timeoutMs);
+      if (c.exitCode === null && c.signalCode === null) throw new Error('Code graph process did not stop.');
     },
     async conflicts(shared, workspaceIds) {
       const reply = await call({ type: 'conflicts', shared, workspaceIds }, evaluateTimeoutMs);

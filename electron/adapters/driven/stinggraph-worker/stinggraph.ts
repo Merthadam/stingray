@@ -6,14 +6,13 @@ import path from 'node:path';
 import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
-import type { Evaluate, GraphApi, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
+import type { Evaluate, FileProvider, GraphApi, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './stinggraph-process';
 import { evaluate } from '../../../core/views/rules/engine';
-import { codegraphGrammarDir } from '../tree-sitter/grammars';
-import { createFileProvider } from '../fs/files';
 import { createGraphApi, createOverlayGraphApi } from './stinggraph-api';
 import { calleesOf } from '../../../core/views/rules/callees';
-import { buildOverlay, ensureBase, gitOut, installOverlay, overlayConflicts, type SharedBaseTarget } from './stinggraph-overlay';
+import { buildOverlay, ensureBase, installOverlay, overlayConflicts, type OverlayGit } from './stinggraph-overlay';
+import type { SharedBaseTarget } from '../../../core/stinggraph';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
 export interface CodeGraphHostOptions {
@@ -22,14 +21,22 @@ export interface CodeGraphHostOptions {
   pollMs?: number;       // read-only mode: how often the index revision is checked
   load?: () => Promise<CodeGraphLibrary>;
   evaluate?: Evaluate;
+  // Injected by electron/app/wiring/stinggraph.ts (driven/tree-sitter, driven/fs, driven/git):
   grammarDir?: () => string;
+  files?: (root: string) => FileProvider;
+  gitOut?: OverlayGit;
 }
 type Settings = Required<CodeGraphHostOptions>;
-const defaults = { maxOpen: 4, debounceMs: 500, pollMs: 2000, load: loadCodeGraph, evaluate, grammarDir: codegraphGrammarDir };
+const defaults = { maxOpen: 4, debounceMs: 500, pollMs: 2000, load: loadCodeGraph, evaluate };
+const withDefaults = (options: CodeGraphHostOptions): Settings => {
+  const settings = { ...defaults, ...options };
+  if (!settings.grammarDir || !settings.files || !settings.gitOut) throw new Error('stinggraph worker deps missing');
+  return settings as Settings;
+};
 
 // Views evaluate without a graph too (graph null), e.g. while indexing or when the index is unavailable.
 const evaluateView = async (options: Settings, root: string, view: ResolvedView, graph: GraphApi | null, graphStatus: GraphStatus) =>
-  options.evaluate({ view, files: createFileProvider(root), graph, graphStatus, grammarDir: options.grammarDir() });
+  options.evaluate({ view, files: options.files(root), graph, graphStatus, grammarDir: options.grammarDir() });
 
 let library: Promise<CodeGraphLibrary> | undefined;
 function loadCodeGraph() {
@@ -142,7 +149,7 @@ class Graph implements WorktreeGraph {
     await this.refreshOverlay(lib, shared, signal);
     if (signal.aborted) return;
     // Commits, checkouts and fetches all write the repo's common git dir.
-    const gitDir = path.resolve(this.root, (await gitOut(this.root, ['rev-parse', '--git-common-dir'])).trim());
+    const gitDir = path.resolve(this.root, (await this.options.gitOut(this.root, ['rev-parse', '--git-common-dir'])).trim());
     let timer: NodeJS.Timeout | undefined;
     const watcher = watch(gitDir, { recursive: true }, (_event, filename) => {
       if (filename && posix(filename.toString()).startsWith('objects/')) return;
@@ -162,12 +169,12 @@ class Graph implements WorktreeGraph {
   }
 
   private async refreshOverlay(lib: CodeGraphLibrary, shared: SharedBaseTarget, signal: AbortSignal) {
-    const base = await ensureBase(lib, shared);
-    const head = (await gitOut(this.root, ['rev-parse', 'HEAD'])).trim();
+    const base = await ensureBase(lib, shared, this.options.gitOut);
+    const head = (await this.options.gitOut(this.root, ['rev-parse', 'HEAD'])).trim();
     const was = this.overlayAt;
     if (signal.aborted || (this.overlay && was?.base === base && was.head === head)) return;
     const started = Date.now();
-    const built = await buildOverlay(lib, shared, this.workspaceId, this.root, base);
+    const built = await buildOverlay(lib, shared, this.workspaceId, this.root, base, this.options.gitOut);
     if (signal.aborted) return;
     this.closeOverlay();
     this.overlay = installOverlay(lib, shared, this.workspaceId, built);
@@ -175,7 +182,7 @@ class Graph implements WorktreeGraph {
     console.info(`Code graph ${this.workspaceId}: overlay of ${built.files.length} files at ${head.slice(0, 8)} over base ${base.slice(0, 8)} in ${Date.now() - started} ms`);
     if (!was) return;
     // What the merged view may now answer differently: both overlays' files, and what main changed.
-    const mainChanged = was.base === base ? [] : (await gitOut(this.root, ['diff', '--name-only', '-z', was.base, base])).split('\0').filter(Boolean);
+    const mainChanged = was.base === base ? [] : (await this.options.gitOut(this.root, ['diff', '--name-only', '-z', was.base, base])).split('\0').filter(Boolean);
     this.emit([...was.files, ...built.files, ...mainChanged]);
   }
 
@@ -295,7 +302,7 @@ export interface CodeGraphHost extends GraphHost {
 }
 
 export function createCodeGraphHost(options: CodeGraphHostOptions = {}): CodeGraphHost {
-  const settings = { ...defaults, ...options };
+  const settings = withDefaults(options);
   const graphs = new Map<string, Graph>(); // insertion order = least recently opened first
   const closing = new Map<string, Promise<unknown>>(); // root -> teardown of a graph removed from `graphs`
   const stop = (graph: Graph, message: string) => graph.stop(message).catch(() => { /* never throws */ });
@@ -334,7 +341,7 @@ export function createCodeGraphHost(options: CodeGraphHostOptions = {}): CodeGra
 
 /** The CodeGraph child's request handling (codegraph-worker.ts wires it to process IPC). One host serves all worktrees. */
 export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => void, options: CodeGraphHostOptions = {}) {
-  const settings = { ...defaults, ...options };
+  const settings = withDefaults(options);
   const host = createCodeGraphHost({ ...settings, maxOpen: Infinity }); // the parent owns the open/LRU policy
   const graphs = new Map<string, { graph: WorktreeGraph; unsubscribe: () => void }>();
   const detach = (workspaceId: string) => { graphs.get(workspaceId)?.unsubscribe(); graphs.delete(workspaceId); };

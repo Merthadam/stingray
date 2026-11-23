@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, writeFile, appendFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, appendFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { git } from '../../electron/app/wiring/git';
-import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
-import { baseRoot, overlayPath, type SharedBaseTarget } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-overlay';
+import { baseRoot, createCodeGraphHost, overlayPath, removeOverlay } from '../../electron/app/wiring/stinggraph';
+import type { SharedBaseTarget } from '../../electron/core/stinggraph';
 import { createGraphApi } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-api';
 import type { GraphApi, ResolvedView } from '../../electron/core/views/rules/types';
 import type { WorktreeGraph } from '../../electron/core/views/graph';
@@ -145,4 +145,19 @@ test('shared base: without origin/main the worktree falls back to its full index
     assert.ok(warnings.some(w => w.includes('falling back to the full index') && w.includes('origin/main not found')), warnings.join('\n'));
     assert.equal(await h.conflicts(target, ['a']), null);
   } finally { console.warn = warn; await h.closeAll(); }
+});
+
+test('removeOverlay deletes a workspace overlay with its -wal/-shm files and tolerates missing ones', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'stingray-overlay-rm-'));
+  try {
+    const target = { repoId: 'r1', repoPath: '/unused', dataDir };
+    const file = overlayPath(target, 'w1');
+    await mkdir(path.dirname(file), { recursive: true });
+    for (const suffix of ['', '-wal', '-shm']) await writeFile(file + suffix, 'x');
+    await writeFile(overlayPath(target, 'w2'), 'keep');
+    await removeOverlay(dataDir, 'r1', 'w1');
+    for (const suffix of ['', '-wal', '-shm']) assert.equal(existsSync(file + suffix), false);
+    assert.equal(existsSync(overlayPath(target, 'w2')), true);
+    await removeOverlay(dataDir, 'r1', 'missing');
+  } finally { await rm(dataDir, { recursive: true, force: true }); }
 });
