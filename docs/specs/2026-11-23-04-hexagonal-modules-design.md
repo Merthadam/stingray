@@ -361,3 +361,5 @@ ls dist-electron                    # compare with pre-move listing
 - **Renderer (H2, OQ11)**: `src/features/<f>/` per backend feature; `WorkspaceStatus.tsx` in `src/features/git`.
 - **Cross-process pure code** lives in `shared/views/`; `src/` never imports `electron/`.
 - **Tests (OQ3)**: existing tests change only import paths and path strings; compatibility wiring keeps their APIs.
+- **Port slots (planning note)**: `Hasher`, `GlobMatcher` and `SyntaxParser` are module-level slots in `electron/core/shared/ports.ts` (`provide*`/`resetCorePorts`), called only from `electron/app/**` and tests (checked by the boundary test).
+- **Port name (planning note)**: the stinggraph release port is `GraphReleaseHost { close, kill }`; views keeps its own `GraphHost`.
