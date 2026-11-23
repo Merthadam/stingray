@@ -1,6 +1,7 @@
 import headless from '@xterm/headless';
 import unicode11 from '@xterm/addon-unicode11';
 import { terminalScrollback } from '../../../../shared/contracts/terminals';
+import type { TerminalMirrorPort } from '../../../core/terminals';
 import { serializeTerminal } from './terminal-serialize';
 // CommonJS bundles: Node's ESM loader (tests) cannot see their named exports.
 const Mirror = headless.Terminal; type Mirror = InstanceType<typeof Mirror>;
@@ -12,13 +13,14 @@ const { Unicode11Addon } = unicode11;
  * and paste modes enabled long ago (Pi's fullscreen TUI then scrolls xterm's own history and pastes submit early)
  * and can start inside an escape sequence.
  */
-export class TerminalMirror {
+export class TerminalMirror implements TerminalMirrorPort {
   private terminal: Mirror;
   private modes = new Map<number, boolean>(); // DEC private modes the serializer does not restore
   private cursorStyle = 0; // DECSCUSR
   private parsed = 0; // sequence of the last chunk the mirror has parsed
   private waiting = new Set<(error: Error) => void>();
   private disposed = false;
+  private failed = false;
   constructor(cols: number, rows: number) {
     this.terminal = new Mirror({ cols, rows, scrollback: terminalScrollback, allowProposedApi: true });
     this.terminal.loadAddon(new Unicode11Addon()); this.terminal.unicode.activeVersion = '11';
@@ -33,7 +35,14 @@ export class TerminalMirror {
     // RIS resets every mode.
     this.terminal.parser.registerEscHandler({ final: 'c' }, () => { this.modes.clear(); this.cursorStyle = 0; return false; });
   }
-  write(data: string, sequence: number) { if (!this.disposed) this.terminal.write(data, () => { this.parsed = sequence; }); }
+  write(data: string, sequence: number, done?: () => void) {
+    if (this.disposed) { done?.(); return; }
+    try { this.terminal.write(data, () => { this.parsed = sequence; done?.(); }); } catch (error) {
+      // A parser error must not stop the stream; the chunk still reaches the renderer (logged once per terminal).
+      if (!this.failed) { this.failed = true; console.error('Terminal mirror write failed:', error); }
+      done?.();
+    }
+  }
   resize(cols: number, rows: number) { if (!this.disposed) this.terminal.resize(cols, rows); }
   /** Screen, scrollback and modes after every chunk written so far has been parsed. */
   snapshot(): Promise<{ data: string; sequence: number }> {

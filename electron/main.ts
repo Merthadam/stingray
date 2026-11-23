@@ -15,8 +15,9 @@ import { sender } from './adapters/driven/electron-shell/sender';
 import { closeDatabase } from './adapters/driven/sqlite/database';
 import { GitService, GitStateService, PullRequestService, Store, WorkspaceLifecycle } from './app/wiring/git';
 import { gitHandlers } from './adapters/driving/ipc/git';
-import { Terminals } from './core/terminals/terminals';
-import { openTerminalLink } from './core/terminals/terminal-links';
+import { Terminals, openTerminalLink } from './app/wiring/terminals';
+import { terminalsHandlers } from './adapters/driving/ipc/terminals';
+import { electronShell } from './adapters/driven/electron-shell/shell';
 import { ContainerService } from './core/runtime/containers';
 import { PortService } from './core/runtime/ports';
 import { inspectCdp } from './core/runtime/chrome-inspect';
@@ -148,12 +149,9 @@ app.whenReady().then(async () => {
     },
   }));
   registerContract(ipc, repoMapContract, { repoSnapshot: id => git.repoSnapshot(id), inspectFile: (id, path) => git.inspectFile(id, path) });
-  registerContract(ipc, terminalsContract, {
-    terminals: () => terminals.list(),
-    terminalSnapshot: id => terminals.snapshot(id),
-    createTerminal: id => git.useWorkspace(id, w => terminals.create(id, w.path)),
-    writeTerminal: (id, data) => terminals.write(id, data),
-    openTerminalLink: async (id, uri) => {
+  registerContract(ipc, terminalsContract, terminalsHandlers({
+    terminals, git,
+    openLink: async (id, uri) => {
       if (openingLink) throw new Error('Finish the current link confirmation first.');
       const terminal = terminals.list().find(t => t.id === id);
       if (!terminal) throw new Error('Terminal not found.');
@@ -168,15 +166,11 @@ app.whenReady().then(async () => {
               buttons: ['Cancel', action], defaultId: 0, cancelId: 0, noLink: true });
             return response === 1;
           },
-          openExternal: target => shell.openExternal(target),
-          openPath: target => shell.openPath(target),
-          showItemInFolder: target => shell.showItemInFolder(target),
+          ...electronShell,
         });
       } finally { openingLink = false; }
     },
-    resizeTerminal: (id, cols, rows) => terminals.resize(id, cols, rows),
-    closeTerminal: id => terminals.close(id),
-  });
+  }));
   registerContract(ipc, activityContract, activityHandlers({
     activity,
     setVisible: ids => { const known = new Set(terminals.list().map(t => t.id)); visibleTerminals = new Set(ids.filter(id => known.has(id))); },

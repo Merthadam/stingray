@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { openTerminalLink, resolveTerminalLink, type TerminalLinkActions } from '../../electron/core/terminals/terminal-links';
+import { openTerminalLink, resolveTerminalLink, type TerminalLinkActions } from '../../electron/app/wiring/terminals';
 
 async function fixture(t: test.TestContext) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'stingray-links-unit-')));

@@ -22,6 +22,7 @@ Each replacement is at least as strict as the original.
 | 05a | `tests/git/git.test.ts` | — | new tests: consent without fingerprint refused; stale consent keeps the worktree and a fresh review removes it; existing branch refused before `worktree add`; failing `worktree add` reports git's reason; status with > 4 MiB output | New tests (audit 3, branch exists, git error detail, status buffer). |
 | 05a | `tests/git/worktree-removal.mjs` | — | new check "changes after the review refuse removal and reload the review" | New check (audit 3). |
 | 05b | `tests/activity/activity.test.ts` | — | new test case "resume events keep a long hook Working turn alive; silence still expires it" (audit 4) | New test. Other 05b edits are import paths only (`tests/activity/{activity,activity-shell,activity-history}.test.ts`, `tests/agents/{pi-smoke.ts,pi-observer.test.ts,hook-client.test.ts}` → `electron/app/wiring/activity`). |
+| 05c | `tests/terminals/terminal-links.test.ts:7` | `from '../../electron/core/terminals/terminal-links'` | `from '../../electron/app/wiring/terminals'` | Import path only (the wired `openTerminalLink`/`resolveTerminalLink` keep the pre-port signatures, bound to the real fs adapter); no assertion changed. New tests `tests/terminals/terminals.test.ts` (audit 9, 15, terminal titles) and `tests/terminals/terminal-links.core.test.ts`. |
 
 Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 
