@@ -50,8 +50,28 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
         webgl = new WebglAddon();
         webgl.onContextLoss(() => { losses++; detach(); });
         terminal.loadAddon(webgl);
+        // The glyph atlas is shared between panes and may hold glyphs rasterized at another scale or font.
+        redrawGlyphs();
       } catch { losses = 3; webgl = undefined; }
     };
+    // WebGL caches each glyph once. Glyphs cached before a display-scale change (moving the window between
+    // screens, sleep/wake) or before the font finished loading keep their old size: regular text then shows
+    // tiny letters spread over full-size cells while newly drawn (e.g. italic) text looks right.
+    const redrawGlyphs = () => {
+      if (disposed || !webgl) return;
+      terminal.clearTextureAtlas(); terminal.refresh(0, terminal.rows - 1);
+    };
+    let scaleQuery: MediaQueryList | undefined;
+    const watchScale = () => {
+      scaleQuery?.removeEventListener('change', onScale);
+      scaleQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      scaleQuery.addEventListener('change', onScale);
+    };
+    const onScale = () => { watchScale(); redrawGlyphs(); scheduleFit(); };
+    watchScale();
+    const onFonts = () => { redrawGlyphs(); scheduleFit(); };
+    document.fonts?.addEventListener('loadingdone', onFonts);
+    window.addEventListener('focus', redrawGlyphs);
     rendererRef.current = { attach, detach };
     const fitNow = () => {
       // Never before the snapshot is parsed: it was serialized at the PTY's size.
@@ -126,6 +146,8 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
       disposed = true; removeLinks(); detach();
       for (const name of ['focusin', 'pointerup', 'keyup', 'wheel']) host.removeEventListener(name, interaction);
       window.removeEventListener('focus', interaction);
+      window.removeEventListener('focus', redrawGlyphs); scaleQuery?.removeEventListener('change', onScale);
+      document.fonts?.removeEventListener('loadingdone', onFonts);
       clearTimeout(fitTimer); observer.disconnect(); input.dispose(); render.dispose(); off(); terminal.dispose();
     };
   }, [info.id]);
