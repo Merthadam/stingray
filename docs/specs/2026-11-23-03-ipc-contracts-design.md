@@ -81,12 +81,14 @@ export const terminalsContract = defineContract('terminals', {
 - `shared/contracts/common.ts`: `idSchema`, `urlSchema` and other cross-feature schemas from `src/shared.ts:8-24`.
 - `shared/contracts/index.ts`: `contracts` (array of all), `DesktopAPI = { mode: 'desktop' | 'demo' } & Invoke<…> & Events<…>`.
 - Channel name = `` `${feature}.${member}` ``: calls `feature.action` (`git.createWorkspace`), events
-  `feature.onThing` (`terminals.onTerminal`). One rule, no exceptions. The git event is renamed
+  `feature.onThing` (`terminals.onTerminal`). Member names are clean feature-local names; where the existing flat
+  renderer name differs, the entry declares it explicitly (`renderer: 'codegraphSettings'`) and preload exposes that
+  name on `window.stingray`, so e2e calls are unchanged. The contract test checks flat names are unique. The git event is renamed
   `onGitStateChanged` → `onStatusChanged` (channel `git.onStatusChanged`; three renderer call sites). All other
   member names stay, so `window.stingray.*` calls in e2e tests are unchanged. The code-graph feature is named
-  `stinggraph` (umbrella decision), so its channels are `stinggraph.codegraphSettings`,
-  `stinggraph.setCodegraphSharedBase` and `stinggraph.codegraphConflicts`: members keep their flat renderer names
-  under the one rule; the contract file is `shared/contracts/stinggraph.ts` (`stinggraphContract`).
+  `stinggraph` (umbrella decision), so its channels are `stinggraph.settings`,
+  `stinggraph.setSharedBase` and `stinggraph.conflicts`, mapped to the flat renderer names `codegraphSettings`,
+  `setCodegraphSharedBase` and `codegraphConflicts`; the contract file is `shared/contracts/stinggraph.ts` (`stinggraphContract`).
 - Optional trailing arguments (today only `view`'s `options`, main.ts:164) stay optional; preload drops a trailing
   `undefined` like preload.ts:20 does today.
 - Route-to-feature assignment: umbrella feature table.
@@ -256,7 +258,8 @@ throw still reject the renderer call.
 - **Demo flag scope:** plain browser always demo; inside Electron `?demo` is honoured only in a dev build
   (`import.meta.env.DEV`, unpackaged `npm run dev`); production builds ignore it and show the missing-bridge error
   without a bridge. A `DEMO` badge is visible whenever demo data is active.
-- **stinggraph contract:** `shared/contracts/stinggraph.ts`, channels `stinggraph.<member>` with the existing flat
-  member names (`codegraphSettings`, `setCodegraphSharedBase`, `codegraphConflicts`); the type-only import from
+- **stinggraph contract:** `shared/contracts/stinggraph.ts`, clean channels `stinggraph.settings`,
+  `stinggraph.setSharedBase`, `stinggraph.conflicts`, each mapped to its existing flat renderer name
+  (`codegraphSettings`, `setCodegraphSharedBase`, `codegraphConflicts`); the type-only import from
   `@colbymchenry/codegraph` is unchanged.
 - **Test edits:** only the raw channel strings listed above; no assertion changes.

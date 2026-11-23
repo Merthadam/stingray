@@ -132,13 +132,14 @@ Exact file-to-destination tables are in [step 4](2026-11-23-04-hexagonal-modules
 | repo-map | `core/repo-map/` | `src/features/repo-map/` | repoSnapshot, inspectFile, statFile (step 6) |
 | terminals | `core/terminals/` | `src/features/terminals/` | terminals, terminalSnapshot, createTerminal, writeTerminal, openTerminalLink, resizeTerminal, closeTerminal; event onTerminal |
 | activity | `core/activity/` | `src/features/activity/` | activity, activityView, acknowledgeActivity, dismissActivity; event onActivity |
-| stinggraph | `core/stinggraph/` | `src/features/stinggraph/` (demo + index) | codegraphSettings, setCodegraphSharedBase, codegraphConflicts |
+| stinggraph | `core/stinggraph/` | `src/features/stinggraph/` (demo + index) | settings, setSharedBase, conflicts (flat renderer names codegraphSettings, setCodegraphSharedBase, codegraphConflicts) |
 | views | `core/views/` | `src/features/views/` | views, view, viewState, saveViewState, saveViewAs, openServiceDocs; event onViewsChanged |
 | db-schema | `core/db-schema/` | `src/features/db-schema/` (demo data + index) | none (types only; route removed in step 2) |
 | runtime | `core/runtime/` | `src/features/runtime/` | containers, stopContainer, containerLogs, inspectCdp, ports, liveViewStart, liveViewInput, liveViewResize, liveViewStop, liveViewAck; event onLiveView |
 
 Channels are `<feature>.<member>` (e.g. `git.createWorkspace`, `terminals.onTerminal`, `git.onStatusChanged`).
-The renderer API stays flat (`window.stingray.createWorkspace`), so existing e2e calls keep working.
+The renderer API stays flat (`window.stingray.createWorkspace`), so existing e2e calls keep working; a contract
+entry may declare its flat renderer name when it differs from the member (used by stinggraph).
 
 ## Architecture rules (summary)
 
