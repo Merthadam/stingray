@@ -80,6 +80,8 @@ export const gitContract = defineContract('git', {
     gitState: [z.tuple([idSchema]), returns<WorkspaceGitState>()],
     /** Re-reads Git now and re-queries GitHub (5s cooldown). */
     refreshGitState: [z.tuple([idSchema]), returns<WorkspaceGitState>()],
+    /** The workspace the user is looking at: polled every 5 s while the window is visible (null: none). */
+    selectWorkspace: [z.tuple([idSchema.nullable()]), returns<void>()],
   },
   events: { onStatusChanged: event<WorkspaceGitState>() },
 });

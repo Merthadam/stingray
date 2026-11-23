@@ -1,3 +1,5 @@
+import type { FileStamp } from '../../../shared/contracts/repo-map';
+
 /** Git with the repository-inventory limits. */
 export interface RepoInventory {
   /** 15 s / 16 MiB; `grep` exit 1 without output is ''; other failures reject with the inventory-limit message. */
@@ -13,4 +15,6 @@ export interface WorkingFiles {
   read(root: string, relative: string): Promise<Uint8Array | null>;
   /** lstat of a working-tree entry, never rejects. */
   probe(root: string, relative: string): Promise<'missing' | 'emptyFile' | 'other'>;
+  /** lstat stamp; exists false when missing; rejects on other errors. */
+  stat(root: string, relative: string): Promise<FileStamp>;
 }

@@ -23,5 +23,6 @@ export function createRepoMapDemo(ctx: DemoContext): Invoke<typeof repoMapContra
         revision: 'demo-' + path,
       };
     },
+    statFile: async (_id, path) => ({ exists: ctx.files.some(f => f.path === path), size: 0, mtimeMs: 0 }),
   };
 }

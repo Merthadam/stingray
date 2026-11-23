@@ -3,5 +3,5 @@ import type { repoMapContract } from '../../../../shared/contracts/repo-map';
 import type { RepoMapService } from '../../../core/repo-map';
 
 export function repoMapHandlers(repoMap: RepoMapService): Handlers<typeof repoMapContract> {
-  return { repoSnapshot: id => repoMap.repoSnapshot(id), inspectFile: (id, path) => repoMap.inspectFile(id, path) };
+  return { repoSnapshot: id => repoMap.repoSnapshot(id), inspectFile: (id, path) => repoMap.inspectFile(id, path), statFile: (id, path) => repoMap.statFile(id, path) };
 }

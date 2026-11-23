@@ -104,13 +104,17 @@ export default function App() {
     finally { setInitializing(false); }
   }
   useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
-  // Working-tree edits don't touch .git: re-read the selected workspace when it is opened or the user comes back.
+  // Working-tree edits don't touch .git: the main process polls the selected workspace (5 s); focus/visibility re-read now.
   useEffect(() => {
+    void api.selectWorkspace(selected || null).catch(() => {});
     if (!selected) return;
     const update = () => { if (!document.hidden) void api.refreshGitState(selected).catch(() => {}); };
     update();
     window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
-    return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
+    return () => {
+      window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update);
+      void api.selectWorkspace(null).catch(() => {});
+    };
   }, [selected]);
   async function run(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setError('');

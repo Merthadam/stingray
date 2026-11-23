@@ -5,7 +5,7 @@ import type { GitDirWatcher, GitRunner, GitStatePublisher, WatchHandle } from '.
 import type { PullRequestService } from './pull-requests';
 
 type Tracked = { path: string; gitDir: string; common: string; remote: string | null; timer?: ReturnType<typeof setTimeout>; forcePr: boolean };
-export type GitStateOptions = { debounceMs?: number; pollMs?: number; prPollMs?: number; concurrency?: number };
+export type GitStateOptions = { debounceMs?: number; pollMs?: number; prPollMs?: number; concurrency?: number; selectedPollMs?: number };
 
 // One Git + PR state per workspace, shared by every renderer view. Updates come from a watcher on the
 // repository's common .git directory (commits, checkouts, staging, fetches and pushes), a slow fallback
@@ -18,6 +18,7 @@ export class GitStateService {
   private refreshing = new Map<string, Promise<WorkspaceGitState>>();
   private queued = new Map<string, { force: boolean; promise: Promise<WorkspaceGitState> }>();
   private revision = 0;
+  private selected: string | null = null;
   private listVersion = 0;
   private timers: ReturnType<typeof setInterval>[];
   private debounceMs: number;
@@ -26,11 +27,12 @@ export class GitStateService {
   constructor(private git: Pick<GitService, 'workspace' | 'status'>, private pullRequests: Pick<PullRequestService, 'resolve'>,
     private emit: GitStatePublisher, private visible: () => boolean = () => true, options: GitStateOptions = {},
     private ports: { watcher: GitDirWatcher; runner: GitRunner }) {
-    const { debounceMs = 300, pollMs = 60000, prPollMs = 20000, concurrency = 3 } = options;
+    const { debounceMs = 300, pollMs = 60000, prPollMs = 20000, concurrency = 3, selectedPollMs = 5000 } = options;
     this.debounceMs = debounceMs; this.slots = concurrency;
     this.timers = [
       setInterval(() => { if (this.visible()) for (const id of this.tracked.keys()) void this.refresh(id).catch(() => {}); }, pollMs),
       setInterval(() => { if (this.visible()) this.pollPullRequests(); }, prPollMs),
+      setInterval(() => { if (this.visible() && this.selected) void this.refresh(this.selected).catch(() => {}); }, selectedPollMs),
     ];
     for (const timer of this.timers) timer.unref();
   }
@@ -61,7 +63,14 @@ export class GitStateService {
     this.apply(id, { status, error: '', pr: current.pr });
   }
 
+  /** The workspace the user is looking at: refreshed now and every selectedPollMs while visible (working-tree edits do not touch .git). */
+  select(id: string | null) {
+    this.selected = id;
+    if (id) void this.refresh(id).catch(() => {});
+  }
+
   forget(id: string) {
+    if (this.selected === id) this.selected = null;
     const t = this.tracked.get(id);
     clearTimeout(t?.timer);
     this.tracked.delete(id); this.states.delete(id); this.tracking.delete(id);

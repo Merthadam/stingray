@@ -122,6 +122,7 @@ function participants(over: Partial<RemovalParticipants> = {}) {
     gitState: { forget: () => { ran.push('git-state'); } },
     viewState: { forget: async () => { ran.push('view state'); } },
     activity: { forgetWorkspace: () => { ran.push('activity'); } },
+    repoMap: { forget: () => { ran.push('repo map'); } },
     overlays: { repoOf: async () => 'r1', remove: async () => { ran.push('overlay'); } },
     sessions: { clearWorkspaceSession: async () => { ran.push('webview session'); } },
     ...over,

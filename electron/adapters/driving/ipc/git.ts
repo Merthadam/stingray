@@ -18,5 +18,6 @@ export function gitHandlers(d: {
     removeWorkspace: (id, consent) => d.git.removeWorkspace(id, consent),
     gitState: id => d.gitState.get(id),
     refreshGitState: id => d.gitState.refresh(id, true),
+    selectWorkspace: id => d.gitState.select(id),
   };
 }

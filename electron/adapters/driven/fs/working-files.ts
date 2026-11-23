@@ -64,4 +64,8 @@ export const nodeWorkingFiles: WorkingFiles = {
     try { const stat = await lstat(path.join(root, relative)); return stat.isFile() && stat.size === 0 ? 'emptyFile' : 'other'; }
     catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'other'; }
   },
+  async stat(root, relative) {
+    try { const s = await lstat(path.join(root, relative)); return { exists: true, size: s.size, mtimeMs: s.mtimeMs }; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { exists: false, size: 0, mtimeMs: 0 }; throw error; }
+  },
 };

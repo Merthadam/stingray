@@ -134,9 +134,11 @@ try {
   await page.locator('.map-viewport').focus(); await page.mouse.move(5, 5);
   await page.getByRole('tooltip').waitFor({ state: 'detached' }); await page.waitForTimeout(150);
   await app.evaluate(({ ipcMain }) => {
-    const original = ipcMain._invokeHandlers.get('repo-map.repoSnapshot');
-    globalThis.idleMapPolls = 0;
-    ipcMain.removeHandler('repo-map.repoSnapshot'); ipcMain.handle('repo-map.repoSnapshot', async (...args) => { const result = await original(...args); globalThis.idleMapPolls++; return result; });
+    globalThis.idleMapPolls = 0; globalThis.idleSnapshots = 0;
+    for (const [channel, counter] of [['repo-map.statFile', 'idleMapPolls'], ['repo-map.repoSnapshot', 'idleSnapshots']]) {
+      const original = ipcMain._invokeHandlers.get(channel);
+      ipcMain.removeHandler(channel); ipcMain.handle(channel, async (...args) => { const result = await original(...args); globalThis[counter]++; return result; });
+    }
   });
   await page.evaluate(() => {
     window.idleMapMutations = 0; window.idleMapRecords = [];
@@ -154,9 +156,9 @@ try {
       childList: true, characterData: true, subtree: true });
   });
   await page.waitForTimeout(11000);
-  timings.idle = { polls: await app.evaluate(() => globalThis.idleMapPolls), mutations: await page.evaluate(() => { window.idleMapObserver.disconnect(); return window.idleMapMutations; }), records: await page.evaluate(() => window.idleMapRecords) };
+  timings.idle = { polls: await app.evaluate(() => globalThis.idleMapPolls), snapshots: await app.evaluate(() => globalThis.idleSnapshots), mutations: await page.evaluate(() => { window.idleMapObserver.disconnect(); return window.idleMapMutations; }), records: await page.evaluate(() => window.idleMapRecords) };
   await page.evaluate(() => { document.querySelector('.repo-map-body').style.pointerEvents = ''; });
-  check('two real idle polls leave map, counts and reader visually unchanged', timings.idle.polls >= 2 && timings.idle.mutations === 0);
+  check('two real idle file checks leave map, counts and reader visually unchanged, with no map reload', timings.idle.polls >= 2 && timings.idle.snapshots === 0 && timings.idle.mutations === 0);
   const hoverStart = performance.now();
   await button('Modified file src/App.tsx').hover(); await page.getByRole('tooltip').waitFor({ timeout: 500 });
   timings.hoverMs = performance.now() - hoverStart;
@@ -184,6 +186,18 @@ try {
   await put('src/App.tsx', padding + 'export const App = () => "Updated after edit (same-line edit)";\n// New line\n');
   await page.waitForFunction(() => document.querySelector('[aria-label="File content"]')?.textContent.includes('same-line edit'));
   check('silent polling still detects same-line edits', (await page.getByLabel('File content', { exact: true }).innerText()).includes('same-line edit') && await page.locator('.inspector-file-heading').getByLabel('2 lines added, 1 lines removed', { exact: true }).count() === 1);
+  // One clock: an unstaged edit reaches the sidebar and the map at the same Git revision.
+  const summary = () => page.getByRole('group', { name: 'main Git summary', exact: true });
+  const labelBefore = await summary().locator('.git-lines').getAttribute('aria-label');
+  await put('electron/main.ts', '// Main process\n'.repeat(40) + '// synced edit\n');
+  await page.waitForFunction(before => document.querySelector('[aria-label="main Git summary"] .git-lines')?.getAttribute('aria-label') !== before, labelBefore, { timeout: 15000 });
+  const shared = await page.evaluate(workspaceId => window.stingray.gitState(workspaceId), id);
+  await page.waitForFunction(n => document.querySelector('.map-title h2 span')?.textContent === `${n} changes`, shared.status.changes.length, { timeout: 15000 });
+  check('sidebar and Repo Map agree at the same revision after an unstaged edit',
+    (await summary().locator('.git-lines').innerText()).replace(/\s+/g, '') === `+${shared.status.lines.added}−${shared.status.lines.deleted}` &&
+    (await page.locator('.map-title h2 span').innerText()) === `${shared.status.changes.length} changes`);
+  await put('electron/main.ts', '// Main process\n'.repeat(40));
+  await page.waitForFunction(n => document.querySelector('.map-title h2 span')?.textContent === `${n} changes`, shared.status.changes.length - 1, { timeout: 15000 });
   const sidebar = page.locator('.map-inspector'); const initialWidth = (await sidebar.boundingBox()).width;
   const divider = page.getByRole('separator', { name: 'Resize inspector' });
   await divider.focus(); await page.keyboard.press('ArrowLeft');
@@ -306,8 +320,10 @@ try {
   await focusFolder('src'); await page.waitForTimeout(1000); await screenshot('map-focused-folder');
   await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
   await gateResponse('repo-map.repoSnapshot', id);
-  // Hold a real automatic refresh. Background checks must remain visually
-  // quiet; the gate, not a spinner, proves the request is in flight.
+  // Hold a real automatic refresh: an on-disk edit that changes counts bumps the shared Git revision, which reloads the map.
+  // Background checks must remain visually quiet; the gate, not a spinner, proves the request is in flight.
+  await put('held-by-gate.txt', 'untracked\n');
+  await page.evaluate(workspaceId => window.stingray.refreshGitState(workspaceId), id);
   await waitGate();
   timings.delayedSnapshot = {
     entered: await app.evaluate(() => globalThis.mapTestGate.entered),
@@ -317,6 +333,7 @@ try {
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'clean-worktree', exact: true }).click(); await page.locator('.map-tile').first().waitFor();
   check('workspace switch resets an open inspector without renderer reload', await sidebar.count() === 0 && state.workspaces.length === 2);
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor(); await releaseGate(); await page.waitForTimeout(150);
+  await rm(path.join(repo, 'held-by-gate.txt'));
   check('late snapshot cannot overwrite new workspace inventory or inspector', (await page.locator('.inspector-file-heading').innerText()).includes('README.md') && (await page.locator('.map-title').innerText()).includes('0 changes') && await page.locator('.inline-error').count() === 0);
   await gateResponse('repo-map.inspectFile', 'README.md'); await button('Refresh repository map').click(); await waitGate();
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main', exact: true }).click();

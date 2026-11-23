@@ -13,10 +13,14 @@ export type FileInspection = {
   staged: string; unstaged: string; notice: string; revision: string;
 };
 
+export type FileStamp = { exists: boolean; size: number; mtimeMs: number };
+
 export const repoMapContract = defineContract('repo-map', {
   invoke: {
     repoSnapshot: [z.tuple([idSchema]), returns<RepoSnapshot>()],
     inspectFile: [z.tuple([idSchema, repoPathSchema]), returns<FileInspection>()],
+    /** Cheap change check of one working-tree file (lstat only, no git). */
+    statFile: [z.tuple([idSchema, repoPathSchema]), returns<FileStamp>()],
   },
   events: {},
 });

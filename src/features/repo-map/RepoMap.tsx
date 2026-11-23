@@ -7,9 +7,10 @@ import { fileKind, kindBadges, reconcileSnapshot } from './repo-map-model';
 import { RepoMapCanvas } from './RepoMapCanvas';
 import { LineCounts } from './LineCounts';
 import { CodeView } from './RepoMapCodeView';
+import { useGitState } from '../git';
 import './repo-map.css';
 
-// Snapshot status reads also update the main process's shared Git state (GitService.onStatus), which the sidebar shows.
+// Snapshot status reads also update the shared Git state (GitService.onStatus); the map reloads when that state's revision moves.
 type Props = { workspace: Workspace; reveal: { path: string; line: number | null; nonce: number } | null };
 export function RepoMap({ workspace, reveal }: Props) {
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
@@ -46,8 +47,13 @@ export function RepoMap({ workspace, reveal }: Props) {
   const inFlight = useRef(false);
   const refreshFile = useRef<() => void>(() => {});
   const alive = useRef(false);
+  const { state: gitState } = useGitState(workspace.id);
+  const latestRevision = useRef(0), loadedRevision = useRef(0);
+  latestRevision.current = gitState?.revision ?? 0;
+  const fileStamp = useRef('');
   const refresh = useCallback(async (manual = false) => {
     if (inFlight.current || !alive.current) return;
+    const requested = latestRevision.current;
     const foreground = manual || !snapshotRef.current;
     inFlight.current = true; if (foreground) setBusy(true);
     const request = generation.current;
@@ -64,14 +70,22 @@ export function RepoMap({ workspace, reveal }: Props) {
         refreshFile.current();
       }
     } catch (e) { if (alive.current && request === generation.current) setError((e as Error).message); }
-    finally { if (request === generation.current) { inFlight.current = false; if (foreground && alive.current) setBusy(false); } }
+    finally {
+      if (request === generation.current) {
+        inFlight.current = false; if (foreground && alive.current) setBusy(false);
+        // Settled for `requested` even on failure (a failing map is not retried until the revision moves again).
+        loadedRevision.current = Math.max(loadedRevision.current, requested);
+        if (alive.current && latestRevision.current > loadedRevision.current) queueMicrotask(() => { void refresh(); });
+      }
+    }
   }, [workspace.id]);
   useEffect(() => {
-    generation.current++; inFlight.current = false;
+    generation.current++; inFlight.current = false; loadedRevision.current = 0;
     alive.current = true; void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 5000);
-    return () => { alive.current = false; generation.current++; window.clearInterval(timer); };
+    return () => { alive.current = false; generation.current++; };
   }, [refresh]);
+  // One clock (audit 12): reload when the shared Git state moved past the snapshot shown; no poll of our own.
+  useEffect(() => { if (alive.current && latestRevision.current > loadedRevision.current) void refresh(); }, [gitState?.revision, refresh]);
   useEffect(() => {
     let cancelled = false;
     let running = false;
@@ -81,8 +95,9 @@ export function RepoMap({ workspace, reveal }: Props) {
       if (running) return;
       running = true; if (foreground) setFileBusy(true);
       try {
+        const stamp = JSON.stringify(await api.statFile(workspace.id, selected).catch(() => null));
         const next = await api.inspectFile(workspace.id, selected);
-        if (!cancelled) { setInspection(previous => previous?.revision === next.revision ? previous : next); setFileError(''); }
+        if (!cancelled) { fileStamp.current = stamp; setInspection(previous => previous?.revision === next.revision ? previous : next); setFileError(''); }
       } catch (e) {
         if (!cancelled) { setInspection(null); setFileError((e as Error).message); }
       } finally { running = false; if (foreground && !cancelled) setFileBusy(false); }
@@ -90,6 +105,15 @@ export function RepoMap({ workspace, reveal }: Props) {
     refreshFile.current = () => { void load(); };
     void load(true);
     return () => { cancelled = true; refreshFile.current = () => {}; };
+  }, [workspace.id, selected]);
+  // Same-line edits keep counts and status: a cheap stat of the open file (no git) re-inspects when it changed.
+  useEffect(() => {
+    if (!selected) return;
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      void api.statFile(workspace.id, selected).then(stamp => { if (JSON.stringify(stamp) !== fileStamp.current) refreshFile.current(); }, () => {});
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, [workspace.id, selected]);
   const selectedFile = snapshot?.files.find(file => file.path === selected);
   function closeInspector() {

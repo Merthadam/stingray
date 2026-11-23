@@ -41,3 +41,42 @@ test('RepoMapService shares one in-flight snapshot per worktree and inspects thr
   assert.match(inspection.revision, /^[0-9a-f]{64}$/);
   assert.ok(calls.every(c => c[0] !== 'status'), 'status comes from the git port, not the inventory');
 });
+
+test('rule 2: a failing size measurement marks sizes unavailable and still returns the snapshot', async () => {
+  const { inventory } = scriptedInventory({ lsFiles: 'a.ts\0new.ts\0', numstat: '1\t0\ta.ts\0', grep: new Error('Repository inventory exceeds the 16 MiB / 15 second limit, or Git is unavailable.') });
+  const map = await repoSnapshot('/repo', status([{ path: 'a.ts', status: ' M' }, { path: 'new.ts', status: '??' }]), true, { inventory, files: memoryFiles({ 'a.ts': 'x', 'new.ts': 'y' }) });
+  assert.ok(map.files.every(f => f.size?.state === 'unavailable' && f.size.reason === 'Size measurement failed or exceeded limits'));
+  assert.equal(map.files.find(f => f.path === 'new.ts')!.lines, null);
+  assert.match(map.statsNotice!, /size measurement failed/i);
+});
+
+function cachedService() {
+  const { inventory, calls } = scriptedInventory({ lsFiles: 'a.ts\0', grep: 'a.ts\x001\n' });
+  let statusCalls = 0;
+  const service = new RepoMapService({
+    git: { workspace: async id => ({ id, repoId: id, name: 'w', branch: 'main', path: '/repo', managed: false, previewUrl: '' }), status: async () => { statusCalls++; return status([]); } },
+    inventory, files: memoryFiles({ 'a.ts': 'hello\n', 'new.ts': 'n\n' }),
+  });
+  return { service, calls, statusCalls: () => statusCalls };
+}
+
+test('after a snapshot, inspectFile runs no status or ls-files; an uncached path falls back; forget drops the cache', async () => {
+  const s = cachedService();
+  await s.service.repoSnapshot('w');
+  const before = { status: s.statusCalls(), lsFiles: s.calls.filter(c => c[0] === 'ls-files').length };
+  await s.service.inspectFile('w', 'a.ts');
+  assert.deepEqual({ status: s.statusCalls(), lsFiles: s.calls.filter(c => c[0] === 'ls-files').length }, before);
+  await assert.rejects(s.service.inspectFile('w', 'new.ts'), /inventory/); // not in the scripted inventory: today's computation, today's error
+  assert.equal(s.statusCalls(), before.status + 1, 'uncached path falls back to status + ls-files');
+  s.service.forget('w');
+  await s.service.inspectFile('w', 'a.ts');
+  assert.equal(s.statusCalls(), before.status + 2);
+});
+
+test('statFile makes no git calls and validates the path like inspectFile', async () => {
+  const s = cachedService();
+  assert.deepEqual(await s.service.statFile('w', 'a.ts'), { exists: true, size: 6, mtimeMs: 1 });
+  assert.deepEqual(await s.service.statFile('w', 'gone.ts'), { exists: false, size: 0, mtimeMs: 0 });
+  await assert.rejects(s.service.statFile('w', '../x'));
+  assert.equal(s.calls.length, 0); assert.equal(s.statusCalls(), 0);
+});

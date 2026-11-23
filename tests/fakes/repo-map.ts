@@ -21,5 +21,6 @@ export function memoryFiles(contents: Record<string, string>): WorkingFiles {
     realpath: async p => p,
     read: async (_root, rel) => (rel in contents ? new TextEncoder().encode(contents[rel]) : null),
     probe: async (_root, rel) => (!(rel in contents) ? 'missing' : contents[rel] === '' ? 'emptyFile' : 'other'),
+    stat: async (_root, rel) => (rel in contents ? { exists: true, size: contents[rel].length, mtimeMs: 1 } : { exists: false, size: 0, mtimeMs: 0 }),
   };
 }

@@ -67,9 +67,20 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
     else if (failed) { file.lines = null; file.lineNotice = 'Git line counts unavailable'; }
     else { file.lines = counts.get(file.path) ?? (counts.has(file.path) ? null : { added: 0, removed: 0 }); if (file.lines === null) file.lineNotice = 'Binary file'; }
   }
-  await measureSizes(root, files, unborn, ports);
+  let sizesFailed = false;
+  try { await measureSizes(root, files, unborn, ports); } catch {
+    // Rule 2: a failed or over-limit measurement degrades sizes only; the map still opens.
+    sizesFailed = true;
+    const reason = 'Size measurement failed or exceeded limits';
+    for (const file of files) {
+      if (!file.size) file.size = { state: 'unavailable', source: 'working tree', reason };
+      if (file.lines == null && (file.status === '??' || file.untrackedReplacement || unborn)) { file.lines = null; file.lineNotice = reason; }
+    }
+  }
   const unknown = files.filter(file => file.status && file.lines == null).length;
-  return { ...status, files, statsNotice: unknown ? `${unknown} changed file(s) have unavailable line counts; totals include known counts only.` : '' };
+  const notices = [unknown ? `${unknown} changed file(s) have unavailable line counts; totals include known counts only.` : '',
+    sizesFailed ? 'File sizes are unavailable: size measurement failed or exceeded limits.' : ''].filter(Boolean);
+  return { ...status, files, statsNotice: notices.join(' ') };
 }
 
 const utf8 = (data: Uint8Array) => new TextDecoder().decode(data);

@@ -61,7 +61,7 @@ export function start() {
     registerContract(ipc, viewsContract, viewsHandlers({ views: s.views, viewState: s.viewState, git: s.git, saveViewAs, openExternal: url => electronShell.openExternal(url) }));
     registerContract(ipc, runtimeContract, runtimeHandlers({ containers: s.containers, ports: s.ports, liveViews: s.liveViews,
       inspectCdp: port => inspectCdp(port, { clipboard: electronClipboard, openApp, platform: process.platform }) }));
-    onRendererReset(window, () => { s.visibility.reset(); s.liveViews.stopAll(); }, () => s.liveViews.stopAll());
+    onRendererReset(window, () => { s.visibility.reset(); s.liveViews.stopAll(); s.gitState.select(null); }, () => s.liveViews.stopAll());
     guardClose(window, { cloneBusy: () => s.cloneLock.busy, runningTerminals: () => s.terminals.list().some(t => !t.exited) });
     void window.loadURL(rendererUrl);
   });

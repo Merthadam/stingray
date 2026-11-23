@@ -38,7 +38,7 @@ test('every contract route is a ZodTuple; channels are well-formed and unique; f
       assert.ok(!flat.has(member)); flat.add(member);
     }
   }
-  assert.equal(routes, 46, 'every route of main.ts except the removed db-schema');
+  assert.equal(routes, 48, 'main.ts routes minus db-schema, plus selectWorkspace and statFile');
 });
 
 import { handle, registerContract, type IpcContext } from '../../electron/app/ipc';

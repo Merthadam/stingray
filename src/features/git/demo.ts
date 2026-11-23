@@ -33,6 +33,7 @@ export function createGitDemo(ctx: DemoContext): Invoke<typeof gitContract> & Ev
     },
     gitState: async id => ({ workspaceId: id, revision: 1, error: '', status: await demoGitStatus(id), pr: await demoPullRequest(id) }),
     refreshGitState: id => git.gitState(id),
+    selectWorkspace: async () => undefined,
     onStatusChanged: () => () => {},
   };
   return git;

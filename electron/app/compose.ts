@@ -62,7 +62,7 @@ export function compose(o: { dataDir: string; distDir: string; window: () => Bro
     confirm: link => { const w = window(); return w ? confirmTerminalLink(w, link) : Promise.resolve(false); },
     actions: electronShell, targets: nodeLinkTargets });
   registerRemovalListeners(lifecycle, {
-    terminals, views, graph: codegraph, gitState, viewState, activity,
+    terminals, views, graph: codegraph, gitState, viewState, activity, repoMap: git.repoMap,
     overlays: { repoOf: async id => (await store.load()).workspaces.find(w => w.id === id)?.repoId, remove: (repoId, id) => removeOverlay(o.dataDir, repoId, id) },
     sessions: { clearWorkspaceSession },
   });
