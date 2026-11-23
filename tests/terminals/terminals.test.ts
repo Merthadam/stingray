@@ -70,6 +70,17 @@ test('flow control: a fast producer pauses the PTY above 1 MiB queued and resume
   assert.equal(s.processes[0].resumes, 1);
 });
 
+test('flow control resumes exactly when the queue drops below 256 KiB', () => {
+  const s = setup();
+  s.terminals.create(ws, '/ws');
+  const chunk = 'x'.repeat(64 * 1024);
+  for (let i = 0; i < 32; i++) s.processes[0].emit(chunk);
+  s.mirrors[0].drainSome(28); // 4 chunks = 256 KiB still queued: not below LOW
+  assert.equal(s.processes[0].resumes, 0);
+  s.mirrors[0].drainSome(1); // 192 KiB queued
+  assert.equal(s.processes[0].resumes, 1);
+});
+
 test('a mirror whose write throws does not stop later data events', () => {
   const s = setup((cols, rows) => {
     const mirror = new TerminalMirror(cols, rows);

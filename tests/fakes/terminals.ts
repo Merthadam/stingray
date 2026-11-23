@@ -26,6 +26,7 @@ export class FakeMirror implements TerminalMirrorPort {
   async snapshot() { return { data: this.data, sequence: this.sequence }; }
   dispose() { this.disposed = true; }
   drain() { for (const done of this.pending.splice(0)) done(); }
+  drainSome(n: number) { for (const done of this.pending.splice(0, n)) done(); }
 }
 export function fakeMirrors() {
   const mirrors: FakeMirror[] = [];

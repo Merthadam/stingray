@@ -7,7 +7,7 @@ export const prependPath = (value: string | undefined, dir: string) =>
   dir ? [dir, ...(value ?? '').split(':').filter(p => p && p !== dir)].join(':') : value ?? '';
 
 // Flow control (audit 9): bytes queued in the headless mirror per terminal.
-const HIGH = 1024 * 1024, LOW = 256 * 1024;
+const HIGH = 1024 * 1024, LOW = 256 * 1024, STUCK_MS = 5000;
 type Entry = TerminalInfo & { process: PtyProcess; mirror: TerminalMirrorPort; exitCode?: number; queued: number; paused: boolean };
 export interface TerminalsDeps { send: TerminalPublisher; pty: PtySpawner; mirrors: MirrorFactory; activity?: ActivityService; shell?: ShellIntegration }
 
@@ -50,7 +50,11 @@ export class Terminals {
         entry.queued -= data.length;
         if (entry.paused && entry.queued < LOW) { entry.paused = false; child.resume(); }
       });
-      if (!entry.paused && entry.queued > HIGH) { entry.paused = true; child.pause(); }
+      if (!entry.paused && entry.queued > HIGH) {
+        entry.paused = true; child.pause();
+        // Safety net: if the mirror loses write callbacks (e.g. a later parse error), never leave the PTY paused for good.
+        setTimeout(() => { if (entry.paused && this.entries.get(entry.id) === entry) { entry.paused = false; entry.queued = 0; child.resume(); } }, STUCK_MS);
+      }
       this.deps.send({ id: entry.id, data, sequence: entry.sequence });
     });
     child.onExit(({ exitCode }) => {
