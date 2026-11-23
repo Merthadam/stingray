@@ -173,7 +173,8 @@ test('a depth override (0-6) recomputes sequence views and passes the result seq
   graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {}, sequence,
     diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
   const [deep, plain] = await Promise.all([service.computeView('ws', root, 'login', { depth: 6 }), service.computeView('ws', root, 'login')]);
-  assert.deepEqual(graph.evaluated.map(v => v.sequence?.depth), [6, 3]);
+  // Both run concurrently, so their evaluation order is not defined.
+  assert.deepEqual(graph.evaluated.map(v => v.sequence?.depth).sort(), [3, 6]);
   assert.deepEqual([deep.sequence, plain.kind], [sequence, 'sequence']);
   await service.computeView('ws', root, 'chart', { depth: 6 });
   assert.equal(graph.evaluated.at(-1)!.flowchart!.depth, 4);
