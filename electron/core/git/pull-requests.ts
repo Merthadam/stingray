@@ -1,25 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { PullRequestStatus } from '../../../shared/contracts/git';
-
-const exec = promisify(execFile);
-export type PRRunner = (command: 'git' | 'gh', args: string[], cwd: string) => Promise<string>;
-const run: PRRunner = async (command, args, cwd) => {
-  const env = { ...process.env, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GH_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
-  delete (env as NodeJS.ProcessEnv).GH_DEBUG;
-  // Finder's PATH may not include Homebrew. Never install or log in automatically.
-  const candidates = command === 'gh' ? ['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh'] : ['git'];
-  for (const executable of candidates) {
-    try {
-      // PR lists are trimmed with --jq (~20 KB for 100 PRs plus headers).
-      return (await exec(executable, args, { cwd, env, timeout: 15000, maxBuffer: 1024 * 1024 })).stdout;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || executable === candidates.at(-1)) throw error;
-    }
-  }
-  throw new Error('Command unavailable');
-};
+import type { PRRunner } from './ports';
 
 // Pin requests to github.com. Never forward credentials embedded in a remote URL,
 // SSH aliases, local paths, arbitrary hosts or Git remote-helper syntax to gh.
@@ -103,7 +84,7 @@ export class PullRequestService {
   private listsPending = new Map<string, Promise<ListResult>>();
   /** Called when a repository list changed (new 200 response), so every branch of it can be re-matched. */
   onListChange?: () => void;
-  constructor(private execute: PRRunner = run, private now = Date.now) {}
+  constructor(private execute: PRRunner, private now = Date.now) {}
 
   /** branch '' is detached HEAD; remote null is a missing origin. Repository lists are fresh for 15s; refresh has a 5s cooldown. */
   async resolve(cwd: string, branch: string, remote: string | null, refresh = false): Promise<PullRequestStatus> {
@@ -168,7 +149,7 @@ export class PullRequestService {
   /** Branch history beyond the shared lists. Cached results are dropped when the local or origin branch ref moves. */
   private async branchStatus(cwd: string, repository: string, branch: string): Promise<PullRequestStatus> {
     const key = JSON.stringify([repository.toLowerCase(), branch]);
-    const refs = await this.execute('git', ['-c', 'core.hooksPath=/dev/null', 'for-each-ref', '--format=%(refname) %(objectname)',
+    const refs = await this.execute('git', ['for-each-ref', '--format=%(refname) %(objectname)',
       `refs/heads/${branch}`, `refs/remotes/origin/${branch}`], cwd).catch(() => '');
     const cached = this.cache.get(key);
     if (cached && cached.refs === refs && this.now() < cached.until) return cached.value;

@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { git, GitService } from '../../electron/core/git/git';
-import { Store } from '../../electron/core/git/store';
-import { GitStateService } from '../../electron/core/git/git-state';
+import { git, GitService, Store, GitStateService } from '../../electron/app/wiring/git';
 import type { PullRequestStatus, WorkspaceGitState } from '../../shared/contracts/git';
 
 const commit = (repo: string) => git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'fixture']);

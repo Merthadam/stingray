@@ -7,7 +7,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 
 export function RemoveWorktreeForm({ workspace, busy, onBusy, onRemoved, onCancel }: {
   workspace: Workspace; busy: boolean; onBusy: (busy: boolean) => void;
-  onRemoved: (result: RemovalResult) => void; onCancel: () => void;
+  onRemoved: (result: Extract<RemovalResult, { state: unknown }>) => void; onCancel: () => void;
 }) {
   const [review, setReview] = useState<RemovalReview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,7 +33,13 @@ export function RemoveWorktreeForm({ workspace, busy, onBusy, onRemoved, onCance
     if (disabled) return;
     onBusy(true); setError('');
     try {
-      onRemoved(await api.removeWorkspace(workspace.id, { discard: dirty && discard, deleteBranch: Boolean(review!.merged) && deleteBranch }));
+      const result = await api.removeWorkspace(workspace.id, { discard: dirty && discard, deleteBranch: Boolean(review!.merged) && deleteBranch, fingerprint: review!.fingerprint });
+      if ('stale' in result) {
+        ++sequence.current; setReview(result.stale); setDiscard(false); setDeleteBranch(false);
+        setError('New changes appeared since you reviewed. Review again.');
+        return;
+      }
+      onRemoved(result);
     } catch (e) {
       setError((e as Error).message);
       await refresh(false);

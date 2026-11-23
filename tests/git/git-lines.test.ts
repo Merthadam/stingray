@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { git, GitService } from '../../electron/core/git/git';
-import { Store } from '../../electron/core/git/store';
-import { parseNumstat, readGitLines } from '../../electron/core/git/git-lines';
+import { git, GitService, Store, parseNumstat, readGitLines } from '../../electron/app/wiring/git';
 
 const available = (added = 0, deleted = 0, binaryFiles = 0) => ({ kind: 'available', added, deleted, binaryFiles });
 const commit = (repo: string) => git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture']);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { git } from '../../electron/core/git/git';
+import { git } from '../../electron/app/wiring/git';
 import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
 import { runGraphStep } from '../../electron/core/views/rules/graph-steps';
 import { docstringSummary } from '../../electron/core/views/explanation';

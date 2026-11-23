@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { closeDatabase, database } from '../../electron/adapters/driven/sqlite/database';
-import { Store } from '../../electron/core/git/store';
+import { Store } from '../../electron/app/wiring/git';
 import { ViewStateStore } from '../../electron/core/views/view-state';
 import { EditorService } from '../../electron/core/app/editors';
 

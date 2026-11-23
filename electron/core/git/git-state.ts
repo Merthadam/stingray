@@ -1,10 +1,10 @@
-import { watch, type FSWatcher } from 'node:fs';
-import path from 'node:path';
+import * as path from '../shared/posix-path';
 import type { GitStatus, PullRequestStatus, WorkspaceGitState } from '../../../shared/contracts/git';
-import { git, type GitService } from './git';
+import type { GitService } from './git';
+import type { GitDirWatcher, GitRunner, GitStatePublisher, WatchHandle } from './ports';
 import type { PullRequestService } from './pull-requests';
 
-type Tracked = { path: string; gitDir: string; common: string; remote: string | null; timer?: NodeJS.Timeout; forcePr: boolean };
+type Tracked = { path: string; gitDir: string; common: string; remote: string | null; timer?: ReturnType<typeof setTimeout>; forcePr: boolean };
 export type GitStateOptions = { debounceMs?: number; pollMs?: number; prPollMs?: number; concurrency?: number };
 
 // One Git + PR state per workspace, shared by every renderer view. Updates come from a watcher on the
@@ -14,17 +14,18 @@ export class GitStateService {
   private states = new Map<string, WorkspaceGitState>();
   private tracked = new Map<string, Tracked>();
   private tracking = new Map<string, Promise<void>>();
-  private watchers = new Map<string, { ids: Set<string>; watcher: FSWatcher }>();
+  private watchers = new Map<string, { ids: Set<string>; watcher: WatchHandle }>();
   private refreshing = new Map<string, Promise<WorkspaceGitState>>();
   private queued = new Map<string, { force: boolean; promise: Promise<WorkspaceGitState> }>();
   private revision = 0;
   private listVersion = 0;
-  private timers: NodeJS.Timeout[];
+  private timers: ReturnType<typeof setInterval>[];
   private debounceMs: number;
   private slots: number;
   private waiting: (() => void)[] = [];
   constructor(private git: Pick<GitService, 'workspace' | 'status'>, private pullRequests: Pick<PullRequestService, 'resolve'>,
-    private emit: (state: WorkspaceGitState) => void, private visible: () => boolean = () => true, options: GitStateOptions = {}) {
+    private emit: GitStatePublisher, private visible: () => boolean = () => true, options: GitStateOptions = {},
+    private ports: { watcher: GitDirWatcher; runner: GitRunner }) {
     const { debounceMs = 300, pollMs = 60000, prPollMs = 20000, concurrency = 3 } = options;
     this.debounceMs = debounceMs; this.slots = concurrency;
     this.timers = [
@@ -89,7 +90,7 @@ export class GitStateService {
         const w = await this.git.workspace(id);
         let gitDir = '', common = '';
         try {
-          [gitDir, common] = (await git(w.path, ['rev-parse', '--git-dir', '--git-common-dir'])).trim().split('\n').map(dir => path.resolve(w.path, dir));
+          ({ gitDir, common } = await this.ports.watcher.gitDirs(w.path));
         } catch { /* Unreadable repository: the fallback poll and manual refresh still report it. */ }
         if (this.tracking.get(id) !== current) return; // forget() ran meanwhile
         this.tracked.set(id, { path: w.path, gitDir, common, remote: null, forcePr: false });
@@ -105,9 +106,9 @@ export class GitStateService {
     let entry = this.watchers.get(common);
     if (!entry) {
       const ids = new Set<string>();
-      let watcher: FSWatcher;
+      let watcher: WatchHandle;
       try {
-        watcher = watch(common, { recursive: true }, (_event, filename) => this.changed(common, ids, filename?.toString() ?? ''));
+        watcher = this.ports.watcher.watch(common, filename => this.changed(common, ids, filename));
       } catch { return; /* Watching unavailable here: the fallback poll still runs and the next track() retries. */ }
       const created = { ids, watcher };
       watcher.on('error', () => { watcher.close(); if (this.watchers.get(common) === created) this.watchers.delete(common); });
@@ -117,7 +118,7 @@ export class GitStateService {
   }
 
   private changed(common: string, ids: Set<string>, filename: string) {
-    const name = filename.split(path.sep).join('/');
+    const name = filename; // POSIX, relative to common
     if (name.startsWith('objects/') || name.endsWith('.lock')) return;
     // Commits, checkouts, fetches and pushes move refs/HEAD: re-query GitHub right away instead of waiting for the poll.
     const refChange = !name || /(^|\/)(HEAD|packed-refs)$|(^|\/)refs\//.test(name);
@@ -150,7 +151,7 @@ export class GitStateService {
       error = (e as Error).message;
       if (error === 'Workspace not found.') { this.forget(id); throw e; }
     }
-    if (status) t.remote = await git(t.path, ['config', '--get', 'remote.origin.url']).then(value => value.trim(), () => null);
+    if (status) t.remote = await this.ports.runner(t.path, ['config', '--get', 'remote.origin.url']).then(value => value.trim(), () => null);
     let pr: PullRequestStatus | null = null;
     // A repository list that changed mid-lookup (e.g. another workspace's forced re-query) is matched again.
     for (let attempt = 0, version = -1; status && attempt < 2 && version !== this.listVersion; attempt++) {

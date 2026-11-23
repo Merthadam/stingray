@@ -8,7 +8,7 @@ import path from 'node:path';
 import { ActivityHistory, type ActivityRecord } from '../../electron/core/activity/activity-history';
 import { ActivityService } from '../../electron/core/activity/activity';
 import { closeDatabase, database } from '../../electron/adapters/driven/sqlite/database';
-import { Store } from '../../electron/core/git/store';
+import { Store } from '../../electron/app/wiring/git';
 import { activityLabel } from '../../src/features/activity/activity';
 
 const REPO = randomUUID(), WS = randomUUID(), WS2 = randomUUID();

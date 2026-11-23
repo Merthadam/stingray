@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, appendFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { git } from '../../electron/core/git/git';
+import { git } from '../../electron/app/wiring/git';
 import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
 import { baseRoot, overlayPath, type SharedBaseTarget } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-overlay';
 import { createGraphApi } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-api';

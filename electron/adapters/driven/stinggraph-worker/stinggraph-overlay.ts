@@ -2,11 +2,10 @@
 // Stingray's data dir, plus one stinggraph overlay per Stingray-managed worktree holding the files its commits changed
 // since the merge-base, read together as a merged view. Design and limits: stinggraph docs/stingray-overlay-*.md.
 // Everything here throws on failure; codegraph.ts then falls back to the full per-worktree index.
-import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { ExtractionResult, Overlay, OverlayConflicts, OverlayFile } from '@colbymchenry/codegraph';
+import { runGit } from '../git/runner';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
 /** Where a managed worktree's shared base lives; null/absent means the full per-worktree index. */
@@ -16,12 +15,8 @@ export const BASE_REF = 'origin/main';
 // Beyond this an overlay update stops paying off against a full index (stinggraph findings §9, §11).
 export const MAX_OVERLAY_FILES = 300;
 
-const run = promisify(execFile);
 export async function gitOut(cwd: string, args: string[], env: Record<string, string> = {}) {
-  const { stdout } = await run('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd, maxBuffer: 1 << 28, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', ...env },
-  });
-  return stdout;
+  return runGit(cwd, args, { timeout: 0, maxBuffer: 1 << 28, env });
 }
 
 const repoDir = (t: SharedBaseTarget) => path.join(t.dataDir, 'codegraph', t.repoId);

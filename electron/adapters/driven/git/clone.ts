@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { GIT_SAFE_CONFIG } from './runner';
 
 export const cloneFailure = 'Clone failed or timed out. Check the repository URL, network, and existing Git/SSH access. No project was added. Any remaining destination files were preserved; inspect them before retrying with a new folder, or open a completed repository using Local folder.';
 
@@ -8,7 +9,7 @@ export const cloneFailure = 'Clone failed or timed out. Check the repository URL
 export function cloneGit(url: string, target: string, parent: string, timeoutMs = 300_000): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', [
-      '-c', 'core.hooksPath=/dev/null', '-c', 'protocol.allow=never',
+      ...GIT_SAFE_CONFIG, '-c', 'protocol.allow=never',
       '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always',
       '-c', 'http.followRedirects=false', '-c', 'submodule.recurse=false',
       'clone', '--quiet', '--no-local', '--no-recurse-submodules', '--template=', '--', url, target,

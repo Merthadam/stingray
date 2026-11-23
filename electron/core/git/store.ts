@@ -1,15 +1,9 @@
 import { stateSchema, type State } from '../../../shared/contracts/git';
-import { database, readState, transaction, writeState } from '../../adapters/driven/sqlite/database';
+import type { StateRepository } from './ports';
 
-/** Repositories and workspaces, in the `repos` and `workspaces` tables of the app database. */
+/** Repositories and workspaces. `directory` is the app data dir (managed worktrees live in <directory>/worktrees). */
 export class Store {
-  constructor(readonly directory: string) {}
-  async load(): Promise<State> {
-    return readState(database(this.directory));
-  }
-  async save(state: State) {
-    const parsed = stateSchema.parse(state);
-    const db = database(this.directory);
-    transaction(db, () => writeState(db, parsed));
-  }
+  constructor(readonly directory: string, private readonly repository: StateRepository) {}
+  load(): Promise<State> { return this.repository.load(); }
+  async save(state: State) { await this.repository.save(stateSchema.parse(state)); }
 }

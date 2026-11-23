@@ -51,9 +51,12 @@ export type RemovalReview = {
   push: { kind: 'known'; upstream: string; ahead: number; behind: number } | { kind: 'unknown'; message: string };
   /** Branch the worktree's branch is merged into, or null when it may not be deleted. */
   merged: string | null;
+  /** Consent identity of this review (sha256 hex); a removal with another value is refused as stale. */
+  fingerprint: string;
 };
-export type RemovalResult = { state: State; warning?: string };
-export const removalConsentSchema = z.object({ discard: z.boolean(), deleteBranch: z.boolean() }).strict();
+/** stale: the review changed since the consent; nothing was removed. */
+export type RemovalResult = { state: State; warning?: string } | { stale: RemovalReview };
+export const removalConsentSchema = z.object({ discard: z.boolean(), deleteBranch: z.boolean(), fingerprint: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
 export type RemovalConsent = z.infer<typeof removalConsentSchema>;
 export type PullRequestStatus =
   | { kind: 'pr'; branch: string; repository: string; checkedAt: number; number: number; state: 'open' | 'draft' | 'merged' | 'closed' }

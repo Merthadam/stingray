@@ -12,16 +12,14 @@ import { viewsContract } from '../shared/contracts/views';
 import { runtimeContract } from '../shared/contracts/runtime';
 import { registerContract, type IpcContext } from './app/ipc';
 import { sender } from './adapters/driven/electron-shell/sender';
-import { Store } from './core/git/store';
 import { closeDatabase } from './adapters/driven/sqlite/database';
-import { GitService } from './core/git/git';
+import { GitService, GitStateService, PullRequestService, Store, WorkspaceLifecycle } from './app/wiring/git';
+import { gitHandlers } from './adapters/driving/ipc/git';
 import { Terminals } from './core/terminals/terminals';
 import { openTerminalLink } from './core/terminals/terminal-links';
 import { ContainerService } from './core/runtime/containers';
 import { PortService } from './core/runtime/ports';
 import { inspectCdp } from './core/runtime/chrome-inspect';
-import { PullRequestService } from './core/git/pull-requests';
-import { GitStateService } from './core/git/git-state';
 import { ActivityService } from './core/activity/activity';
 import { ActivityShell } from './adapters/driven/fs/activity-shell';
 import { ActivityHistory } from './core/activity/activity-history';
@@ -60,10 +58,15 @@ const activityShell = new ActivityShell();
 let visibleTerminals = new Set<string>();
 const terminalEvents = sender(terminalsContract, currentWindow);
 const terminals = new Terminals(event => terminalEvents.onTerminal(event), activity, activityShell);
-const git = new GitService(store, id => terminals.countWorkspace(id), {
-  // Close the workspace's terminals and stop its code graph (.codegraph cache) before the folder is cleaned and removed.
-  beforeRemove: id => { terminals.closeWorkspace(id); return views.release(id); }, removeFailed: id => views.reopen(id),
-});
+const lifecycle = new WorkspaceLifecycle();
+const git = new GitService(store, id => terminals.countWorkspace(id), undefined, lifecycle);
+// Close the workspace's terminals and stop its code graph (.codegraph cache) before the folder is cleaned and removed.
+lifecycle.onBeforeRemove('terminals', id => terminals.closeWorkspace(id), { blocking: true });
+lifecycle.onBeforeRemove('views', id => views.release(id), { blocking: true }); // split into views (non-blocking) + stinggraph release in plan 05d
+lifecycle.onRemoveFailed('views', id => views.reopen(id));
+lifecycle.onAfterRemove('git-state', id => gitState.forget(id));
+lifecycle.onAfterRemove('view state', id => viewState.forget(id)); // stale view state must not block a completed removal (logged)
+lifecycle.onAfterRemove('activity', id => activity.forgetWorkspace(id));
 const lockedSessions = new Set<string>();
 const containers = new ContainerService();
 const ports = new PortService(() => terminals.portRoots());
@@ -136,33 +139,15 @@ app.whenReady().then(async () => {
     setEditor: editor => editors.select(editor),
     openSource: async (id, file, line) => editors.openSource((await git.workspace(id)).path, file, line),
   });
-  registerContract(ipc, gitContract, {
-    pickRepository: async () => {
-      const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Open a trusted Git repository' });
-      return result.canceled ? null : git.openRepository(result.filePaths[0]);
-    },
-    openRepository: p => git.openRepository(p),
-    pickCloneParent: async () => {
-      const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose a parent folder for the new clone' });
-      return result.canceled ? null : result.filePaths[0];
-    },
+  registerContract(ipc, gitContract, gitHandlers({
+    git, gitState,
+    pickFolder: async title => { const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title }); return result.canceled ? null : result.filePaths[0]; },
     cloneRepository: async (url, destination) => {
       if (cloning) throw new Error('A clone is already in progress. Wait for it to finish.');
       cloning = true;
       try { return await git.cloneRepository(url, destination); } finally { cloning = false; }
     },
-    createWorkspace: (id, branch) => git.createWorkspace(id, branch),
-    reviewRemoval: id => git.reviewRemoval(id),
-    removeWorkspace: async (id, consent) => {
-      const result = await git.removeWorkspace(id, consent);
-      gitState.forget(id);
-      await viewState.forget(id).catch(() => {}); // stale view state must not block a completed removal
-      activity.forgetWorkspace(id);
-      return result;
-    },
-    gitState: id => gitState.get(id),
-    refreshGitState: id => gitState.refresh(id, true),
-  });
+  }));
   registerContract(ipc, repoMapContract, { repoSnapshot: id => git.repoSnapshot(id), inspectFile: (id, path) => git.inspectFile(id, path) });
   registerContract(ipc, terminalsContract, {
     terminals: () => terminals.list(),

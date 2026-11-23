@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, appendFile, readFile, readdir, rm, mkdir } from 'no
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { git } from '../../electron/core/git/git';
+import { git } from '../../electron/app/wiring/git';
 import { createCodeGraphHost } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
 import type { GraphChange, WorktreeGraph } from '../../electron/core/views/graph';
 import type { GraphState } from '../../shared/contracts/views';

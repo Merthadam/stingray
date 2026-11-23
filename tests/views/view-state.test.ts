@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MAX_VIEW_STATES, ViewStateStore } from '../../electron/core/views/view-state';
-import { Store } from '../../electron/core/git/store';
+import { Store } from '../../electron/app/wiring/git';
 
 const WS = '11111111-1111-4111-8111-111111111111', OTHER = '22222222-2222-4222-8222-222222222222';
 const state = (n = 0) => ({ hidden: [`t${n}`], positions: { a: { x: n, y: -1.5 } }, expanded: [] });

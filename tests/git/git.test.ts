@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Store } from '../../electron/core/git/store';
-import { GitService, git, parseStatus } from '../../electron/core/git/git';
-import { stateSchema } from '../../shared/contracts/git';
+import { GitService, Store, git, parseStatus } from '../../electron/app/wiring/git';
+import { stateSchema, type RemovalResult } from '../../shared/contracts/git';
 import { urlSchema } from '../../shared/contracts/common';
+
+const consent = async (service: GitService, id: string, choice: { discard: boolean; deleteBranch: boolean }) =>
+  ({ ...choice, fingerprint: (await service.reviewRemoval(id)).fingerprint });
+/** The removal happened (not refused as stale). */
+const notStale = (result: RemovalResult) => { assert.ok('state' in result, 'removal refused as stale'); return result; };
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-test-'));
@@ -30,7 +34,7 @@ test('repository registration is canonical, persisted and idempotent', async () 
     assert.deepEqual(await f.service.openRepository(f.repo), state);
     assert.deepEqual(await new Store(f.store.directory).load(), state);
     assert.equal((await f.service.status(state.workspaces[0].id)).changes.length, 0);
-    await assert.rejects(f.service.removeWorkspace(state.workspaces[0].id, { discard: true, deleteBranch: false }), /Only worktrees/);
+    await assert.rejects(f.service.removeWorkspace(state.workspaces[0].id, { discard: true, deleteBranch: false, fingerprint: '0'.repeat(64) }), /Only worktrees/);
   } finally { await f.cleanup(); }
 });
 test('worktree creation and safe deletion preserve the branch and main repository', async () => {
@@ -42,7 +46,7 @@ test('worktree creation and safe deletion preserve the branch and main repositor
     assert.equal((await f.service.status(w.id)).branch, 'feature/example');
     assert.equal(await readFile(path.join(w.path, 'README.md'), 'utf8'), '# Test fixture\n');
     await assert.rejects(f.service.removeWorkspace(w.id), /Confirm the removal/);
-    const { state: removed } = await f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false });
+    const { state: removed } = notStale(await f.service.removeWorkspace(w.id, await consent(f.service, w.id, { discard: false, deleteBranch: false })));
     assert.equal(removed.workspaces.length, 1);
     await assert.rejects(access(w.path));
     assert.ok(await git(f.repo, ['rev-parse', '--verify', 'refs/heads/feature/example']));
@@ -56,11 +60,11 @@ test('untracked files need discard consent; ignored files do not block removal',
     const state = await f.service.createWorkspace(first.repos[0].id, 'test-safety');
     const w = state.workspaces[1];
     await writeFile(path.join(w.path, 'untracked.txt'), 'keep me');
-    await assert.rejects(f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false }), /uncommitted changes/);
+    await assert.rejects(f.service.removeWorkspace(w.id, await consent(f.service, w.id, { discard: false, deleteBranch: false })), /uncommitted changes/);
     assert.equal(await readFile(path.join(w.path, 'untracked.txt'), 'utf8'), 'keep me');
     await rm(path.join(w.path, 'untracked.txt'));
     await mkdir(path.join(w.path, 'ignored')); await writeFile(path.join(w.path, 'ignored', 'build'), 'regenerable');
-    await f.service.removeWorkspace(w.id, { discard: false, deleteBranch: false });
+    await f.service.removeWorkspace(w.id, await consent(f.service, w.id, { discard: false, deleteBranch: false }));
     await assert.rejects(access(w.path));
   } finally { await f.cleanup(); }
 });
@@ -135,4 +139,58 @@ test('worktree creation stays in the chosen repository with multiple projects', 
 });
 test('state schema bounds saved collections', () => {
   assert.equal(stateSchema.safeParse({ version: 1, repos: Array(101).fill({}), workspaces: [] }).success, false);
+});
+test('a removal consent without the review fingerprint is refused and removes nothing', async () => {
+  const f = await fixture();
+  try {
+    const first = await f.service.openRepository(f.repo);
+    const w = (await f.service.createWorkspace(first.repos[0].id, 'no-fingerprint')).workspaces[1];
+    await assert.rejects(f.service.removeWorkspace(w.id, { discard: true, deleteBranch: false } as never), /Confirm the removal first/);
+    await access(w.path);
+  } finally { await f.cleanup(); }
+});
+test('stale consent: a file created after the review keeps the worktree; a fresh review removes it', async () => {
+  const f = await fixture();
+  try {
+    const first = await f.service.openRepository(f.repo);
+    const w = (await f.service.createWorkspace(first.repos[0].id, 'stale-consent')).workspaces[1];
+    const { fingerprint } = await f.service.reviewRemoval(w.id);
+    await writeFile(path.join(w.path, 'late.txt'), 'new work');
+    const stale = await f.service.removeWorkspace(w.id, { discard: true, deleteBranch: false, fingerprint });
+    assert.ok('stale' in stale && stale.stale.changes.paths.includes('late.txt'));
+    assert.equal(await readFile(path.join(w.path, 'late.txt'), 'utf8'), 'new work');
+    await f.service.removeWorkspace(w.id, await consent(f.service, w.id, { discard: true, deleteBranch: false }));
+    await assert.rejects(access(w.path));
+  } finally { await f.cleanup(); }
+});
+test('an existing branch is refused before worktree add', async () => {
+  const f = await fixture();
+  try {
+    const state = await f.service.openRepository(f.repo);
+    await git(f.repo, ['branch', 'taken']);
+    await assert.rejects(f.service.createWorkspace(state.repos[0].id, 'taken'), /Branch taken already exists\. Choose another name\./);
+    assert.equal((await f.store.load()).workspaces.length, 1);
+  } finally { await f.cleanup(); }
+});
+test('a failing worktree add reports git’s reason', async () => {
+  const f = await fixture();
+  try {
+    const state = await f.service.openRepository(f.repo);
+    const parent = path.join(f.store.directory, 'worktrees', state.repos[0].id);
+    await mkdir(parent, { recursive: true }); await chmod(parent, 0o500);
+    try {
+      await assert.rejects(f.service.createWorkspace(state.repos[0].id, 'blocked'),
+        (e: Error) => /^Git operation failed: .*(denied|could not|cannot).*\. Check the repository, branch, and worktree on disk\./i.test(e.message));
+    } finally { await chmod(parent, 0o700); }
+  } finally { await f.cleanup(); }
+});
+test('status succeeds with more than 4 MiB of output', async () => {
+  const f = await fixture();
+  try {
+    const state = await f.service.openRepository(f.repo);
+    const dir = path.join(f.repo, 'many'); await mkdir(dir);
+    for (let i = 0; i < 22000; i++) await writeFile(path.join(dir, `${'x'.repeat(200)}-${i}.txt`), '');
+    const status = await f.service.status(state.workspaces[0].id);
+    assert.ok(status.changes.length >= 22000);
+  } finally { await f.cleanup(); }
 });

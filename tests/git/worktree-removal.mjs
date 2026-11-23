@@ -103,6 +103,14 @@ try {
     check('merged branch offers opt-in deletion, unchecked by default', !(await deleteBranch().isChecked()));
     await page.screenshot({ path: path.join(evidence, 'clean-compact.png') });
     await cancel(); await access(worktree.path); check('cancel preserves worktree and branch');
+    await openRemoval('feature/remove');
+    await writeFile(path.join(worktree.path, 'stale.txt'), 'appeared after review');
+    await removeButton().click();
+    await dialog().getByText('New changes appeared since you reviewed. Review again.').waitFor();
+    const staleText = await dialog().innerText();
+    await access(worktree.path);
+    check('changes after the review refuse removal and reload the review', staleText.includes('stale.txt') && await discardButton().isDisabled());
+    await cancel(); await rm(path.join(worktree.path, 'stale.txt'));
     await mkdir(path.join(worktree.path, 'ignored')); await writeFile(path.join(worktree.path, 'ignored', 'dep.js'), 'regenerable');
     await writeFile(path.join(worktree.path, 'local.txt'), 'discard me');
     await page.evaluate(id => window.stingray.createTerminal(id), worktree.id);

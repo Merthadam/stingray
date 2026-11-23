@@ -1,11 +1,10 @@
 // `stingray-views`: checks repo view files for agents in Stingray terminals (see .superpowers/sdd/views-platform/m3-design.md).
 // Bundled to dist-electron/views-cli.cjs and run by the launcher (electron/adapters/driven/fs/launcher.ts) with ELECTRON_RUN_AS_NODE=1
 // and --liftoff-only. Runs the rule engine in-process; opens an existing .codegraph index read-only, never indexes or writes.
-import { execFile } from 'node:child_process';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { isMap, parseDocument } from 'yaml';
 import path from 'node:path';
-import { isDeepStrictEqual, promisify } from 'node:util';
+import { isDeepStrictEqual } from 'node:util';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../../../../shared/contracts/views';
 import type { Evaluate, FileProvider, GraphApi } from '../../../core/views/rules/types';
@@ -15,6 +14,7 @@ import { formatText } from '../../../../shared/views/views-text';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from '../../../core/views/sets';
 import { listViewFiles, loadViewPath } from '../../../core/views/view-file';
 import { explainPair } from '../../../core/views/rules/schema';
+import { runGit } from '../../driven/git/runner';
 
 type LoadedView = Awaited<ReturnType<typeof loadViewPath>>;
 export interface OpenedGraph {
@@ -52,7 +52,6 @@ export const USAGE = `Usage:
   stingray-views help                         the full guide (view format, rules, workflow)
   stingray-views --version`;
 
-const exec = promisify(execFile);
 const isInside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel); };
 const where = (w: ViewWarning, fallback: string | null = null) => {
   const file = w.file ?? fallback;
@@ -61,7 +60,7 @@ const where = (w: ViewWarning, fallback: string | null = null) => {
 
 /** Worktree of `dir`: git toplevel, else the nearest ancestor containing .stingray; null when neither. */
 export async function worktreeRoot(dir: string): Promise<string | null> {
-  try { return await realpath((await exec('git', ['rev-parse', '--show-toplevel'], { cwd: dir, timeout: 10_000 })).stdout.trim()); }
+  try { return await realpath((await runGit(dir, ['rev-parse', '--show-toplevel'], { timeout: 10_000 })).trim()); }
   catch { /* not a git worktree (or no git) */ }
   for (let d = await realpath(dir); ; d = path.dirname(d)) {
     if (await stat(path.join(d, '.stingray')).then(s => s.isDirectory(), () => false)) return d;

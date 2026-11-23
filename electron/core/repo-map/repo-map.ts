@@ -2,24 +2,17 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { repoPathSchema, type GitStatus } from '../../../shared/contracts/git';
 import { type FileInspection, type RepoFile, type RepoSnapshot, type LineStats } from '../../../shared/contracts/repo-map';
-import { git } from '../git/git';
+import { git, runGit } from '../../adapters/driven/git/runner';
 import { measureSizes } from './repo-map-size';
 
-const exec = promisify(execFile);
 const maxBytes = 512 * 1024;
 const maxFiles = 100000;
 
 export async function inventoryGit(root: string, args: string[]) {
   try {
-    const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-      cwd: root, timeout: 15000, maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
-    });
-    return stdout;
+    return await runGit(root, args, { timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
   } catch (error) {
     const failure = error as { code?: number; stdout?: string };
     if (args[0] === 'grep' && failure.code === 1 && failure.stdout === '') return '';
@@ -71,10 +64,7 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
       // with other branches/tags. Only exit 1 means absent; corrupt refs and
       // timeouts must remain errors, not turn tracked files into additions.
       try {
-        await exec('git', ['show-ref', '--verify', '--quiet', branch], {
-          cwd: root, timeout: 10000, maxBuffer: 4096,
-          env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
-        });
+        await runGit(root, ['show-ref', '--verify', '--quiet', branch], { timeout: 10000, maxBuffer: 4096 });
       } catch (error) {
         if ((error as { code?: number }).code === 1) unborn = true;
         else throw error;
@@ -108,11 +98,7 @@ export async function repoSnapshot(root: string, status: GitStatus, withStats = 
 }
 
 async function boundedGit(root: string, args: string[]) {
-  const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd: root, timeout: 10000, maxBuffer: maxBytes, encoding: 'buffer',
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
-  });
-  return stdout;
+  return runGit(root, args, { timeout: 10000, maxBuffer: maxBytes, encoding: 'buffer' });
 }
 function decode(data: Buffer): string | null {
   if (data.includes(0)) return null;

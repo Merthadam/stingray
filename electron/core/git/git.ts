@@ -1,30 +1,21 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { lstat, mkdir, realpath } from 'node:fs/promises';
-import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import * as path from '../shared/posix-path';
+import { sha256 } from '../shared/ports';
 import { reviewPushStatus, mergedInto } from './worktree-removal';
-import { removalConsentSchema, type RemovalConsent, type RemovalReview, type RemovalResult } from '../../../shared/contracts/git';
-import { Store } from './store';
+import { removalConsentSchema, type Change, type RemovalConsent, type RemovalReview, type RemovalResult } from '../../../shared/contracts/git';
+import type { Store } from './store';
+import type { Cloner, GitRunner, WorkspaceFiles } from './ports';
+import type { WorkspaceLifecycle } from './workspace-lifecycle';
 import { urlSchema } from '../../../shared/contracts/common';
 import { repositoryUrlSchema, cloneDestinationSchema, type State, type Workspace, type GitStatus } from '../../../shared/contracts/git';
 import { type RepoSnapshot } from '../../../shared/contracts/repo-map';
-import { cloneGit } from '../../adapters/driven/git/clone';
 import { repoSnapshot, inspectFile } from '../repo-map/repo-map';
 import { readGitLines, originMainBase } from './git-lines';
 
-const exec = promisify(execFile);
 const snapshotsInFlight = new Map<string, Promise<RepoSnapshot>>();
-export async function git(cwd: string, args: string[]) {
-  try {
-    const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-      cwd, timeout: 30000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
-    });
-    return stdout;
-  } catch {
-    throw new Error('Git operation failed. Check the repository, branch, and worktree on disk. No force operation was attempted.');
-  }
+/** Consent identity of a removal review: any change to it invalidates an earlier confirmation (audit 3). */
+export function removalFingerprint(r: { branch: string; changes: Change[]; blockers: string[]; push: RemovalReview['push']; merged: string | null; identity: string }): string {
+  const changes = r.changes.map(c => JSON.stringify([c.path, c.status, c.originalPath ?? null])).sort();
+  return sha256(JSON.stringify({ branch: r.branch, changes, blockers: r.blockers, push: r.push, merged: r.merged, identity: r.identity }));
 }
 export function parseStatus(output: string) {
   const entries = output.split('\0');
@@ -39,14 +30,19 @@ export function parseStatus(output: string) {
   return changes;
 }
 const CACHE_DIR = '.codegraph';
-const isCacheDirectory = (root: string) => lstat(path.join(root, CACHE_DIR)).then(s => s.isDirectory(), () => false);
+export interface GitServiceDeps { store: Store; runner: GitRunner; files: WorkspaceFiles; cloner: Cloner; lifecycle: WorkspaceLifecycle; terminalCount?: (id: string) => number }
 export class GitService {
   private pending: Promise<unknown> = Promise.resolve();
   /** Every status read (sidebar, Repo Map, file inspection) reports here so shared Git state stays consistent. */
   onStatus?: (id: string, status: GitStatus) => void;
-  constructor(readonly store: Store, private terminalCount: (id: string) => number = () => 0,
-    // Removal hooks: close the workspace's terminals and stop writers to the code-graph cache first; undo what can be undone if removal fails.
-    private hooks: { beforeRemove(id: string): Promise<void>; removeFailed(id: string): void } = { beforeRemove: async () => {}, removeFailed: () => {} }) {}
+  readonly store: Store;
+  private readonly runner: GitRunner; private readonly files: WorkspaceFiles; private readonly cloner: Cloner;
+  // Removal side effects of other features (close terminals, stop code-graph writers first; undo on failure).
+  private readonly lifecycle: WorkspaceLifecycle; private readonly terminalCount: (id: string) => number;
+  constructor(deps: GitServiceDeps) {
+    this.store = deps.store; this.runner = deps.runner; this.files = deps.files; this.cloner = deps.cloner;
+    this.lifecycle = deps.lifecycle; this.terminalCount = deps.terminalCount ?? (() => 0);
+  }
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.pending.then(action, action); this.pending = next.catch(() => undefined); return next;
   }
@@ -64,22 +60,22 @@ export class GitService {
   }
   private async registerRepository(input: string) {
       if (!path.isAbsolute(input) || input.length > 4096) throw new Error('Choose an absolute repository folder.');
-      const candidate = await realpath(input);
-      const workingRoot = await realpath((await git(candidate, ['rev-parse', '--show-toplevel'])).trim());
+      const candidate = await this.files.realpath(input);
+      const workingRoot = await this.files.realpath((await this.runner(candidate, ['rev-parse', '--show-toplevel'])).trim());
       // Git lists the primary checkout first. Opening a linked worktree must not
       // register it as another project (including paths inside that worktree).
-      const primary = (await git(workingRoot, ['worktree', 'list', '--porcelain', '-z']))
+      const primary = (await this.runner(workingRoot, ['worktree', 'list', '--porcelain', '-z']))
         .split('\0').find(field => field.startsWith('worktree '))?.slice('worktree '.length);
       if (!primary) throw new Error('Git repository has no primary working directory.');
-      const root = await realpath(primary);
-      await git(root, ['rev-parse', '--show-toplevel']);
+      const root = await this.files.realpath(primary);
+      await this.runner(root, ['rev-parse', '--show-toplevel']);
       const state = await this.store.load();
       if (state.repos.some(r => r.path === root)) return state;
       if (state.repos.length >= 100 || state.workspaces.length >= 200) throw new Error('Workspace capacity reached.');
-      const branch = (await git(root, ['branch', '--show-current'])).trim() || 'detached HEAD';
-      const repoId = randomUUID();
+      const branch = (await this.runner(root, ['branch', '--show-current'])).trim() || 'detached HEAD';
+      const repoId = globalThis.crypto.randomUUID();
       state.repos.push({ id: repoId, name: path.basename(root), path: root });
-      state.workspaces.push({ id: randomUUID(), repoId, path: root, branch, name: branch, managed: false, previewUrl: '' });
+      state.workspaces.push({ id: globalThis.crypto.randomUUID(), repoId, path: root, branch, name: branch, managed: false, previewUrl: '' });
       await this.store.save(state);
       return state;
   }
@@ -90,15 +86,15 @@ export class GitService {
       const state = await this.store.load();
       if (state.repos.length >= 100 || state.workspaces.length >= 200) throw new Error('Workspace capacity reached.');
       let parent: string;
-      try { parent = await realpath(path.dirname(destination)); } catch {
+      try { parent = await this.files.realpath(path.dirname(destination)); } catch {
         throw new Error('The parent folder is unavailable. Choose an existing writable parent folder.');
       }
       const target = path.join(parent, path.basename(destination));
       // Exclusive mkdir refuses existing files, empty directories and symlinks.
-      try { await mkdir(target, { mode: 0o700 }); } catch {
+      try { await this.files.mkdirExclusive(target, 0o700); } catch {
         throw new Error('The destination already exists or cannot be created. Choose a new folder inside an existing writable parent. Nothing was replaced.');
       }
-      await cloneGit(input, target, parent);
+      await this.cloner(input, target, parent);
       try { return await this.registerRepository(target); } catch {
         throw new Error('Clone completed, but project registration failed. Its files were preserved. Use Local folder to register the completed repository; do not clone over it.');
       }
@@ -111,17 +107,20 @@ export class GitService {
       const repo = state.repos.find(r => r.id === repoId);
       if (!repo) throw new Error('Repository not found.');
       if (state.workspaces.length >= 200) throw new Error('Workspace capacity reached.');
-      await git(repo.path, ['check-ref-format', '--branch', branch]);
-      await git(repo.path, ['rev-parse', '--verify', 'HEAD']);
-      const id = randomUUID();
+      await this.runner(repo.path, ['check-ref-format', '--branch', branch]);
+      await this.runner(repo.path, ['rev-parse', '--verify', 'HEAD']);
+      const exists = await this.runner(repo.path, ['rev-parse', '--verify', '--quiet', 'refs/heads/' + branch]).then(() => true, () => false);
+      if (exists) throw new Error(`Branch ${branch} already exists. Choose another name.`);
+      const id = globalThis.crypto.randomUUID();
       const parent = path.join(this.store.directory, 'worktrees', repo.id);
-      await mkdir(parent, { recursive: true, mode: 0o700 });
-      const target = path.join(await realpath(parent), id);
-      await git(repo.path, ['worktree', 'add', '-b', branch, target, 'HEAD']);
+      await this.files.mkdirp(parent, 0o700);
+      const target = path.join(await this.files.realpath(parent), id);
+      await this.runner(repo.path, ['worktree', 'add', '-b', branch, target, 'HEAD']);
       state.workspaces.push({ id, repoId, path: target, branch, name: branch, managed: true, previewUrl: '' });
       try { await this.store.save(state); } catch {
         throw new Error('Git created the worktree, but saving its registration failed. Recover it with git worktree list; its branch and files have been preserved.');
       }
+      await this.lifecycle.runCreated(id);
       return state;
     });
   }
@@ -132,35 +131,34 @@ export class GitService {
     const state = await this.store.load();
     const w = state.workspaces.find(w => w.id === id);
     if (!w || !w.managed) throw new Error('Only worktrees created by Stingray can be removed.');
-    const expected = path.join(await realpath(path.join(this.store.directory, 'worktrees', w.repoId)), w.id);
-    if (w.path !== expected || await realpath(w.path) !== expected) throw new Error('Worktree location changed. Removal refused.');
+    const expected = path.join(await this.files.realpath(path.join(this.store.directory, 'worktrees', w.repoId)), w.id);
+    if (w.path !== expected || await this.files.realpath(w.path) !== expected) throw new Error('Worktree location changed. Removal refused.');
     const repo = state.repos.find(r => r.id === w.repoId);
     if (!repo) throw new Error('Repository not found.');
-    const listing = await git(repo.path, ['worktree', 'list', '--porcelain', '-z']);
+    const listing = await this.runner(repo.path, ['worktree', 'list', '--porcelain', '-z']);
     const records = listing.split('\0\0').map(row => row.split('\0'));
     const record = records.find(rows => rows.includes('worktree ' + w.path));
     if (!record) throw new Error('Git no longer recognizes this worktree.');
-    const branch = (await git(w.path, ['branch', '--show-current'])).trim();
+    const branch = (await this.runner(w.path, ['branch', '--show-current'])).trim();
     // Ignored files (node_modules, build output, caches) are regenerable and never block removal; they are
     // deleted with the folder. Only tracked changes and untracked files are reported as work that will be lost.
-    const dirty = await git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']);
+    const dirty = await this.runner(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']);
     // Stingray's code-graph cache is not user work either.
-    const cache = await isCacheDirectory(w.path);
+    const cache = await this.files.isDirectory(path.join(w.path, CACHE_DIR));
     const changes = parseStatus(dirty).filter(c => !(cache && c.status === '??' && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
     const untracked = changes.filter(c => c.status === '??').length;
     const blockers: string[] = [];
     if (!branch) blockers.push('Detached HEAD: attach these commits to a branch before removing the worktree.');
     else if (branch !== w.branch) blockers.push(`The checked-out branch changed. Restore ${w.branch} before removing this worktree.`);
     if (record.some(row => row === 'locked' || row.startsWith('locked '))) blockers.push('This worktree is locked. Unlock it yourself only after checking why.');
-    const { push } = branch ? await reviewPushStatus(args => git(w.path, args), branch)
-      : { push: { kind: 'unknown' as const, message: 'Detached HEAD has no branch upstream.' } };
+    const { push, identity } = branch ? await reviewPushStatus(args => this.runner(w.path, args), branch)
+      : { push: { kind: 'unknown' as const, message: 'Detached HEAD has no branch upstream.' }, identity: 'detached' };
     // The branch may optionally be deleted, but only when Git proves it is merged and no other worktree uses it.
     const usedElsewhere = records.some(rows => !rows.includes('worktree ' + w.path) && rows.includes('branch refs/heads/' + w.branch));
-    const merged = branch === w.branch && !usedElsewhere ? await mergedInto(repo.path, w.branch, git) : null;
-    return {
-      branch: w.branch, blockers, push, terminals: this.terminalCount(id), merged,
-      changes: { tracked: changes.length - untracked, untracked, paths: changes.slice(0, 20).map(c => c.path) },
-    };
+    const merged = branch === w.branch && !usedElsewhere ? await mergedInto(repo.path, w.branch, (cwd, args) => this.runner(cwd, args)) : null;
+    const review = { branch: w.branch, blockers, push, terminals: this.terminalCount(id), merged,
+      changes: { tracked: changes.length - untracked, untracked, paths: changes.slice(0, 20).map(c => c.path) } };
+    return { ...review, fingerprint: removalFingerprint({ branch: w.branch, changes, blockers, push, merged, identity }) };
   }
   removeWorkspace(id: string, consent?: RemovalConsent) {
     return this.serial(async (): Promise<RemovalResult> => {
@@ -171,48 +169,53 @@ export class GitService {
       if (!repo) throw new Error('Repository not found.');
       const parsedConsent = removalConsentSchema.safeParse(consent);
       if (!parsedConsent.success) throw new Error('Confirm the removal first.');
-      const { discard, deleteBranch } = parsedConsent.data;
+      const { discard, deleteBranch, fingerprint } = parsedConsent.data;
       // Re-read ownership, files, branch and merge state instead of trusting a renderer's earlier result.
       const review = await this.removalReview(id);
       if (review.blockers.length) throw new Error(review.blockers.join(' '));
+      // Anything the user did not see (new changes, moved upstream) refuses the removal untouched.
+      if (review.fingerprint !== fingerprint) return { stale: review };
       const dirty = review.changes.tracked + review.changes.untracked > 0;
       if (dirty && !discard) throw new Error('This worktree has uncommitted changes. Confirm discarding them to remove it.');
       if (deleteBranch && !review.merged) throw new Error(`${w.branch} is not merged, so it was not deleted. Nothing was removed.`);
-      await this.hooks.beforeRemove(id); // closes the workspace's terminals and stops its code graph
+      try { await this.lifecycle.runBeforeRemove(id); } catch (error) { await this.lifecycle.runRemoveFailed(id); throw error; }
       try {
-        if (await isCacheDirectory(w.path)) await git(w.path, ['clean', '-f', '-d', '-x', '-q', '--', CACHE_DIR + '/']);
+        if (await this.files.isDirectory(path.join(w.path, CACHE_DIR))) await this.runner(w.path, ['clean', '-f', '-d', '-x', '-q', '--', CACHE_DIR + '/']);
         // Without discard consent Git itself refuses if changes appeared after the review.
-        await git(repo.path, ['worktree', 'remove', ...(discard ? ['--force'] : []), '--', w.path]);
+        await this.runner(repo.path, ['worktree', 'remove', ...(discard ? ['--force'] : []), '--', w.path]);
       } catch {
-        this.hooks.removeFailed(id);
+        await this.lifecycle.runRemoveFailed(id);
         throw new Error('Git could not remove the worktree. If files changed since the review, check again and confirm.');
       }
       state.workspaces = state.workspaces.filter(x => x.id !== id);
       await this.store.save(state);
+      let result: RemovalResult = { state };
       if (deleteBranch) {
-        try { await git(repo.path, ['branch', '-D', w.branch]); } catch {
-          return { state, warning: `The worktree was removed, but deleting branch ${w.branch} failed. The branch was kept.` };
+        try { await this.runner(repo.path, ['branch', '-D', w.branch]); } catch {
+          result = { state, warning: `The worktree was removed, but deleting branch ${w.branch} failed. The branch was kept.` };
         }
       }
-      return { state };
+      await this.lifecycle.runAfterRemove(id);
+      return result;
     });
   }
   async status(id: string): Promise<GitStatus> {
     const w = await this.workspace(id);
     const [branch, output] = await Promise.all([
-      git(w.path, ['branch', '--show-current']),
-      git(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
+      this.runner(w.path, ['branch', '--show-current']),
+      this.runner(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { maxBuffer: 16 * 1024 * 1024 }),
     ]);
     const changes = parseStatus(output);
-    const [uncommitted, base] = await Promise.all([readGitLines(w.path, changes), originMainBase(w.path)]);
-    const lines = base ? await readGitLines(w.path, changes, undefined, base) : uncommitted;
-    const result: GitStatus = { branch: branch.trim() || 'detached HEAD', changes, lines, uncommitted, base: base ? 'origin/main' : 'HEAD' };
+    const lines = (cwd: string, args: string[]) => this.runner(cwd, args, { timeout: 10000, maxBuffer: 2 * 1024 * 1024 });
+    const [uncommitted, base] = await Promise.all([readGitLines(w.path, changes, lines), originMainBase(w.path, lines)]);
+    const lineStats = base ? await readGitLines(w.path, changes, lines, base) : uncommitted;
+    const result: GitStatus = { branch: branch.trim() || 'detached HEAD', changes, lines: lineStats, uncommitted, base: base ? 'origin/main' : 'HEAD' };
     this.onStatus?.(id, result);
     return result;
   }
   async repoSnapshot(id: string) {
     const w = await this.workspace(id);
-    const root = await realpath(w.path);
+    const root = await this.files.realpath(w.path);
     let job = snapshotsInFlight.get(root);
     if (!job) {
       job = (async () => repoSnapshot(root, await this.status(id), true))();

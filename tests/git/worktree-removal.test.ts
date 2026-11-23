@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, access, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GitService, git } from '../../electron/core/git/git';
-import { Store } from '../../electron/core/git/store';
+import { GitService, Store, git } from '../../electron/app/wiring/git';
 import { reviewPushStatus } from '../../electron/core/git/worktree-removal';
+import type { RemovalResult } from '../../shared/contracts/git';
+
+const consent = async (service: GitService, id: string, choice: { discard: boolean; deleteBranch: boolean }) =>
+  ({ ...choice, fingerprint: (await service.reviewRemoval(id)).fingerprint });
+/** The removal happened (not refused as stale). */
+const notStale = (result: RemovalResult) => { assert.ok('state' in result, 'removal refused as stale'); return result; };
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-removal-'));
@@ -41,7 +46,7 @@ test('clean removal needs one confirmation, keeps branch and commits, and ignore
     assert.equal(review.push.kind, 'unknown'); assert.deepEqual(review.blockers, []);
     assert.deepEqual(review.changes, { tracked: 0, untracked: 0, paths: [] });
     await assert.rejects(f.service.removeWorkspace(f.w.id), /Confirm the removal/);
-    const { state } = await f.service.removeWorkspace(f.w.id, keep);
+    const { state } = notStale(await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, keep)));
     assert.equal(state.workspaces.length, 1);
     await assert.rejects(access(f.w.path));
     assert.equal((await git(f.repo, ['rev-parse', 'refs/heads/feature/remove'])).trim(), f.base);
@@ -56,7 +61,7 @@ test('ignored files (dependencies, build output) never block and are deleted wit
     await writeFile(path.join(f.w.path, 'ignored', 'deep', 'module.js'), 'regenerable');
     const review = await f.service.reviewRemoval(f.w.id);
     assert.deepEqual(review.blockers, []); assert.deepEqual(review.changes, { tracked: 0, untracked: 0, paths: [] });
-    await f.service.removeWorkspace(f.w.id, keep);
+    await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, keep));
     await assert.rejects(access(f.w.path));
   } finally { await f.cleanup(); }
 });
@@ -69,9 +74,9 @@ test('uncommitted changes are listed and removed only with explicit discard cons
     const review = await f.service.reviewRemoval(f.w.id);
     assert.deepEqual(review.blockers, []);
     assert.deepEqual(review.changes, { tracked: 1, untracked: 1, paths: ['file.txt', 'new.txt'] });
-    await assert.rejects(f.service.removeWorkspace(f.w.id, keep), /uncommitted changes/);
+    await assert.rejects(f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, keep)), /uncommitted changes/);
     assert.equal(await readFile(path.join(f.w.path, 'new.txt'), 'utf8'), 'untracked\n');
-    await f.service.removeWorkspace(f.w.id, { discard: true, deleteBranch: false });
+    await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, { discard: true, deleteBranch: false }));
     await assert.rejects(access(f.w.path));
     assert.equal((await git(f.repo, ['rev-parse', 'refs/heads/feature/remove'])).trim(), f.base);
   } finally { await f.cleanup(); }
@@ -84,7 +89,7 @@ test('open terminals are reported and closed by the removal hook instead of bloc
       beforeRemove: async id => { calls.push('close ' + id); }, removeFailed: id => { calls.push('failed ' + id); } });
     const review = await service.reviewRemoval(f.w.id);
     assert.equal(review.terminals, 2); assert.deepEqual(review.blockers, []);
-    await service.removeWorkspace(f.w.id, keep);
+    await service.removeWorkspace(f.w.id, await consent(service, f.w.id, keep));
     assert.deepEqual(calls, ['close ' + f.w.id]);
     await assert.rejects(access(f.w.path));
   } finally { await f.cleanup(); }
@@ -101,7 +106,7 @@ test('the code-graph cache does not count as changes; it is cleaned after the gr
     const review = await service.reviewRemoval(f.w.id);
     assert.deepEqual(review.blockers, []); assert.equal(review.changes.untracked, 0);
     await writeFile(path.join(f.w.path, '.codegraph', 'codegraph.db-wal'), 'wal');
-    await service.removeWorkspace(f.w.id, keep);
+    await service.removeWorkspace(f.w.id, await consent(service, f.w.id, keep));
     assert.deepEqual(calls, ['release ' + f.w.id]);
     await assert.rejects(access(f.w.path));
   } finally { await f.cleanup(); }
@@ -125,11 +130,11 @@ test('branch deletion is offered only when merged and is opt-in', async () => {
     const tip = await f.commit(f.w.path);
     const unmerged = await f.service.reviewRemoval(f.w.id);
     assert.equal(unmerged.merged, null);
-    await assert.rejects(f.service.removeWorkspace(f.w.id, { discard: false, deleteBranch: true }), /not merged/);
+    await assert.rejects(f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, { discard: false, deleteBranch: true })), /not merged/);
     await access(f.w.path);
     await git(f.repo, ['merge', '--ff-only', 'feature/remove']);
     assert.equal((await f.service.reviewRemoval(f.w.id)).merged, 'main');
-    await f.service.removeWorkspace(f.w.id, { discard: false, deleteBranch: true });
+    await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, { discard: false, deleteBranch: true }));
     await assert.rejects(access(f.w.path));
     await assert.rejects(git(f.repo, ['rev-parse', '--verify', 'refs/heads/feature/remove']));
     assert.equal((await git(f.repo, ['rev-parse', 'main'])).trim(), tip);
@@ -139,7 +144,7 @@ test('branch deletion is offered only when merged and is opt-in', async () => {
 test('removal without deleteBranch keeps a merged branch', async () => {
   const f = await fixture();
   try {
-    await f.service.removeWorkspace(f.w.id, keep);
+    await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, keep));
     assert.equal((await git(f.repo, ['rev-parse', 'refs/heads/feature/remove'])).trim(), f.base);
   } finally { await f.cleanup(); }
 });
@@ -155,7 +160,7 @@ test('push status is informational: ahead, behind and diverged are reported but 
     assert.deepEqual((await f.service.reviewRemoval(f.w.id)).push, { kind: 'known', upstream: 'origin/feature/remove', ahead: 0, behind: 1 });
     await writeFile(path.join(f.w.path, 'file.txt'), 'diverged\n'); const tip = await f.commit(f.w.path);
     assert.deepEqual((await f.service.reviewRemoval(f.w.id)).push, { kind: 'known', upstream: 'origin/feature/remove', ahead: 1, behind: 1 });
-    await f.service.removeWorkspace(f.w.id, keep);
+    await f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, keep));
     assert.equal((await git(f.repo, ['rev-parse', 'refs/heads/feature/remove'])).trim(), tip);
   } finally { await f.cleanup(); }
 });
@@ -166,14 +171,14 @@ test('detached, switched and locked worktrees cannot be removed even with discar
   try {
     await git(f.w.path, ['checkout', '--detach']);
     assert.match((await f.service.reviewRemoval(f.w.id)).blockers.join(' '), /Detached HEAD/);
-    await assert.rejects(f.service.removeWorkspace(f.w.id, all), /Detached HEAD/);
+    await assert.rejects(f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, all)), /Detached HEAD/);
     await git(f.w.path, ['checkout', '-b', 'different']);
     assert.match((await f.service.reviewRemoval(f.w.id)).blockers.join(' '), /checked-out branch changed/);
-    await assert.rejects(f.service.removeWorkspace(f.w.id, all), /checked-out branch changed/);
+    await assert.rejects(f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, all)), /checked-out branch changed/);
     await git(f.w.path, ['checkout', f.w.branch]);
     await git(f.repo, ['worktree', 'lock', f.w.path]);
     assert.match((await f.service.reviewRemoval(f.w.id)).blockers.join(' '), /locked/);
-    await assert.rejects(f.service.removeWorkspace(f.w.id, all), /locked/);
+    await assert.rejects(f.service.removeWorkspace(f.w.id, await consent(f.service, f.w.id, all)), /locked/);
     await git(f.repo, ['worktree', 'unlock', f.w.path]);
     await access(f.w.path);
   } finally { await f.cleanup(); }

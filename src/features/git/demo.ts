@@ -23,7 +23,7 @@ export function createGitDemo(ctx: DemoContext): Invoke<typeof gitContract> & Ev
     reviewRemoval: async id => {
       const w = ctx.state.workspaces.find(w => w.id === id);
       if (!w?.managed) throw new Error('Only managed worktrees can be removed.');
-      return { branch: w.branch, blockers: [], terminals: ctx.terminals.filter(t => t.workspaceId === id).length, changes: { tracked: 0, untracked: 0, paths: [] }, merged: null, push: { kind: 'unknown', message: 'Simulated demo: push status is unknown. No real Git check was performed.' } };
+      return { branch: w.branch, blockers: [], terminals: ctx.terminals.filter(t => t.workspaceId === id).length, changes: { tracked: 0, untracked: 0, paths: [] }, merged: null, push: { kind: 'unknown', message: 'Simulated demo: push status is unknown. No real Git check was performed.' }, fingerprint: '0'.repeat(64) };
     },
     removeWorkspace: async id => {
       const w = ctx.state.workspaces.find(w => w.id === id);

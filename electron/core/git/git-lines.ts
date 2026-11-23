@@ -1,16 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { Change, GitLineStats } from '../../../shared/contracts/git';
 
-const exec = promisify(execFile);
 export type LineRunner = (cwd: string, args: string[]) => Promise<string>;
-const run: LineRunner = async (cwd, args) => {
-  const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd, timeout: 10000, maxBuffer: 2 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
-  });
-  return stdout;
-};
 
 // -z keeps tabs/newlines in names unambiguous; renames have two extra NUL fields.
 export function parseNumstat(output: string): Extract<GitLineStats, { kind: 'available' }> {
@@ -36,7 +26,7 @@ export function parseNumstat(output: string): Extract<GitLineStats, { kind: 'ava
 }
 
 // base: HEAD for uncommitted edits, or a merge-base commit for the PR-style branch diff.
-export async function readGitLines(cwd: string, changes: Change[], runner: LineRunner = run, base = 'HEAD'): Promise<GitLineStats> {
+export async function readGitLines(cwd: string, changes: Change[], runner: LineRunner, base = 'HEAD'): Promise<GitLineStats> {
   if (changes.some(change => ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(change.status))) {
     return { kind: 'unavailable', message: 'Resolve merge conflicts before reading line counts.' };
   }
@@ -53,7 +43,7 @@ export async function readGitLines(cwd: string, changes: Change[], runner: LineR
 
 // Like a GitHub PR diff: compare from where HEAD forked from the local origin/main (never fetched here).
 // null when origin/main is missing, HEAD is unborn or the histories are unrelated.
-export async function originMainBase(cwd: string, runner: LineRunner = run): Promise<string | null> {
+export async function originMainBase(cwd: string, runner: LineRunner): Promise<string | null> {
   try {
     const base = (await runner(cwd, ['merge-base', 'HEAD', 'refs/remotes/origin/main'])).trim();
     return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(base) ? base : null;

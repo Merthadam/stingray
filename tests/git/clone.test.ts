@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Store } from '../../electron/core/git/store';
-import { GitService, git } from '../../electron/core/git/git';
+import { GitService, Store, git } from '../../electron/app/wiring/git';
 import { cloneGit, cloneFailure } from '../../electron/adapters/driven/git/clone';
 import { repositoryUrlSchema, cloneDestinationSchema } from '../../shared/contracts/git';
 

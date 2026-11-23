@@ -4,7 +4,7 @@ import { execFileSync, fork, type ChildProcess } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { git } from '../../electron/core/git/git';
+import { git } from '../../electron/app/wiring/git';
 import { EventEmitter } from 'node:events';
 import { createCodeGraphProcessHost, type WorkerRequest } from '../../electron/adapters/driven/stinggraph-worker/stinggraph-process';
 import { serveCodeGraph } from '../../electron/adapters/driven/stinggraph-worker/stinggraph';
