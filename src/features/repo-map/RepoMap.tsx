@@ -44,7 +44,7 @@ export function RepoMap({ workspace, reveal }: Props) {
     const observer = new ResizeObserver(() => setBodyWidth(element.clientWidth));
     observer.observe(element); return () => observer.disconnect();
   }, []);
-  const inFlight = useRef(false);
+  const inFlight = useRef(false), manualQueued = useRef(false);
   const refreshFile = useRef<() => void>(() => {});
   const alive = useRef(false);
   const { state: gitState } = useGitState(workspace.id);
@@ -52,7 +52,9 @@ export function RepoMap({ workspace, reveal }: Props) {
   latestRevision.current = gitState?.revision ?? 0;
   const fileStamp = useRef('');
   const refresh = useCallback(async (manual = false) => {
-    if (inFlight.current || !alive.current) return;
+    if (!alive.current) return;
+    // A click during a background load must not be dropped: that load may predate the edit the user is refreshing for.
+    if (inFlight.current) { if (manual) { manualQueued.current = true; setBusy(true); } return; }
     const requested = latestRevision.current;
     const foreground = manual || !snapshotRef.current;
     inFlight.current = true; if (foreground) setBusy(true);
@@ -72,15 +74,16 @@ export function RepoMap({ workspace, reveal }: Props) {
     } catch (e) { if (alive.current && request === generation.current) setError((e as Error).message); }
     finally {
       if (request === generation.current) {
-        inFlight.current = false; if (foreground && alive.current) setBusy(false);
+        const queued = manualQueued.current; manualQueued.current = false;
+        inFlight.current = false; if (foreground && alive.current && !queued) setBusy(false);
         // Settled for `requested` even on failure (a failing map is not retried until the revision moves again).
         loadedRevision.current = Math.max(loadedRevision.current, requested);
-        if (alive.current && latestRevision.current > loadedRevision.current) queueMicrotask(() => { void refresh(); });
+        if (alive.current && (queued || latestRevision.current > loadedRevision.current)) queueMicrotask(() => { void refresh(queued); });
       }
     }
   }, [workspace.id]);
   useEffect(() => {
-    generation.current++; inFlight.current = false; loadedRevision.current = 0;
+    generation.current++; inFlight.current = false; manualQueued.current = false; loadedRevision.current = 0;
     alive.current = true; void refresh();
     return () => { alive.current = false; generation.current++; };
   }, [refresh]);
