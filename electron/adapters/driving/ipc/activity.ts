@@ -2,7 +2,7 @@ import type { activityContract } from '../../../../shared/contracts/activity';
 import type { Handlers } from '../../../../shared/contracts/define';
 import type { ActivityService } from '../../../core/activity';
 
-/** setVisible/acknowledge stay window-dependent until plan 06 moves them into core ActivityVisibility. */
+/** setVisible/acknowledge are core ActivityVisibility (window focus check), wired in electron/app. */
 export function activityHandlers(d: { activity: ActivityService; setVisible(ids: string[]): void; acknowledge(id: string, terminalId: string, revision: number): void }): Handlers<typeof activityContract> {
   return {
     activity: () => d.activity.snapshot(),

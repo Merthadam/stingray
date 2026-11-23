@@ -20,7 +20,7 @@ const env = { ...process.env, STINGRAY_DEV_URL: 'http://127.0.0.1:5178', STINGRA
 delete env.ELECTRON_RUN_AS_NODE;
 
 let child = null, restarting = false, pending = false, stopping = false;
-// SIGUSR2 makes the dev app quit without the "stop running terminals?" prompt (electron/main.ts); a clone in progress
+// SIGUSR2 makes the dev app quit without the "stop running terminals?" prompt (electron/app/window.ts); a clone in progress
 // still holds the window open, so give up after 10s and kill it.
 const stopChild = c => new Promise(resolve => {
   if (c.exitCode !== null || c.signalCode !== null) { resolve(); return; }

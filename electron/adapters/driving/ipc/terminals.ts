@@ -3,7 +3,7 @@ import type { terminalsContract } from '../../../../shared/contracts/terminals';
 import type { GitService } from '../../../core/git';
 import type { Terminals } from '../../../core/terminals';
 
-/** openLink stays a main-process callback (dialog + one-at-a-time lock) until plan 06 moves it into core TerminalLinkOpener. */
+/** openLink is core TerminalLinkOpener.open (dialog + one-at-a-time lock), wired in electron/app. */
 export function terminalsHandlers(d: { terminals: Terminals; git: Pick<GitService, 'useWorkspace'>; openLink(id: string, uri: string): Promise<void> }): Handlers<typeof terminalsContract> {
   return {
     terminals: () => d.terminals.list(),

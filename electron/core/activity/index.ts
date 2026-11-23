@@ -3,3 +3,4 @@ export { recordSchema, MAX_ACTIVITY_PER_WORKSPACE, MAX_ACTIVITY_AGE_MS, type Act
 export { claudeHookEvents, claudeSettings, harnesses, shellQuote } from './harnesses';
 export type { HarnessContext } from './harnesses';
 export type { ActivityConnection, ActivityPublisher, ActivitySession, HistoryRepository, ProcessProbe, SessionOutcome, ShellIntegration, TerminalDirectory } from './ports';
+export { ActivityVisibility } from './activity-visibility';

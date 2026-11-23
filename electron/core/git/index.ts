@@ -6,3 +6,4 @@ export { WorkspaceLifecycle } from './workspace-lifecycle';
 export { parseNumstat, readGitLines, originMainBase, type LineRunner } from './git-lines';
 export { reviewPushStatus } from './worktree-removal';
 export type { GitRunner, WorkspaceFiles, StateRepository, WatchHandle, GitDirWatcher, PRRunner, Cloner, GitStatePublisher } from './ports';
+export { CloneLock } from './clone-lock';

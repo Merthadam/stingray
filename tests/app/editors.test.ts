@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { EditorService, resolveSource, type EditorDeps } from '../../electron/core/app/editors';
+import { EditorService, resolveSource, type EditorDeps } from '../../electron/app/wiring/app';
 
 async function fixture(t: test.TestContext) {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'stingray-editors-')));

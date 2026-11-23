@@ -1,2 +1,2 @@
-export { EditorService, resolveSource } from './editors';
-export type { EditorDeps } from './editors';
+export { EditorService } from './editors';
+export type { EditorDeps } from './ports';

@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { closeDatabase, database } from '../../electron/adapters/driven/sqlite/database';
 import { Store } from '../../electron/app/wiring/git';
 import { ViewStateStore } from '../../electron/app/wiring/views';
-import { EditorService } from '../../electron/core/app/editors';
+import { EditorService } from '../../electron/app/wiring/app';
 
 const REPO = '11111111-1111-4111-8111-111111111111', ORPHAN_REPO = '99999999-9999-4999-8999-999999999999';
 const WS = '22222222-2222-4222-8222-222222222222', WS2 = '33333333-3333-4333-8333-333333333333', ORPHAN = '44444444-4444-4444-8444-444444444444';
