@@ -30,7 +30,7 @@ remaining inline logic is what this table lists.
 | 43, 208-228 | `openingLink` flag, terminal lookup, confirm dialog, `openTerminalLink` | `electron/core/terminals/link-opener.ts`: `TerminalLinkOpener({ terminals, workspacePath, confirm, actions })` with the one-at-a-time lock; `confirm` port implemented by `electron/adapters/driven/electron-shell/dialogs.ts` (the existing `dialog.showMessageBox` body) |
 | 44-66 | service construction, cross-wiring, event senders | `electron/app/compose.ts` using `app/wiring/*` and `driven/electron-shell/sender.ts` |
 | 49, 195-203 | `visibleTerminals`, `activity-view` filter, `acknowledge-activity` focus/visibility check, reset on `did-start-loading` | `electron/core/activity/activity-visibility.ts`: `ActivityVisibility({ terminals: TerminalDirectory, activity, isWindowFocusedAndVisible })` with `setVisible(ids)`, `acknowledge(id, terminalId, revision)`, `reset()`; `window.ts` supplies `isWindowFocusedAndVisible` and calls `reset()` |
-| 51-54 | `GitService` hooks `beforeRemove` (close terminals, release views) / `removeFailed` (reopen views) | `WorkspaceLifecycle` listeners registered in `compose.ts`: terminals `beforeRemove` (`blocking: true`), views release `beforeRemove`, views reopen `removeFailed` |
+| 51-54 | `GitService` hooks `beforeRemove` (close terminals, release views) / `removeFailed` (reopen views) | `WorkspaceLifecycle` listeners registered in `compose.ts`: terminals `beforeRemove` (`blocking: true`), views release `beforeRemove` (non-blocking, logged), stinggraph release `beforeRemove` (`blocking: true`, kill fallback, rule 3), views reopen `removeFailed` |
 | 68-74 | `handle()` with sender check | `electron/app/ipc.ts` (step 3) |
 | 75-82 | `lockSession` for webview partitions | `electron/adapters/driven/electron-shell/sessions.ts`: `lockSession(partition)`, `clearWorkspaceSession(id)` (audit 20) |
 | 84-98 | install `stingray-views` launcher, start activity socket, prepare shell, restore history | `compose.ts` `startServices()`: `driven/fs/launcher.ts`, `driving/hooks/activity-socket.ts`, `driven/fs/activity-shell.ts`, `ActivityHistory.restore`; same order |
@@ -46,14 +46,14 @@ remaining inline logic is what this table lists.
 
 - `electron/main.ts`: one import, one call. Nothing else.
 - `electron/app/index.ts` `start()`: startup block, then `app.whenReady` → `compose()` → `createMainWindow` →
-  `registerContract` × 8 (app, git, repo-map, terminals, activity, codegraph, views, runtime) → `guardClose` →
+  `registerContract` × 8 (app, git, repo-map, terminals, activity, stinggraph, views, runtime) → `guardClose` →
   `loadURL`; `registerQuit`.
 - `electron/app/compose.ts` is the only place that constructs adapters and core services and connects them
   (publishers via `sender()`, `WorkspaceLifecycle` listeners, `TerminalDirectory`, `GitStateService.observe`,
   `pullRequests.onListChange`). It returns a typed `Services` object.
 - Only `electron/app/*` and `driven/electron-shell/*` import `electron` APIs (`dialog`, `shell`, `session`,
   `BrowserWindow`, `clipboard`); core receives them as ports.
-- Process entries `electron/app/views-cli.ts` and `electron/app/codegraph-worker.ts` (commit 5) follow the same
+- Process entries `electron/app/views-cli.ts` and `electron/app/stinggraph-worker.ts` (commit 4, wired in commit 5) follow the same
   pattern for their processes.
 
 ## Acceptance criteria
@@ -90,6 +90,7 @@ remaining inline logic is what this table lists.
 - **Composition root (OQ1):** `electron/app/` (`index.ts`, `compose.ts`, `window.ts`, `ipc.ts`, `lifecycle.ts`,
   process entries, `wiring/`); `electron/main.ts` is a thin entry.
 - **Single IPC sender check** in `electron/app/ipc.ts`, used by every contract registration.
-- **Lifecycle (OQ7 A, rule 3):** removal side effects are `WorkspaceLifecycle` listeners; only terminals
-  `beforeRemove` is blocking.
+- **Lifecycle (OQ7 A, rule 3 refined):** removal side effects are `WorkspaceLifecycle` listeners; blocking only for
+  terminals `beforeRemove` and the stinggraph release (which kills the worker on failure and blocks only if the
+  kill fails); the views release never blocks.
 - **Electron APIs** stay in `electron/app/` and `driven/electron-shell/`; core sees ports.

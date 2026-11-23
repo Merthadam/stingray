@@ -11,8 +11,9 @@ One zod contract per feature in `shared/contracts/<feature>.ts` drives every IPC
 - the `DesktopAPI` type is derived from it;
 - each feature's browser demo (`src/features/<x>/demo.ts`) is typed against it, so a missing demo method fails `tsc`.
 
-And (audit 19, H3): the demo runs only in a plain browser or with an explicit `?demo` flag; inside Electron a
-missing bridge is a visible error, not a silent switch to the demo.
+And (audit 19, H3): the demo runs in a plain browser, or inside Electron with an explicit `?demo` flag in a dev
+build only; otherwise inside Electron a missing bridge is a visible error, not a silent switch to the demo. A
+`DEMO` badge is visible whenever demo data is active.
 
 ## Non-goals
 
@@ -54,7 +55,7 @@ missing bridge is a visible error, not a silent switch to the demo.
 
 ### Contract files
 
-`shared/contracts/<feature>.ts` for app, git, repo-map, terminals, activity, codegraph, views, db-schema (types
+`shared/contracts/<feature>.ts` for app, git, repo-map, terminals, activity, stinggraph, views, db-schema (types
 only, no routes), runtime. They import only `zod`, other `shared/` files and type-only package imports
 (e.g. `OverlayConflicts` from `@colbymchenry/codegraph`).
 
@@ -82,7 +83,10 @@ export const terminalsContract = defineContract('terminals', {
 - Channel name = `` `${feature}.${member}` ``: calls `feature.action` (`git.createWorkspace`), events
   `feature.onThing` (`terminals.onTerminal`). One rule, no exceptions. The git event is renamed
   `onGitStateChanged` → `onStatusChanged` (channel `git.onStatusChanged`; three renderer call sites). All other
-  member names stay, so `window.stingray.*` calls in e2e tests are unchanged.
+  member names stay, so `window.stingray.*` calls in e2e tests are unchanged. The code-graph feature is named
+  `stinggraph` (umbrella decision), so its channels are `stinggraph.codegraphSettings`,
+  `stinggraph.setCodegraphSharedBase` and `stinggraph.codegraphConflicts`: members keep their flat renderer names
+  under the one rule; the contract file is `shared/contracts/stinggraph.ts` (`stinggraphContract`).
 - Optional trailing arguments (today only `view`'s `options`, main.ts:164) stay optional; preload drops a trailing
   `undefined` like preload.ts:20 does today.
 - Route-to-feature assignment: umbrella feature table.
@@ -169,13 +173,22 @@ export function buildPreloadApi(contracts: Contract[], ipc: Pick<IpcRenderer, 'i
 ### Audit 19: bridge selection (`src/api.ts`, `src/main.tsx`)
 
 ```ts
-export function pickApi(o: { bridge?: DesktopAPI; userAgent: string; search: string; loadDemo: () => Promise<DesktopAPI> }) {
-  if (new URLSearchParams(o.search).has('demo')) return o.loadDemo();     // explicit demo, anywhere
+export function pickApi(o: { bridge?: DesktopAPI; userAgent: string; search: string; dev: boolean; loadDemo: () => Promise<DesktopAPI> }) {
+  if (!o.userAgent.includes('Electron')) return o.loadDemo();                    // plain browser: always demo
+  if (o.dev && new URLSearchParams(o.search).has('demo')) return o.loadDemo();   // explicit demo, dev builds only
   if (o.bridge) return Promise.resolve(o.bridge);
-  if (o.userAgent.includes('Electron')) throw new BridgeMissingError();    // inside Electron: visible error
-  return o.loadDemo();                                                     // plain browser
+  throw new BridgeMissingError();                                                // inside Electron: visible error
 }
 ```
+
+`src/api.ts` passes `dev: import.meta.env.DEV`. Only the Vite dev server build (`npm run dev`, unpackaged) has it
+set; every production renderer build (the packaged app, `npm start`) ignores `?demo` and uses the bridge, or shows
+the missing-bridge error when there is none.
+
+Demo badge: `src/app/DemoBadge.tsx` renders a visible `DEMO` badge (`role="status"`, `aria-label="Demo data"`)
+when `api.mode === 'demo'` and nothing otherwise. `App.tsx` shows it in the always-visible app chrome (next to the
+existing status bar text), so it stays on screen on every page, in addition to the existing
+`demo-banner`.
 
 `src/main.tsx` imports `App` dynamically; if loading the API throws `BridgeMissingError`, it renders a full-window
 message with plain DOM: "Stingray desktop bridge is missing: the preload script did not load. Check the
@@ -198,7 +211,8 @@ throw still reject the renderer call.
 - [ ] `src/shared.ts`, `src/views.ts`, `src/db-schema.ts` are gone; no `electron/` or `agents/` file imports
       `src/` types that now live in `shared/contracts/`.
 - [ ] Electron without preload shows the bridge-missing screen; `npm run dev:ui` in a browser loads the demo;
-      `?demo` loads the demo.
+      `?demo` loads the demo inside Electron only in a dev build; a production build ignores `?demo`.
+- [ ] The `DEMO` badge is visible whenever demo data is active and absent in desktop mode.
 
 ## Verification
 
@@ -212,8 +226,15 @@ throw still reject the renderer call.
     bad args throw a ZodError, action not called;
   - failure-isolation rule 1: with two handlers registered, one whose action throws returns `{ ok: false }` and
     logs; the other still returns `{ ok: true }` afterwards;
-  - `pickApi`: `?demo` → demo; bridge → bridge; Electron UA without bridge → `BridgeMissingError`; browser → demo;
+  - `pickApi` (table): browser, with or without `?demo` → demo; Electron + `dev` + `?demo` (with or without bridge)
+    → demo; Electron + production + `?demo` + bridge → bridge; Electron + production + `?demo`, no bridge →
+    `BridgeMissingError`; Electron + bridge → bridge; Electron without bridge → `BridgeMissingError`;
+  - `DemoBadge` via `react-dom/server` `renderToStaticMarkup` (no new dependency): mode `demo` → markup contains
+    `DEMO`; mode `desktop` → empty;
   - after `npm run build`: `dist-electron/preload.cjs` contains no `require("` other than `require("electron")`.
+- `tests/desktop.mjs` (moved to `tests/app/` in step 4) gains one check: no `DEMO` badge in desktop mode. That a
+  production build ignores `?demo` is covered by the `pickApi` table (the window cannot navigate to another URL:
+  `will-navigate` and the trusted-sender check pin `rendererUrl`).
 
 ## Risks & rollback
 
@@ -232,4 +253,10 @@ throw still reject the renderer call.
 - **Error envelope:** action failures return `{ ok: false, error }` (rule 1); sender and argument checks still throw.
 - **Demo (H3):** per-feature `demo.ts` typed against the contracts; demo only in a plain browser or with `?demo`;
   inside Electron a missing bridge renders a visible error (audit 19).
+- **Demo flag scope:** plain browser always demo; inside Electron `?demo` is honoured only in a dev build
+  (`import.meta.env.DEV`, unpackaged `npm run dev`); production builds ignore it and show the missing-bridge error
+  without a bridge. A `DEMO` badge is visible whenever demo data is active.
+- **stinggraph contract:** `shared/contracts/stinggraph.ts`, channels `stinggraph.<member>` with the existing flat
+  member names (`codegraphSettings`, `setCodegraphSharedBase`, `codegraphConflicts`); the type-only import from
+  `@colbymchenry/codegraph` is unchanged.
 - **Test edits:** only the raw channel strings listed above; no assertion changes.

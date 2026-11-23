@@ -22,7 +22,7 @@ the rest land in commit 8.
 | 3 removal consent race, 6 one git runner + `core.fsmonitor=false`, git error detail, branch exists, status buffer | 5 · git |
 | 4 long Claude turns | 5 · activity |
 | 9 terminal flow control, 15 `Terminals` tests, terminal titles | 5 · terminals |
-| 5 CodeGraph respawn, overlays removed on workspace removal | 5 · codegraph |
+| 5 CodeGraph respawn, overlays removed on workspace removal | 5 · stinggraph |
 | 11 engine listing guard, 16 one walker (created) | 5 · views |
 | 10 tree-sitter parsing in the worker, 16 (db/sql switched to the walker) | 5 · db-schema |
 | CDP call timeout | 5 · runtime |
@@ -82,8 +82,8 @@ respawns at once. `ViewService.worktree` calls `host.open` on every view computa
 comment (:4-5) and an existing test (`tests/codegraph-process.test.ts:78-82`, "An open() right after a crash
 respawns immediately") describe today's behaviour as intended.
 
-**Design.** The decision moves into `electron/core/codegraph/restart-policy.ts` (pure, fake clock), used by
-`electron/adapters/driven/codegraph-worker/codegraph-process.ts`:
+**Design.** The decision moves into `electron/core/stinggraph/restart-policy.ts` (pure, fake clock), used by
+`electron/adapters/driven/stinggraph-worker/stinggraph-process.ts`:
 - `open()` with no child: if a restart timer is pending, do nothing (the timer respawns and reopens all active
   graphs). If `crashes > 3` and the last crash was less than 30 s ago, do nothing (graphs stay `unavailable` with
   "reopen the view to retry"). Otherwise respawn.
@@ -91,8 +91,8 @@ respawns immediately") describe today's behaviour as intended.
   `Date.now() - startedAt < 30_000` rule).
 - Update the header comment to match.
 
-**Tests.** `tests/codegraph/restart-policy.test.ts` (fake clock): backoff 1/2/4 s, limit after 3 quick crashes,
-reset after 30 s. `tests/codegraph/codegraph-process.test.ts` with a fake spawn: crash → `open()` during backoff does
+**Tests.** `tests/stinggraph/restart-policy.test.ts` (fake clock): backoff 1/2/4 s, limit after 3 quick crashes,
+reset after 30 s. `tests/stinggraph/stinggraph-process.test.ts` (today `tests/codegraph-process.test.ts`) with a fake spawn: crash → `open()` during backoff does
 not spawn; the timer spawns once; three quick crashes → `open()` within 30 s does not spawn, after 30 s it does.
 Assertion replacement (listed in the PR description, OQ3): the existing check at `:78-82` "An open() right after a
 crash respawns immediately" becomes "an open() right after a crash does not spawn; the backoff timer respawns once
@@ -113,8 +113,8 @@ either), `:110`, `pull-requests.ts:12` runner via `:180` (and `:110,113`, remove
 above switches to it (clone keeps its extra `-c` flags after `GIT_SAFE_CONFIG`; `views-cli` gains the flags it never
 had). Callers keep their own timeouts, buffer limits and error wrapping (`git()` its message, `inventoryGit` its
 grep exit-1 rule, `boundedGit` its encoding); the default `PRRunner` delegates to it for `git`. Later feature
-commits move the call sites into their adapters but keep using this runner. The codegraph overlay receives it by
-injection from `electron/app/codegraph-worker.ts`.
+commits move the call sites into their adapters but keep using this runner. The stinggraph overlay receives it by
+injection from `electron/app/stinggraph-worker.ts`.
 
 **Tests.** `tests/git/runner.test.ts`: in a temp repo with `core.fsmonitor` set to a script that writes a marker
 file, `runGit(['status'])` → marker absent; same for `core.hooksPath` hooks. Source scan in the same file: no
@@ -151,9 +151,9 @@ run in the Electron main process via `ViewService.schema/sqlSchema` (`electron/v
 **Design** (db-schema extraction commit; failure-isolation rule 4).
 - `core/db-schema` extracts from syntax trees it gets through the `SyntaxParser` port and file lists through the
   walker port; it does no parsing itself.
-- Two new worker calls in `driven/codegraph-worker/codegraph-process.ts` (`Call` union, :18-21 today):
+- Two new worker calls in `driven/stinggraph-worker/stinggraph-process.ts` (`Call` union, :18-21 today):
   `{ type: 'dbSchema'; workspaceId; root; grammarPath }` and `{ type: 'sqlSchema'; workspaceId; root }`. The
-  worker (`electron/app/codegraph-worker.ts`) wires `core/db-schema` with `driven/tree-sitter` + `driven/fs/walk.ts`
+  worker (`electron/app/stinggraph-worker.ts`) wires `core/db-schema` with `driven/tree-sitter` + `driven/fs/walk.ts`
   and serves them. Timeout: `evaluateTimeoutMs`.
 - `ViewService` (`core/views/service.ts`) gets a `DbSchemaSource` port instead of importing the extractors; the
   composition root implements it with the worker host. Child down or timeout → the result an unreadable root gives
@@ -237,13 +237,18 @@ The wired `Terminals` (`electron/app/wiring/terminals.ts`) keeps today's constru
 errors). Git runners: see finding 6.
 
 **Design.**
-- `electron/adapters/driven/fs/walk.ts` (views extraction commit): `walkFiles(root, { keep(rel) })` →
-  `{ files, truncated }`, implementing the walker port used by views (`FileProvider.list`) and db-schema.
+- `electron/adapters/driven/fs/walk.ts` (views extraction commit): `walkFiles(root, { keep(rel), skipDotDirs?, maxEntries? })`
+  → `{ files, truncated }`, implementing the walker port used by views (`FileProvider.list`) and db-schema.
   - Skip set = union of today's lists: `.git`, `.codegraph`, `node_modules`, `dist`, `dist-electron`, `build`,
-    `.venv`, `venv`, `__pycache__`, `.next`, `target`, `site-packages`. No other directories are skipped (views
-    already scan dot-dirs such as `.stingray/`; db/sql now do too).
-  - Limits: 200 000 walked entries (`MAX_WALKED`) for everyone; at most 5 000 kept files for parsing
-    (`MAX_FILES` / `MAX_PY_FILES`); either limit sets `truncated`.
+    `.venv`, `venv`, `__pycache__`, `.next`, `target`, `site-packages`, applied for every caller.
+  - `skipDotDirs` (default `false`): also skip every directory whose name starts with `.`. Views keep the default
+    (they already scan dot-dirs such as `.stingray/`); the db-schema and sql-schema scanners pass `true`, as their
+    walks do today.
+  - `maxEntries` (per-caller entry cap): default 200 000 (`MAX_WALKED`) for views; db-schema and sql-schema keep
+    their 20 000 (`MAX_ENTRIES`). At most 5 000 kept files for parsing (`MAX_FILES` / `MAX_PY_FILES`) for every
+    caller; either limit sets `truncated`.
+  - Schema scanning therefore matches today (dot-dirs skipped, 20 000 entry cap, 5 000 parse cap). The union adds
+    only two non-dot names to the db/sql skip lists: `target` (both) and `dist-electron` (db-schema).
   - Never follows symlinks (Dirent types). Results are sorted ascending by relative path for every caller.
   - Unreadable root throws (db/sql today); unreadable subdirectories are reported through `onDirError` (db/sql warn,
     views stay silent as today).
@@ -252,7 +257,8 @@ errors). Git runners: see finding 6.
 - Git runners: finding 6.
 
 **Tests.** `tests/views/walk.test.ts`: symlinked file and dir skipped; every name in the skip set skipped at any
-depth; dot-dirs not in the set walked; 200 000 / 5 000 limits set `truncated`; output sorted; unreadable subdir
+depth; dot-dirs not in the set walked by default and skipped with `skipDotDirs: true`; the default 200 000 cap, a
+caller's `maxEntries: 20 000` and the 5 000 parse cap each set `truncated`; output sorted; unreadable subdir
 reported via `onDirError`. Existing `db-schema`, `sql-schema` and `rule-files` tests pass unchanged.
 
 ## Finding 18 — README
@@ -303,7 +309,7 @@ success, not on failure; a rejection does not fail the removal.
 | CI double typecheck | `.github/workflows/ci.yml:37` `npm run typecheck`, then `:38` `npm run build`, which runs `tsc --noEmit` again (`package.json:13`) | drop `:37` | CI run |
 | `@types/prismjs` | in `dependencies` (`package.json:34`) | move to `devDependencies` (`npm install -D @types/prismjs@^1.26.6`, lockfile updated) | `npm run check`; `npm run package:mac` still builds |
 | `VIEW_KINDS` | type `src/views.ts:6` and array `electron/views/rules/schema.ts:11` (`KINDS`) are separate lists | `export const VIEW_KINDS = [...] as const; export type ViewKind = typeof VIEW_KINDS[number];` in `shared/contracts/views.ts`; `core/views/rules/schema.ts` imports it | `tsc` (one list) |
-| CodeGraph overlays left behind | overlays at `<userData>/codegraph/<repoId>/overlays/<workspaceId>.db` (`electron/codegraph-overlay.ts:29`) are never deleted on removal | `removeOverlay(dataDir, repoId, workspaceId)` (db, `-wal`, `-shm`) in `driven/codegraph-worker/codegraph-overlay.ts`, registered as an `afterRemove` lifecycle listener; repoId captured in `beforeRemove`; runs whether or not shared base is on | `tests/codegraph/codegraph-overlay.test.ts` (new case) + `tests/git/workspace-lifecycle.test.ts` |
+| CodeGraph overlays left behind | overlays at `<userData>/codegraph/<repoId>/overlays/<workspaceId>.db` (`electron/codegraph-overlay.ts:29`) are never deleted on removal | `removeOverlay(dataDir, repoId, workspaceId)` (db, `-wal`, `-shm`) in `driven/stinggraph-worker/stinggraph-overlay.ts`, registered as an `afterRemove` lifecycle listener; repoId captured in `beforeRemove`; runs whether or not shared base is on; on-disk path unchanged | `tests/stinggraph/stinggraph-overlay.test.ts` (new case) + `tests/git/workspace-lifecycle.test.ts` |
 | Git error detail | `electron/git.ts:23-25` replaces every failure with one fixed message | in `driven/git/runner.ts` error wrapping: append the first non-empty stderr line (control chars stripped, `://user:pass@` redacted, max 200 chars): `Git operation failed: <line>. Check …` | `tests/git/git.test.ts` (new case): failing `worktree add` message contains git's reason |
 | Branch exists | `createWorkspace` (`git.ts:105-125`) lets `worktree add -b` fail generically | in `core/git/git.ts` before `worktree add`: `rev-parse --verify --quiet refs/heads/<branch>` succeeds → "Branch <name> already exists. Choose another name." | `tests/git/git.core.test.ts` + new case in `git.test.ts` |
 | Status buffer | `git()` has `maxBuffer: 4 MiB` (`git.ts:19`); `status --untracked-files=all` (:202) can exceed it in big repos | pass `maxBuffer: 16 MiB` (same as `inventoryGit`, `repo-map.ts:18`) for the status call | `tests/git/git.test.ts` (new case): status with > 4 MiB output (many long untracked names) succeeds |
@@ -333,8 +339,9 @@ plus the umbrella Docker smoke.
 - Finding 9 thresholds are guesses; too low slows fast output slightly. Easy to tune.
 - Finding 10 changes where parsing runs; a worker crash now yields an empty Database view with a warning instead of
   crashing the app. Intended.
-- Finding 16 changes db-schema/sql-schema scope: sorted order, a 200 000 entry limit instead of 20 000, and dot-dirs
-  outside the skip set are now walked. Results can include models/DDL under such dirs; existing tests pass unchanged.
+- Finding 16 keeps db-schema/sql-schema scope (dot-dirs skipped, 20 000 entry cap); left over: results are sorted
+  ascending (today descending, which only affects warning/table order), and `target/` (plus `dist-electron/` for
+  db-schema) is skipped via the union list. Existing tests pass unchanged.
 - Each fix is small and local; revert per hunk if one misbehaves.
 
 ## Decisions
@@ -343,10 +350,15 @@ plus the umbrella Docker smoke.
 - **Finding 3 (OQ4):** fingerprint includes the full change list, push status, merged flag, blockers and the
   upstream `identity` (ref + tip); terminal count excluded. Stale consent is refused with "New changes appeared
   since you reviewed. Review again." and the dialog reloads with the fresh review.
-- **Finding 5 (OQ3):** the `codegraph-process.test.ts:78-82` assertion is replaced (old vs new in the PR
+- **Finding 5 (OQ3):** the `codegraph-process.test.ts:78-82` assertion (`tests/stinggraph/stinggraph-process.test.ts`
+  after commit 4) is replaced (old vs new in the PR
   description), at least as strict.
 - **Finding 14 (OQ5):** `pi-activity` is in the e2e runner and in CI, non-blocking on macOS and Linux; documented
   in `docs/ci.md`.
-- **Finding 16 (OQ6):** one walker in `driven/fs/walk.ts`; union of skip lists; 200 000 list limit; 5 000 parse
-  cap; results sorted for every caller.
+- **Finding 16 (OQ6, refined):** one walker in `driven/fs/walk.ts` with options `skipDotDirs` and a per-caller
+  entry cap. db-schema and sql-schema use `skipDotDirs: true` and keep their 20 000 cap; all other callers use the
+  union skip list and the 200 000 limit; 5 000 parse cap; results always sorted. Schema scanning behaviour matches
+  today; no behaviour-change note for schema dot-dirs or the 200 000 limit.
+- **Naming:** design paths use the `stinggraph` feature name (umbrella decision); current paths and on-disk names
+  (`<userData>/codegraph/`, `.codegraph`) are unchanged.
 - **Finding 6:** one git runner in `driven/git/runner.ts` with `core.hooksPath=/dev/null` and `core.fsmonitor=false`.

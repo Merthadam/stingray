@@ -20,7 +20,7 @@ Make Stingray easy to navigate and change by feature, with one logic layer that 
 - `electron/core/<feature>/`: pure logic plus port interfaces. No Node built-ins, no Electron, no native packages,
   no adapters. Unit-tested with fake adapters.
 - `electron/adapters/driving/` (IPC, CLI, agent hooks) call core; `electron/adapters/driven/` implement core's ports
-  (git, file system, PTY, Docker, SQLite, CodeGraph worker, Electron shell, tree-sitter, processes, CDP).
+  (git, file system, PTY, Docker, SQLite, stinggraph worker, Electron shell, tree-sitter, processes, CDP).
 - `electron/app/`: the composition root. `electron/main.ts` is a thin entry that calls it.
 - `shared/contracts/<feature>.ts`: zod contracts for every IPC call and event, imported by both processes; preload
   and the `DesktopAPI` type are derived from them.
@@ -46,7 +46,7 @@ One branch and one PR: `chore/modular-restructure`. Commits in this order; every
 | 2 | Dead code (audit 17) | [02](2026-11-23-02-dead-code-design.md) | none |
 | 3 | IPC contracts in `shared/contracts/`, per-feature demos (audit 7, 19) | [03](2026-11-23-03-ipc-contracts-design.md) | error envelope, demo rule |
 | 4 | Moves into the hex layout (`git mv` + import/path edits only) | [04 § Moves](2026-11-23-04-hexagonal-modules-design.md#commit-4--moves) | none; existing tests unchanged apart from paths |
-| 5 | One extraction commit per feature: git, activity, terminals, codegraph, repo-map, views, db-schema, runtime | [04 § Extraction](2026-11-23-04-hexagonal-modules-design.md#commit-5--per-feature-extraction) | audit fixes that belong to the feature ([07](2026-11-23-07-audit-fixes-design.md#where-each-fix-lands)) |
+| 5 | One extraction commit per feature: git, activity, terminals, stinggraph, repo-map, views, db-schema, runtime | [04 § Extraction](2026-11-23-04-hexagonal-modules-design.md#commit-5--per-feature-extraction) | audit fixes that belong to the feature ([07](2026-11-23-07-audit-fixes-design.md#where-each-fix-lands)) |
 | 6 | Composition root, thin `main.ts` | [05](2026-11-23-05-composition-root-design.md) | audit 20 |
 | 7 | Repo map sync (audit 12) | [06](2026-11-23-06-repo-map-sync-design.md) | yes |
 | 8 | Remaining audit fixes | [07](2026-11-23-07-audit-fixes-design.md) | yes |
@@ -66,7 +66,7 @@ shared/                         imported by electron/, src/ and agents/; imports
     define.ts                   defineContract, returns<T>(), event<T>(), Invoke/Events types, IpcResult envelope
     common.ts                   idSchema, urlSchema
     index.ts                    list of all contracts + DesktopAPI
-    app.ts git.ts repo-map.ts terminals.ts activity.ts codegraph.ts views.ts db-schema.ts runtime.ts
+    app.ts git.ts repo-map.ts terminals.ts activity.ts stinggraph.ts views.ts db-schema.ts runtime.ts
   views/                        pure code both processes run: infra/catalog.ts, views-text.ts, sequence-events.ts, views-database.ts
 electron/
   main.ts                       thin entry: start the app
@@ -76,7 +76,7 @@ electron/
     window.ts                   BrowserWindow, webview hardening, close guard, second-instance focus
     ipc.ts                      the single handle(): trusted-sender check, zod parse, error envelope
     views-cli.ts                process entry of the stingray-views CLI (wires driving/cli)
-    codegraph-worker.ts         process entry of the CodeGraph worker (wires its adapters)
+    stinggraph-worker.ts        process entry of the stinggraph worker (wires its adapters)
     wiring/<feature>.ts         core + real adapters behind the names existing tests and compose.ts use
   core/
     shared/                     posix-path.ts, ports.ts (Hasher, GlobMatcher)
@@ -85,7 +85,7 @@ electron/
                                 workspace lifecycle, pull requests, clone lock, line stats parsing
     activity/                   ActivityService, history, harnesses, visibility
     terminals/                  Terminals registry, flow control, link resolution, link opener
-    codegraph/                  settings, restart policy, GraphHost port
+    stinggraph/                 settings, restart policy, GraphHost port
     repo-map/                   snapshot assembly, sizes, inspect
     views/                      rules engine, compute, flowchart, sequence, sets, explain, view files, view state
     db-schema/                  SQLAlchemy + SQL extraction on syntax trees, sql-ddl
@@ -104,7 +104,7 @@ electron/
       process/                  ps/lsof, `open -a`, editor spawn
       cdp/                      live-view fetch + CDP WebSocket
       sqlite/                   database.ts (node:sqlite) + repositories (state, view state, history, settings)
-      codegraph-worker/         process host (fork), serve, overlay, graph api
+      stinggraph-worker/        process host (fork), serve, overlay, graph api
       electron-shell/           dialogs, shell, clipboard, sessions, webContents sender
       tree-sitter/              grammars.ts, SyntaxParser, tree-sitter-python.wasm
 src/
@@ -132,7 +132,7 @@ Exact file-to-destination tables are in [step 4](2026-11-23-04-hexagonal-modules
 | repo-map | `core/repo-map/` | `src/features/repo-map/` | repoSnapshot, inspectFile, statFile (step 6) |
 | terminals | `core/terminals/` | `src/features/terminals/` | terminals, terminalSnapshot, createTerminal, writeTerminal, openTerminalLink, resizeTerminal, closeTerminal; event onTerminal |
 | activity | `core/activity/` | `src/features/activity/` | activity, activityView, acknowledgeActivity, dismissActivity; event onActivity |
-| codegraph | `core/codegraph/` | `src/features/codegraph/` (demo + index) | codegraphSettings, setCodegraphSharedBase, codegraphConflicts |
+| stinggraph | `core/stinggraph/` | `src/features/stinggraph/` (demo + index) | codegraphSettings, setCodegraphSharedBase, codegraphConflicts |
 | views | `core/views/` | `src/features/views/` | views, view, viewState, saveViewState, saveViewAs, openServiceDocs; event onViewsChanged |
 | db-schema | `core/db-schema/` | `src/features/db-schema/` (demo data + index) | none (types only; route removed in step 2) |
 | runtime | `core/runtime/` | `src/features/runtime/` | containers, stopContainer, containerLogs, inspectCdp, ports, liveViewStart, liveViewInput, liveViewResize, liveViewStop, liveViewAck; event onLiveView |
@@ -151,7 +151,8 @@ Full rules and tests in [step 4](2026-11-23-04-hexagonal-modules-design.md).
   imports adapters.
 - `shared/` imports nothing from `electron/`, `src/`, `agents/`. `src/` never imports `electron/`.
 - Failure isolation: one error boundary per driving entry; degraded results across features; lifecycle listeners
-  run independently (only "terminals closed" may block removal); crash-prone parsing runs in the worker process.
+  run independently; removal is blocked only if terminals cannot be closed, or if the stinggraph release fails and
+  killing its worker also fails; crash-prone parsing runs in the worker process.
 
 ## Done bar (whole PR)
 
@@ -171,8 +172,16 @@ Full rules and tests in [step 4](2026-11-23-04-hexagonal-modules-design.md).
 
 ## Decisions
 
+- **Feature name stinggraph:** the code-graph feature is `stinggraph` in the new layout (the app uses the stinggraph
+  fork of CodeGraph): `electron/core/stinggraph/`, `electron/adapters/driven/stinggraph-worker/`,
+  `electron/app/stinggraph-worker.ts`, `shared/contracts/stinggraph.ts`, channels `stinggraph.*`,
+  `src/features/stinggraph/`, `tests/stinggraph/`, `tests/fakes/stinggraph.ts`. Renamed in commit 4 (moves),
+  behaviour-free. Unchanged: the npm package `@colbymchenry/codegraph` and its imports, the `.codegraph` cache dir
+  and other on-disk names (`<userData>/codegraph/` overlays, the `codegraph.sharedBase` setting key), `dist-electron/`
+  output names (`codegraph-worker.cjs`), exported symbols existing tests import, and the flat `window.stingray.*`
+  names ([04 § Moves](2026-11-23-04-hexagonal-modules-design.md#commit-4--moves)).
 - **Architecture: hexagonal.** `electron/core/<feature>/` (pure logic + ports), `electron/adapters/driving/{ipc,cli,hooks}/`,
-  `electron/adapters/driven/{git,fs,pty,docker,process,cdp,sqlite,codegraph-worker,electron-shell,tree-sitter}/`,
+  `electron/adapters/driven/{git,fs,pty,docker,process,cdp,sqlite,stinggraph-worker,electron-shell,tree-sitter}/`,
   `electron/app/` composition root, thin `electron/main.ts`.
 - **App layer (OQ1):** `electron/app/` + `src/app/`; app-level logic that needs ports lives in `electron/core/app/`.
 - **Contracts (H1, OQ10):** top-level `shared/contracts/<feature>.ts`; calls `feature.action`, events `feature.onThing`.
@@ -180,13 +189,24 @@ Full rules and tests in [step 4](2026-11-23-04-hexagonal-modules-design.md).
   `WorkspaceStatus.tsx` goes to `src/features/git`.
 - **Demo (H3):** per-feature `demo.ts` typed against the contracts; demo only in a plain browser or with `?demo`;
   inside Electron a missing bridge is a visible error.
+- **Demo flag scope:** a plain browser always gets the demo; inside Electron `?demo` is honoured only in a dev
+  renderer build (`import.meta.env.DEV`, i.e. the unpackaged `npm run dev` app); production builds (packaged app,
+  `npm start`) ignore it and show the missing-bridge error when there is no bridge. A visible `DEMO` badge is shown
+  whenever demo data is active ([03 § Audit 19](2026-11-23-03-ipc-contracts-design.md#audit-19-bridge-selection-srcapits-srcmaintsx)).
 - **Depth (Hex-B):** full extraction in this PR, staged as in the delivery table.
 - **Dependencies and failure isolation (OQ7 A):** one-way core imports with a cycle test; back-edges via ports and
   listeners; the four isolation rules, each with an "X fails, Y still works" test.
+- **Removal isolation (rule 3, refined):** lifecycle listeners run independently (`Promise.allSettled`). Blocking
+  (safety-critical): terminals closed, and the stinggraph release; if the stinggraph release fails, the stinggraph
+  worker serving that workspace is killed, and removal is refused only if that kill also fails. A views release
+  failure never blocks (logged) ([04 § Failure isolation](2026-11-23-04-hexagonal-modules-design.md#failure-isolation)).
 - **Tests (OQ3):** replaced assertions only if listed old-vs-new in the PR description and at least as strict.
 - **Removal identity (OQ4):** kept; the upstream tip is part of the removal consent fingerprint.
 - **pi-activity (OQ5):** in CI, non-blocking on macOS and Linux, documented in `docs/ci.md`.
-- **Walker (OQ6):** one walker, union of skip lists, 200 000 list limit, 5000 parse cap, sorted results.
+- **Walker (OQ6, refined):** one walker in `driven/fs/walk.ts` with options `skipDotDirs` and a per-caller entry
+  cap. db-schema and sql-schema scanners use `skipDotDirs: true` and keep their 20 000 entry cap; all other callers
+  use the union skip list and the 200 000 limit; 5000 parse cap; results always sorted. Schema scanning scope
+  matches today ([07 § 16](2026-11-23-07-audit-fixes-design.md#finding-16--one-file-walker-one-git-runner)).
 - **Repo map (OQ8):** one git-state poller; Repo Map reloads on revision bump; cheap 5 s check of the open file.
 - **`npm start` (OQ9):** full build incl. `tsc` typecheck, then launch.
 - **Core purity details:** `node:path` replaced by `core/shared/posix-path.ts`; glob matching and sha256 through
