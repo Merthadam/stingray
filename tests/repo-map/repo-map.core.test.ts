@@ -80,3 +80,18 @@ test('statFile makes no git calls and validates the path like inspectFile', asyn
   await assert.rejects(s.service.statFile('w', '../x'));
   assert.equal(s.calls.length, 0); assert.equal(s.statusCalls(), 0);
 });
+
+test('a snapshot that finishes after forget is not cached for the forgotten workspace', async () => {
+  const { inventory } = scriptedInventory({ lsFiles: 'a.ts\0', grep: 'a.ts\x001\n' });
+  let statusCalls = 0, release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const service = new RepoMapService({
+    git: { workspace: async id => ({ id, repoId: id, name: 'w', branch: 'main', path: '/repo', managed: false, previewUrl: '' }), status: async () => { if (++statusCalls === 1) await held; return status([]); } },
+    inventory, files: memoryFiles({ 'a.ts': 'hello\n' }),
+  });
+  const loading = service.repoSnapshot('w');
+  await new Promise(resolve => setImmediate(resolve));
+  service.forget('w'); release(); await loading;
+  await service.inspectFile('w', 'a.ts');
+  assert.equal(statusCalls, 2, 'inspectFile falls back to a fresh status read instead of the forgotten snapshot');
+});

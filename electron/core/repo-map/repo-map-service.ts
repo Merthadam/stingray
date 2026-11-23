@@ -8,8 +8,10 @@ export type RepoMapDeps = RepoMapPorts & { git: Pick<GitService, 'workspace' | '
 export class RepoMapService {
   private readonly inFlight = new Map<string, Promise<RepoSnapshot>>();
   private readonly last = new Map<string, RepoSnapshot>(); // last full snapshot per workspace (inspectFile reuses its entries)
+  private readonly forgets = new Map<string, number>(); // per-workspace forget count: a load that spans a forget is not cached
   constructor(private readonly deps: RepoMapDeps) {}
   async repoSnapshot(id: string): Promise<RepoSnapshot> {
+    const generation = this.forgets.get(id) ?? 0;
     const w = await this.deps.git.workspace(id);
     const root = await this.deps.files.realpath(w.path);
     let job = this.inFlight.get(root);
@@ -18,7 +20,7 @@ export class RepoMapService {
       this.inFlight.set(root, job);
     }
     // Concurrent requests share one entire status/inventory/count operation.
-    try { const snapshot = await job; this.last.set(id, snapshot); return snapshot; } finally { if (this.inFlight.get(root) === job) this.inFlight.delete(root); }
+    try { const snapshot = await job; if ((this.forgets.get(id) ?? 0) === generation) this.last.set(id, snapshot); return snapshot; } finally { if (this.inFlight.get(root) === job) this.inFlight.delete(root); }
   }
   async inspectFile(id: string, relative: string): Promise<FileInspection> {
     const w = await this.deps.git.workspace(id);
@@ -32,5 +34,5 @@ export class RepoMapService {
     return this.deps.files.stat((await this.deps.git.workspace(id)).path, relative);
   }
   /** Workspace removed. */
-  forget(id: string) { this.last.delete(id); }
+  forget(id: string) { this.last.delete(id); this.forgets.set(id, (this.forgets.get(id) ?? 0) + 1); }
 }
