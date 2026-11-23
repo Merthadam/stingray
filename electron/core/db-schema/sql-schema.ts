@@ -1,14 +1,13 @@
 // Static SQL extraction from DDL files and literal strings. Repository code is never executed.
-import { constants } from 'node:fs';
-import { open, readdir } from 'node:fs/promises';
-import path from 'node:path';
-import { Language, Parser, type Node } from 'web-tree-sitter';
+import type { Node, Parser } from 'web-tree-sitter';
 import type { DbBaseGroup, DbSchemaResult, DbWarning } from '../../../shared/contracts/db-schema';
 import { applySqlConstraints, parseSqlDdl, sameSqlName } from './sql-ddl';
-import { codegraphGrammarDir, GRAMMAR_FILES, initTreeSitter } from '../../adapters/driven/tree-sitter/grammars';
+import { GRAMMAR_FILES } from '../shared/grammar-files';
+import { syntaxParser } from '../shared/ports';
+import * as path from '../shared/posix-path';
+import type { SchemaFiles } from './ports';
 
-const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'venv', 'site-packages', 'dist', 'dist-electron', 'build']);
-const MAX_ENTRIES = 20000, MAX_FILES = 5000, MAX_FILE_BYTES = 1024 * 1024, MAX_WARNINGS = 200;
+const MAX_WARNINGS = 200;
 export const isSqlSource = (file: string) => /\.(sql|ts|tsx|js|mjs|cjs|py)$/i.test(file);
 const PREFILTER = /\b(?:create\s+(?:(?:temp|temporary)\s+)?table|alter\s+table)\b/i;
 
@@ -37,26 +36,14 @@ function literal(text: string, startLine: number, python: boolean): { sql: strin
   return { sql, lines };
 }
 
-export async function extractSqlSchema(workspaceId: string, root: string, grammarDir = codegraphGrammarDir()): Promise<DbSchemaResult> {
-  const warnings: DbWarning[] = [], groups: DbBaseGroup[] = [], files: string[] = [];
+export async function extractSqlSchema(workspaceId: string, root: string, grammarDir: string, files: SchemaFiles): Promise<DbSchemaResult> {
+  const warnings: DbWarning[] = [], groups: DbBaseGroup[] = [];
   const warn = (file: string, line: number | null, message: string) => { if (warnings.length < MAX_WARNINGS) warnings.push({ file, line, message }); };
-  let entries = 0, filesScanned = 0, filesParsed = 0, truncated = false;
-  const pending = [''];
-  walk: while (pending.length) {
-    const dir = pending.pop()!;
-    let dirents;
-    try { dirents = await readdir(path.join(root, dir), { withFileTypes: true }); }
-    catch (error) { if (!dir) throw error; warn(dir, null, `Could not read directory: ${(error as Error).message}`); continue; }
-    dirents.sort((a, b) => a.name < b.name ? 1 : -1);
-    for (const d of dirents) {
-      if (++entries > MAX_ENTRIES) { truncated = true; break walk; }
-      const file = dir ? `${dir}/${d.name}` : d.name;
-      if (d.isDirectory()) { if (!d.name.startsWith('.') && !SKIP_DIRS.has(d.name)) pending.push(file); continue; }
-      if (!d.isFile() || !isSqlSource(file)) continue;
-      if (files.length === MAX_FILES) { truncated = true; break walk; }
-      files.push(file);
-    }
-  }
+  let filesScanned = 0, filesParsed = 0;
+  // The one walker (driven/fs/walk.ts): no symlinks, dot-dirs skipped, 20 000 entries, 5 000 files, sorted.
+  const listed = await files.list(root, isSqlSource, (dir, error) => warn(dir, null, `Could not read directory: ${error.message}`));
+  let truncated = listed.truncated;
+  const paths = listed.files;
   const parsers = new Map<string, Parser>();
   const parse = (sql: string, file: string, lines?: number[]) => {
     const result = parseSqlDdl(sql, file, 1, lines);
@@ -84,16 +71,12 @@ export async function extractSqlSchema(workspaceId: string, root: string, gramma
     }
   };
   try {
-    for (const file of files.sort()) {
+    for (const file of paths) {
       let source: string;
       try {
-        const handle = await open(path.join(root, file), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-        try {
-          const stat = await handle.stat();
-          if (!stat.isFile()) continue;
-          if (stat.size > MAX_FILE_BYTES) { truncated = true; warn(file, null, 'Skipped: file is larger than 1 MiB.'); continue; }
-          source = (await handle.readFile()).toString('utf8');
-        } finally { await handle.close(); }
+        const read = await files.read(root, file);
+        if ('skipped' in read) { if (read.skipped === 'tooLarge') { truncated = true; warn(file, null, 'Skipped: file is larger than 1 MiB.'); } continue; }
+        source = read.text;
       } catch (error) { warn(file, null, `Could not read file: ${(error as Error).message}`); continue; }
       filesScanned++;
       if (file.toLowerCase().endsWith('.sql')) { filesParsed++; parse(source, file); continue; }
@@ -102,9 +85,8 @@ export async function extractSqlSchema(workspaceId: string, root: string, gramma
       try {
         let parser = parsers.get(language);
         if (!parser) {
-          await initTreeSitter();
-          const grammar = await Language.load(path.join(grammarDir, GRAMMAR_FILES[language]));
-          parser = new Parser(); parser.setLanguage(grammar); parsers.set(language, parser);
+          parser = syntaxParser().parser(await syntaxParser().loadLanguage(path.join(grammarDir, GRAMMAR_FILES[language])));
+          parsers.set(language, parser);
         }
         const tree = parser.parse(source);
         if (!tree) { warn(file, null, 'Could not parse source'); continue; }

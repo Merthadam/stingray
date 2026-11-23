@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
+import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { Evaluate, FileProvider, GraphApi, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './stinggraph-process';
 import { evaluate } from '../../../core/views/rules/engine';
@@ -25,6 +26,8 @@ export interface CodeGraphHostOptions {
   grammarDir?: () => string;
   files?: (root: string) => FileProvider;
   gitOut?: OverlayGit;
+  dbSchema?: (workspaceId: string, root: string, grammarPath: string) => Promise<DbSchemaResult>;
+  sqlSchema?: (workspaceId: string, root: string) => Promise<DbSchemaResult>;
 }
 type Settings = Required<CodeGraphHostOptions>;
 const defaults = { maxOpen: 4, debounceMs: 500, pollMs: 2000, load: loadCodeGraph, evaluate };
@@ -382,6 +385,12 @@ export function serveCodeGraph(send: (event: WorkerEvent) => void, exit: () => v
         }
         case 'conflicts':
           return void host.conflicts(message.shared, message.workspaceIds)
+            .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
+        case 'dbSchema':
+          return void (async () => settings.dbSchema(message.workspaceId, message.root, message.grammarPath))()
+            .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
+        case 'sqlSchema':
+          return void (async () => settings.sqlSchema(message.workspaceId, message.root))()
             .then(result => send({ type: 'reply', id: message.id, result }), error => send({ type: 'reply', id: message.id, error: short(error) }));
         case 'close':
           detach(message.workspaceId); // the parent reports its own status for closed graphs

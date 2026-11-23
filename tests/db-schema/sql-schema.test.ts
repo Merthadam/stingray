@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { extractSqlSchema } from '../../electron/core/db-schema/sql-schema';
+import { extractSqlSchema } from '../../electron/app/wiring/db-schema';
 import { databaseView } from '../../shared/views/views-database';
 
 async function repo(t: test.TestContext, files: Record<string, string>) {

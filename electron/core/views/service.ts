@@ -1,10 +1,9 @@
 // Computes views per worktree and pushes ViewsChangedEvent when code, view files or the code graph change.
-import { extractDbSchema } from '../db-schema/db-schema';
-import { extractSqlSchema, isSqlSource } from '../db-schema/sql-schema';
+import { isSqlSource } from '../db-schema';
 import type { DbSchemaResult } from '../../../shared/contracts/db-schema';
 import type { ViewResult, ViewSummary } from '../../../shared/contracts/views';
 import { unavailableGraph, type GraphChange, type GraphHost, type WorktreeGraph } from './graph';
-import type { FileProviderFactory, ViewFiles, ViewsPublisher } from './ports';
+import type { DbSchemaSource, FileProviderFactory, ViewFiles, ViewsPublisher } from './ports';
 import { DATABASE_VIEW, databaseView } from './database';
 import { combineSchemas, computeView, linkSymbols } from './compute';
 import { LAYERS_VIEW, RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
@@ -28,21 +27,25 @@ function affects(v: ViewFileEntry, changed: string[], code: string[], python: bo
   return code.some(f => inScope(f, view.scope) && view.rules.some(({ rule }) => !rule.files || inScope(f, { include: rule.files, exclude: [] })));
 }
 
+const degradedSchema = (workspaceId: string, error: unknown): DbSchemaResult => ({ workspaceId, scannedAt: Date.now(), filesScanned: 0, filesParsed: 0,
+  truncated: false, groups: [], warnings: [{ file: '', line: null, message: `Schema scan unavailable: ${error instanceof Error ? error.message : String(error)}` }] });
+
 export class ViewService {
   private readonly worktrees = new Map<string, Worktree>();
   private readonly computations = new Map<string, Promise<ViewResult>>();
   private readonly released = new Set<string>();
   private readonly host: GraphHost;
-  private readonly grammarPath: string;
+  private readonly schemas: DbSchemaSource;
   private readonly emit: ViewsPublisher;
   private readonly debounceMs: number;
   private readonly viewFiles: ViewFiles;
   private readonly fileProvider: FileProviderFactory;
   private readonly log: (message: string, error: unknown) => void;
 
-  constructor(options: { host: GraphHost; grammarPath: string; emit: ViewsPublisher; debounceMs?: number;
+  // grammarPath is read by the wiring's in-process DbSchemaSource, not here.
+  constructor(options: { host: GraphHost; grammarPath: string; emit: ViewsPublisher; debounceMs?: number; dbSchema: DbSchemaSource;
     viewFiles: ViewFiles; fileProvider: FileProviderFactory; log?: (message: string, error: unknown) => void }) {
-    this.host = options.host; this.grammarPath = options.grammarPath; this.emit = options.emit; this.debounceMs = options.debounceMs ?? 300;
+    this.host = options.host; this.schemas = options.dbSchema; this.emit = options.emit; this.debounceMs = options.debounceMs ?? 300;
     this.viewFiles = options.viewFiles; this.fileProvider = options.fileProvider; this.log = options.log ?? console.error;
   }
 
@@ -103,9 +106,13 @@ export class ViewService {
     });
   }
 
-  private schema(w: Worktree, workspaceId: string): Promise<DbSchemaResult> {
+  // Rule 2: a failing schema source gives the Database view a warning instead of failing it (cache logic unchanged).
+  private schema(w: Worktree, id: string) { return this.rawSchema(w, id).catch(error => degradedSchema(id, error)); }
+  private sqlSchema(w: Worktree, id: string) { return this.rawSqlSchema(w, id).catch(error => degradedSchema(id, error)); }
+
+  private rawSchema(w: Worktree, workspaceId: string): Promise<DbSchemaResult> {
     if (w.schema) return w.schema;
-    const scan = extractDbSchema(workspaceId, w.root, this.grammarPath);
+    const scan = this.schemas.dbSchema(workspaceId, w.root);
     w.schema = scan;
     // Keep the result only while the graph reports changes; otherwise share just the in-flight scan.
     const drop = () => { if (w.schema === scan && w.graph.status().state === 'unavailable') w.schema = null; };
@@ -113,9 +120,9 @@ export class ViewService {
     return scan;
   }
 
-  private sqlSchema(w: Worktree, workspaceId: string): Promise<DbSchemaResult> {
+  private rawSqlSchema(w: Worktree, workspaceId: string): Promise<DbSchemaResult> {
     if (w.sqlSchema) return w.sqlSchema;
-    const scan = extractSqlSchema(workspaceId, w.root);
+    const scan = this.schemas.sqlSchema(workspaceId, w.root);
     w.sqlSchema = scan;
     const drop = () => { if (w.sqlSchema === scan && w.graph.status().state === 'unavailable') w.sqlSchema = null; };
     scan.then(drop, () => { if (w.sqlSchema === scan) w.sqlSchema = null; });

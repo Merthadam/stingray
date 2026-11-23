@@ -1,3 +1,4 @@
+import type { DbSchemaResult } from '../../../shared/contracts/db-schema';
 import type { ViewLocalState, ViewsChangedEvent } from '../../../shared/contracts/views';
 import type { FileProvider } from './rules/types';
 
@@ -22,3 +23,8 @@ export interface ViewStateRepository {
 }
 export type ViewsPublisher = (event: ViewsChangedEvent) => void;
 export type FileProviderFactory = (root: string) => FileProvider;
+/** SQLAlchemy and SQL schema of a worktree (the worker process in the app, in-process in tests and the CLI). */
+export interface DbSchemaSource {
+  dbSchema(workspaceId: string, root: string): Promise<DbSchemaResult>;
+  sqlSchema(workspaceId: string, root: string): Promise<DbSchemaResult>;
+}

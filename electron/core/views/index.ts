@@ -3,7 +3,7 @@ export { LINK_SETS } from './rules/types';
 export type { Emit, Evaluate, EvaluateInput, EvaluateOutput, FileProvider, FlowchartStep, GraphApi, GraphLayers, GraphRelation, GraphRollupEdge, GraphStep, GraphSymbol, ResolvedView, Rule, RunGraphStep, SequenceStep, SourcedRule } from './rules/types';
 export type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from './graph';
 export { unavailableGraph } from './graph';
-export type { FileProviderFactory, ViewFiles, ViewStateRepository, ViewsPublisher } from './ports';
+export type { DbSchemaSource, FileProviderFactory, ViewFiles, ViewStateRepository, ViewsPublisher } from './ports';
 export { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from './sets';
 export { LIMITS, createEvaluate, evaluate } from './rules/engine';
 export { MAX_EXPLANATION, docstringSummary, explanationOf } from './explanation';

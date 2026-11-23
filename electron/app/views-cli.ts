@@ -23,7 +23,7 @@ async function main() {
   // Before CodeGraph is loaded (it reads these at import/open); the launcher sets them too.
   process.env.CODEGRAPH_TELEMETRY = '0'; process.env.CODEGRAPH_NO_UPDATE_CHECK = '1';
   const [{ evaluate }, { codegraphGrammarDir }, { createFileProvider }, { extractDbSchema, extractSqlSchema }] = await Promise.all([
-    import('../core/views'), import('../adapters/driven/tree-sitter/grammars'), import('../adapters/driven/fs/files'), import('../core/db-schema')]);
+    import('../core/views'), import('../adapters/driven/tree-sitter/grammars'), import('../adapters/driven/fs/files'), import('./wiring/db-schema')]);
   // __dirname is dist-electron in the bundle: package.json, the Python grammar and the skills sit relative to it.
   let version = '';
   try { version = JSON.parse(await readFile(path.join(__dirname, '../package.json'), 'utf8')).version; } catch { /* unknown */ }

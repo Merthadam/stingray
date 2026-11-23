@@ -11,6 +11,7 @@ import path from 'node:path';
 import { ignoredDirs, short } from './stinggraph';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
+import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
 import { RestartPolicy, type SharedBaseTarget } from '../../../core/stinggraph';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
@@ -18,9 +19,10 @@ import type { OverlayConflicts } from '@colbymchenry/codegraph';
 type Call = { type: 'close'; workspaceId: string } | { type: 'closeAll' } | { type: 'findSymbols'; workspaceId: string; queries: SymbolQuery[] }
   | { type: 'callees'; workspaceId: string; ids: string[] } | { type: 'fileSymbols'; workspaceId: string; file: string }
   | { type: 'evaluateView'; workspaceId: string; root: string; view: ResolvedView }
-  | { type: 'conflicts'; shared: SharedBaseTarget; workspaceIds: string[] };
+  | { type: 'conflicts'; shared: SharedBaseTarget; workspaceIds: string[] }
+  | { type: 'dbSchema'; workspaceId: string; root: string; grammarPath: string } | { type: 'sqlSchema'; workspaceId: string; root: string };
 export type WorkerRequest = { type: 'open'; workspaceId: string; root: string; shared?: SharedBaseTarget | null } | (Call & { id: number });
-type Reply = { type: 'reply'; id: number; result: (GraphSymbol | null)[] | [string, GraphSymbol[]][] | GraphSymbol[] | EvaluateOutput | OverlayConflicts | null } | { type: 'reply'; id: number; error: string };
+type Reply = { type: 'reply'; id: number; result: (GraphSymbol | null)[] | [string, GraphSymbol[]][] | GraphSymbol[] | EvaluateOutput | OverlayConflicts | DbSchemaResult | null } | { type: 'reply'; id: number; error: string };
 export type WorkerEvent =
   | { type: 'status'; workspaceId: string; status: GraphStatus }
   | { type: 'change'; workspaceId: string; files: string[] }
@@ -45,6 +47,9 @@ export interface CodeGraphProcessHost extends GraphHost {
   conflicts(shared: SharedBaseTarget, workspaceIds: string[]): Promise<OverlayConflicts | null>;
   /** Stop the worker now (rule 3 fallback); not counted as a crash. */
   kill(): Promise<void>;
+  /** Schema extraction in the worker (crash-prone tree-sitter parsing stays out of main, rule 4); never rejects. */
+  dbSchema(workspaceId: string, root: string, grammarPath: string): Promise<DbSchemaResult>;
+  sqlSchema(workspaceId: string, root: string): Promise<DbSchemaResult>;
 }
 
 const forkWorker = () => fork(path.join(__dirname, 'codegraph-worker.cjs'), [], {
@@ -84,6 +89,13 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions)
     post({ ...message, id });
   });
   const request = async (message: Call) => { const reply = await call(message, timeoutMs); return typeof reply === 'object' && 'result' in reply ? reply.result : undefined; };
+  const schemaCall = async (message: Call, workspaceId: string): Promise<DbSchemaResult> => {
+    const reply = await call(message, evaluateTimeoutMs);
+    if (typeof reply === 'object' && 'result' in reply && reply.result) return reply.result as DbSchemaResult;
+    const why = reply === 'timeout' ? 'timed out' : reply === 'down' ? 'the code graph process is not running' : 'error' in reply ? reply.error : 'no result';
+    return { workspaceId, scannedAt: Date.now(), filesScanned: 0, filesParsed: 0, truncated: false, groups: [],
+      warnings: [{ file: '', line: null, message: `Schema scan unavailable: ${why}.` }] };
+  };
   const settleAll = () => { for (const done of [...pending.values()]) done('down'); };
 
   class ProxyGraph implements WorktreeGraph {
@@ -245,6 +257,8 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions)
         throw new Error('Code graph process did not stop.');
       }
     },
+    dbSchema: (workspaceId, root, grammarPath) => schemaCall({ type: 'dbSchema', workspaceId, root, grammarPath }, workspaceId),
+    sqlSchema: (workspaceId, root) => schemaCall({ type: 'sqlSchema', workspaceId, root }, workspaceId),
     async conflicts(shared, workspaceIds) {
       const reply = await call({ type: 'conflicts', shared, workspaceIds }, evaluateTimeoutMs);
       return typeof reply === 'object' && 'result' in reply ? reply.result as OverlayConflicts | null : null;

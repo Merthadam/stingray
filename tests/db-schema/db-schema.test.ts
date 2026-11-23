@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { extractDbSchema } from '../../electron/core/db-schema/db-schema';
+import { extractDbSchema } from '../../electron/app/wiring/db-schema';
 import type { DbSchemaResult, DbTable } from '../../shared/contracts/db-schema';
 
 const grammar = path.join(import.meta.dirname, '../../electron/adapters/driven/tree-sitter/tree-sitter-python.wasm');

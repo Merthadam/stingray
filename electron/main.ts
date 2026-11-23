@@ -85,8 +85,9 @@ pullRequests.onListChange = () => gitState.listChanged();
 const stinggraphSettings = new StinggraphSettings(sqliteSettingsRepository(app.getPath('userData')), () => readState(database(app.getPath('userData'))), app.getPath('userData'));
 const codegraph = createCodeGraphProcessHost({ sharedBase: id => stinggraphSettings.sharedBaseTarget(id) });
 const viewsEvents = sender(viewsContract, currentWindow);
-const views = new ViewService({ host: codegraph, grammarPath: path.join(__dirname, 'tree-sitter-python.wasm'),
-  emit: event => viewsEvents.onViewsChanged(event) });
+const grammarPath = path.join(__dirname, 'tree-sitter-python.wasm');
+const views = new ViewService({ host: codegraph, grammarPath, emit: event => viewsEvents.onViewsChanged(event),
+  dbSchema: { dbSchema: (id, root) => codegraph.dbSchema(id, root, grammarPath), sqlSchema: (id, root) => codegraph.sqlSchema(id, root) } });
 const runtimeEvents = sender(runtimeContract, currentWindow);
 const liveViews = new LiveViews(event => runtimeEvents.onLiveView(event));
 

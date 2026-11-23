@@ -9,10 +9,12 @@ import { runGit } from '../../adapters/driven/git/runner';
 import { SqliteViewStateStore } from '../../adapters/driven/sqlite/view-state-repository';
 import { runCli as runCliCore, type CliDeps as DrivingCliDeps } from '../../adapters/driving/cli/views-cli';
 import * as core from '../../core/views';
+import { extractDbSchema, extractSqlSchema } from './db-schema';
 
 export class ViewService extends core.ViewService {
-  constructor(options: { host: core.GraphHost; grammarPath: string; emit: core.ViewsPublisher; debounceMs?: number }) {
-    super({ ...options, viewFiles: nodeViewFiles, fileProvider: createFileProvider });
+  constructor(options: { host: core.GraphHost; grammarPath: string; emit: core.ViewsPublisher; debounceMs?: number; dbSchema?: core.DbSchemaSource }) {
+    super({ ...options, viewFiles: nodeViewFiles, fileProvider: createFileProvider,
+      dbSchema: options.dbSchema ?? { dbSchema: (id, root) => extractDbSchema(id, root, options.grammarPath), sqlSchema: (id, root) => extractSqlSchema(id, root) } });
   }
 }
 export { SqliteViewStateStore as ViewStateStore };

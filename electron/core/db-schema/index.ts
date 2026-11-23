@@ -1,3 +1,4 @@
-export { applySqlConstraints, parseSqlDdl } from './sql-ddl';
+export { applySqlConstraints, parseSqlDdl, sameSqlName } from './sql-ddl';
 export { extractDbSchema } from './db-schema';
-export { extractSqlSchema } from './sql-schema';
+export { extractSqlSchema, isSqlSource } from './sql-schema';
+export type { SchemaFiles } from './ports';

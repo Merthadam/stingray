@@ -1,14 +1,11 @@
 // Static SQLAlchemy schema extraction for the Database tab.
 // Python source is only read and parsed with tree-sitter; repository code is never executed.
-import { open, readdir } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import path from 'node:path';
-import { Language, Parser, type Node } from 'web-tree-sitter';
-import { initTreeSitter } from '../../adapters/driven/tree-sitter/grammars';
+import type { Node, Parser } from 'web-tree-sitter';
+import { syntaxParser } from '../shared/ports';
+import type { SchemaFiles } from './ports';
 import type { DbBaseGroup, DbColumn, DbRelationship, DbSchemaResult, DbTable, DbWarning } from '../../../shared/contracts/db-schema';
 
-const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'venv', 'site-packages', 'dist', 'build']);
-const MAX_ENTRIES = 20000, MAX_PY_FILES = 5000, MAX_FILE_BYTES = 1024 * 1024, MAX_WARNINGS = 200;
+const MAX_WARNINGS = 200;
 // __init__.py is always parsed so package re-exports (`from .base import Base`) resolve.
 const PREFILTER = /sqlalchemy|__tablename__|\.Model\b/;
 
@@ -24,12 +21,8 @@ interface Sym { file: PyFile; name: string }
 
 let parserPromise: Promise<Parser> | undefined;
 function loadParser(grammarPath: string): Promise<Parser> {
-  return parserPromise ??= (async () => {
-    await initTreeSitter();
-    const parser = new Parser();
-    parser.setLanguage(await Language.load(grammarPath));
-    return parser;
-  })().catch(error => { parserPromise = undefined; throw error; });
+  return parserPromise ??= syntaxParser().loadLanguage(grammarPath).then(language => syntaxParser().parser(language))
+    .catch(error => { parserPromise = undefined; throw error; });
 }
 
 const text = (n: Node | null | undefined) => n?.text ?? '';
@@ -174,53 +167,36 @@ function firstErrorLine(n: Node): number | null {
   return null;
 }
 
-export async function extractDbSchema(workspaceId: string, root: string, grammarPath: string): Promise<DbSchemaResult> {
+export async function extractDbSchema(workspaceId: string, root: string, grammarPath: string, schemaFiles: SchemaFiles): Promise<DbSchemaResult> {
   const parser = await loadParser(grammarPath);
   const warnings: DbWarning[] = [];
   const warn = (file: string, line: number | null, message: string) => { if (warnings.length < MAX_WARNINGS) warnings.push({ file, line, message }); };
   const files: PyFile[] = [];
-  let entries = 0, pyFiles = 0, filesScanned = 0, filesParsed = 0, truncated = false;
+  let filesScanned = 0, filesParsed = 0;
 
-  // Walk without following symlinks; a symlinked file or directory is never read.
-  const pending = [''];
-  walk: while (pending.length) {
-    const dir = pending.pop()!;
-    let dirents;
-    try { dirents = await readdir(path.join(root, dir), { withFileTypes: true }); }
-    catch (error) { if (!dir) throw error; warn(dir, null, `Could not read directory: ${(error as Error).message}`); continue; }
-    dirents.sort((a, b) => a.name < b.name ? 1 : -1); // popped in ascending order
-    for (const d of dirents) {
-      if (++entries > MAX_ENTRIES) { truncated = true; break walk; }
-      const rel = dir ? `${dir}/${d.name}` : d.name;
-      if (d.isDirectory()) { if (!d.name.startsWith('.') && !SKIP_DIRS.has(d.name)) pending.push(rel); continue; }
-      if (!d.isFile() || !d.name.endsWith('.py')) continue;
-      if (++pyFiles > MAX_PY_FILES) { truncated = true; break walk; }
-      let source: string;
-      try {
-        // O_NONBLOCK keeps a FIFO swapped in after readdir from blocking a libuv thread.
-        const handle = await open(path.join(root, rel), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-        try {
-          const stat = await handle.stat();
-          if (!stat.isFile()) continue;
-          if (stat.size > MAX_FILE_BYTES) { warn(rel, null, 'Skipped: file is larger than 1 MiB.'); continue; }
-          source = (await handle.readFile()).toString('utf8');
-        } finally { await handle.close(); }
-      } catch (error) { warn(rel, null, `Could not read file: ${(error as Error).message}`); continue; }
-      filesScanned++;
-      if (!PREFILTER.test(source) && d.name !== '__init__.py') continue;
-      filesParsed++;
-      // shortcut: parses on main thread; move to worker_threads if large repos stall IPC
-      await new Promise(resolve => setImmediate(resolve));
-      const tree = parser.parse(source);
-      if (!tree) { warn(rel, null, 'Could not parse file.'); continue; }
-      try {
-        if (tree.rootNode.hasError) warn(rel, firstErrorLine(tree.rootNode), 'Syntax error; models in this file may be incomplete.');
-        const file: PyFile = { file: rel, module: moduleName(rel), imports: new Map(), classes: new Map(), bases: new Map() };
-        readFile(tree.rootNode, file);
-        files.push(file);
-      } catch (error) { warn(rel, null, `Could not extract models: ${(error as Error).message}`); }
-      finally { tree.delete(); }
-    }
+  // The one walker (driven/fs/walk.ts): no symlinks, dot-dirs skipped, 20 000 entries, 5 000 Python files, sorted.
+  const listed = await schemaFiles.list(root, rel => rel.endsWith('.py'), (dir, error) => warn(dir, null, `Could not read directory: ${error.message}`));
+  const truncated = listed.truncated;
+  for (const rel of listed.files) {
+    let source: string;
+    try {
+      const read = await schemaFiles.read(root, rel);
+      if ('skipped' in read) { if (read.skipped === 'tooLarge') warn(rel, null, 'Skipped: file is larger than 1 MiB.'); continue; }
+      source = read.text;
+    } catch (error) { warn(rel, null, `Could not read file: ${(error as Error).message}`); continue; }
+    filesScanned++;
+    if (!PREFILTER.test(source) && rel.split('/').at(-1) !== '__init__.py') continue;
+    filesParsed++;
+    await new Promise(resolve => setTimeout(resolve, 0)); // yield between files
+    const tree = parser.parse(source);
+    if (!tree) { warn(rel, null, 'Could not parse file.'); continue; }
+    try {
+      if (tree.rootNode.hasError) warn(rel, firstErrorLine(tree.rootNode), 'Syntax error; models in this file may be incomplete.');
+      const file: PyFile = { file: rel, module: moduleName(rel), imports: new Map(), classes: new Map(), bases: new Map() };
+      readFile(tree.rootNode, file);
+      files.push(file);
+    } catch (error) { warn(rel, null, `Could not extract models: ${(error as Error).message}`); }
+    finally { tree.delete(); }
   }
 
   // Cross-file resolution: imports map to dotted module paths, matched by unique dotted suffix (handles src/ layouts).
