@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, fork, type ChildProcess } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { git } from '../electron/git';
@@ -102,6 +102,8 @@ test('a child that cannot start leaves graphs unavailable without throwing', asy
     assert.deepEqual(graph.status(), { state: 'unavailable', message: 'Code graph process failed to start: spawn EACCES' });
     assert.deepEqual(await graph.findSymbols([{ file: 'a.py', name: 'A' }]), [null]);
     await host.close('w1'); await host.close('w1');
+    // close waits for open()'s info/exclude write, so the caller may delete the folder right after.
+    assert.match(await readFile(path.join(root, '.git/info/exclude'), 'utf8'), /^\/\.codegraph\/$/m);
   } finally { await host.closeAll(); await rm(root, { recursive: true, force: true }); }
 });
 

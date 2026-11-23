@@ -60,6 +60,8 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
   };
   const graphs = new Map<string, ProxyGraph>(); // insertion order = least recently opened first
   const pending = new Map<number, (reply: Reply | 'down') => void>();
+  // In-flight info/exclude writes by root: close awaits them so the caller can delete the folder (worktree removal).
+  const excluding = new Map<string, Promise<void>>();
   let child: ChildProcess | null = null, nextId = 0, crashes = 0, startedAt = 0, restart: NodeJS.Timeout | undefined;
 
   const post = (message: WorkerRequest, to = child) => { try { to?.send(message, () => { /* exit is handled below */ }); } catch { /* channel closed */ } };
@@ -189,7 +191,11 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
 
   return {
     open(workspaceId, root) {
-      excludeCodeGraphCache(root).catch(error => console.warn('Could not add .codegraph/ to info/exclude:', short(error)));
+      if (!excluding.has(root)) {
+        const work = excludeCodeGraphCache(root).catch(error => console.warn('Could not add .codegraph/ to info/exclude:', short(error)))
+          .finally(() => excluding.delete(root));
+        excluding.set(root, work);
+      }
       let graph = graphs.get(workspaceId);
       if (graph && graph.root !== root) { void evict(graph, 'Worktree moved.'); graph = undefined; }
       graph ??= new ProxyGraph(workspaceId, root);
@@ -204,6 +210,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       const graph = graphs.get(workspaceId);
       graphs.delete(workspaceId);
       if (graph?.active) await evict(graph, 'Closed.');
+      if (graph) await excluding.get(graph.root);
     },
     async conflicts(shared, workspaceIds) {
       const reply = await call({ type: 'conflicts', shared, workspaceIds }, evaluateTimeoutMs);
@@ -213,13 +220,15 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions 
       clearTimeout(restart); restart = undefined;
       for (const graph of graphs.values()) graph.stop('Closed.');
       graphs.clear();
+      const excluded = within(Promise.all(excluding.values()), timeoutMs); // bounded like the child, so quitting never waits long
       const c = child;
-      if (!c) return;
+      if (!c) { await excluded; return; }
       child = null; settleAll();
       const gone = new Promise(resolve => { if (c.exitCode !== null || c.signalCode !== null) resolve(null); else c.once('exit', resolve); });
       post({ type: 'closeAll', id: ++nextId }, c); // the worker closes its indexes and exits
       await within(gone, timeoutMs);
       if (c.exitCode === null && c.signalCode === null) { try { c.kill('SIGKILL'); } catch { /* already gone */ } await within(gone, 1000); }
+      await excluded;
     },
   };
 }
