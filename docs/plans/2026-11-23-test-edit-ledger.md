@@ -7,6 +7,7 @@ Each replacement is at least as strict as the original.
 | Plan | File | Old | New | Why at least as strict |
 |---|---|---|---|---|
 | 01 | `tests/launch.mjs:19` | `const deadline = Date.now() + 20000;` | `const deadline = Date.now() + 180000;` | Timeout only: `npm start` now runs a full build first (spec 01). Every check is unchanged. |
+| 01 | `tests/desktop.mjs:58` | `secondaryExit === 0 && app.windows().length === 1` | `secondaryExit === 1 && app.windows().length === 1` | Spec 01 makes a second instance exit 1 with a message (loud single-instance failure); the exit code is still pinned and the one-window check is unchanged. Found by plan 02's desktop e2e gate. |
 
 Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 

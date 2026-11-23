@@ -55,7 +55,7 @@ try {
     secondary.on('error', e => { clearTimeout(timeout); reject(e); });
     secondary.on('exit', code => { clearTimeout(timeout); resolve(code); });
   });
-  check('second instance exits without opening a duplicate window', secondaryExit === 0 && app.windows().length === 1);
+  check('second instance exits without opening a duplicate window', secondaryExit === 1 && app.windows().length === 1);
   await page.getByRole('button', { name: 'Add project', exact: true }).click();
   await page.getByLabel('Repository path', { exact: true }).fill(repo);
   await page.getByRole('dialog').getByRole('button', { name: 'Open repository', exact: true }).click();
