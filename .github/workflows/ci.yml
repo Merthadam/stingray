@@ -126,7 +126,7 @@ jobs:
       - name: Verify signature
         run: codesign --verify --deep --strict release/Stingray.app
       - name: Packaged app launch smoke
-        run: node tests/package-launch.mjs
+        run: node tests/app/package-launch.mjs
         env:
           STINGRAY_TEST_EVIDENCE: artifacts/testing/package-launch
       - name: Zip

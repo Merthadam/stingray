@@ -1,7 +1,7 @@
 import type { Events, Invoke } from '../../../shared/contracts/define';
 import type { DiagramEdge, DiagramNode, SaveViewInput, SequenceData, SequenceMessage, SequenceParticipant, ViewDiagnostics, ViewLocalState, ViewResult, ViewSummary, viewsContract } from '../../../shared/contracts/views';
-import { DATABASE_VIEW, databaseView } from '../../views-database';
-import { demoDbSchema } from '../db-schema/demo';
+import { DATABASE_VIEW, databaseView } from '../../../shared/views/views-database';
+import { demoDbSchema } from '../db-schema';
 import type { DemoContext } from '../../shared/demo-context';
 
 // Sample views for the browser demo: a repo tables view, a flow with diagnostics and an invalid view file. Deterministic.

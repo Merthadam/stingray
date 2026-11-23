@@ -2,7 +2,7 @@
 // Every view type (database tables today; flows, timelines, ... later) produces the same diagram model,
 // so one renderer can draw all of them. Results come from static analysis; repository code is never executed.
 import { z } from 'zod';
-import type { InfraProvider, InfraService } from '../../src/infra/catalog';
+import type { InfraProvider, InfraService } from '../views/infra/catalog';
 import { idSchema } from './common';
 import { defineContract, event, returns } from './define';
 

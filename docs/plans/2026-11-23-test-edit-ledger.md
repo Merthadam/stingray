@@ -15,6 +15,7 @@ Each replacement is at least as strict as the original.
 | 02 | `tests/pull-requests.test.ts:152` | `service.status('/repo')` | `service.resolve('/repo', 'main', 'https://github.com/owner/app')` | Same values; assertions unchanged. |
 | 03 | tests/repo-map.mjs, tests/terminal-links.mjs:171, tests/worktree-removal.mjs:48 | kebab channels | feature.member channels | String renames only (spec 03); no assertion changed. |
 | 03 | tests/desktop.mjs | — | new check "no DEMO badge in desktop mode" | New check. |
+| 04 | path strings in 9 test files (table in plan 04 Task 6, plus `tests/views/views.test.ts:11`) | old paths | moved paths | Fixture/entry path strings only. `tests/db-schema/db-schema.test.ts:11`, `tests/views/view-service.test.ts:11` and `tests/views/views.test.ts:11` (wasm path) were not in the spec's list but are the same kind of path string. |
 
 Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 

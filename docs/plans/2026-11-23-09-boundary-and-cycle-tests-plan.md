@@ -23,6 +23,10 @@ line and type-only flag, resolves relative ones, classifies files into layers an
 
 **Depends on:** plan 08 committed. **Commit:** one, `test(architecture): strict import-boundary and core-cycle tests`.
 
+## Carried from plan 04
+
+- The renderer boundary rule allows `src/features/<f>/demo` as a second public entry besides `index.ts` (`src/app/demo.ts` imports each `createXDemo` from it, because `tests/app/contracts.test.ts` loads `src/app/demo.ts` under node, where the component/CSS imports of a feature `index.ts` fail); `demo.ts` files must not import components or CSS.
+
 ---
 
 ## Files
