@@ -15,6 +15,7 @@ interface Worktree {
   schema: Promise<DbSchemaResult> | null; // latest database extraction, shared by all tables views
   sqlSchema: Promise<DbSchemaResult> | null;
   pending: { viewIds: Set<string>; listChanged: boolean; timer: ReturnType<typeof setTimeout> } | null;
+  degraded?: boolean; // graph is the stand-in because host.open threw; retried on the next request
 }
 
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
@@ -133,13 +134,24 @@ export class ViewService {
     if (this.released.has(workspaceId)) throw new Error('This workspace is being removed.');
     const existing = this.worktrees.get(workspaceId);
     // Reopening marks the graph recently used and restarts it if the host closed it (open-graph cap, crashed process).
-    if (existing) { try { this.host.open(workspaceId, root); } catch { /* already degraded or logged on first open */ } return existing; }
+    let reopened: WorktreeGraph | undefined;
+    if (existing) {
+      try { reopened = this.host.open(workspaceId, root); } catch { /* already degraded or logged on first open */ }
+      if (!existing.degraded || !reopened) return existing;
+      // The graph recovered after a failed first open: rebuild this worktree on the real graph.
+      existing.unsubscribe.forEach(u => u());
+      if (existing.pending) clearTimeout(existing.pending.timer);
+      this.worktrees.delete(workspaceId);
+    }
     let graph: WorktreeGraph;
-    try { graph = this.host.open(workspaceId, root); } catch (error) {
+    let degraded = false;
+    if (reopened) graph = reopened;
+    else try { graph = this.host.open(workspaceId, root); } catch (error) {
       this.log('Code graph unavailable for views:', error);
       graph = unavailableGraph(workspaceId, root, 'Code graph unavailable; views without the graph still work.');
+      degraded = true;
     }
-    const wt: Worktree = { root, graph, unsubscribe: [], schema: null, sqlSchema: null, pending: null };
+    const wt: Worktree = { root, graph, unsubscribe: [], schema: null, sqlSchema: null, pending: null, degraded };
     this.worktrees.set(workspaceId, wt);
     wt.unsubscribe.push(
       graph.onChange(change => { void this.changed(workspaceId, wt, change).catch(() => {}); }),

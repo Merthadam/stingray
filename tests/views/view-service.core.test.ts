@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ViewService } from '../../electron/core/views';
+import { unavailableGraph } from '../../electron/core/views/graph';
 import { provideGlobMatcher, provideHasher, resetCorePorts } from '../../electron/core/shared/ports';
 import { fakeHasher } from '../fakes/git';
 import { memoryViewFiles, throwingHost } from '../fakes/views';
@@ -35,5 +36,22 @@ test('rule 2: a rejecting schema source gives the Database view a warning; other
     const database = await service.computeView('w1', root, 'database');
     assert.ok(database.warnings.some(w => /Schema scan unavailable: worker gone/.test(w.message)));
     assert.ok((await service.listViews('w1', root)).length >= 2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('rule 2: after a failed first open, the next request retries the graph host and uses the recovered graph', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'stingray-views-core-'));
+  try {
+    let opens = 0;
+    const host = { open: (id: string, r: string) => {
+      opens++;
+      if (opens === 1) throw new Error('graph host crashed');
+      return { ...unavailableGraph(id, r, ''), status: () => ({ state: 'ready' as const, message: null }) };
+    }, async close() {}, async closeAll() {} };
+    const service = new ViewService({ host, grammarPath, emit: () => {}, viewFiles: memoryViewFiles({}),
+      fileProvider: () => ({ list: async () => ({ files: [], truncated: false }), read: async () => null }), log: () => {}, dbSchema: okSchemas });
+    assert.equal((await service.computeView('w1', root, 'database')).graph.state, 'unavailable');
+    assert.equal((await service.computeView('w1', root, 'database')).graph.state, 'ready');
+    assert.equal((await service.computeView('w1', root, 'database')).graph.state, 'ready');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

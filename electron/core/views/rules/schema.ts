@@ -49,7 +49,7 @@ export const ruleSchema = z.strictObject({
   id: z.string().regex(SLUG, { error: 'Rule id must be 1-64 characters a-z, 0-9 or "-"' }),
   language: z.string().refine(l => Object.hasOwn(GRAMMAR_FILES, l), { error: issue => `Unknown language "${issue.input}"; supported: ${Object.keys(GRAMMAR_FILES).join(', ')}` }),
   files: globs.optional(),
-  query: z.string().min(1).refine(q => Buffer.byteLength(q) <= MAX_QUERY_BYTES, { error: 'Query is larger than 8 KiB' }),
+  query: z.string().min(1).refine(q => new TextEncoder().encode(q).length <= MAX_QUERY_BYTES, { error: 'Query is larger than 8 KiB' }),
   within: z.strictObject({ function: glob.optional(), class: glob.optional() }).optional(),
   emit: emitSchema,
 });
