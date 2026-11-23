@@ -1,10 +1,7 @@
-import { createServer, type Server, type Socket } from 'node:net';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
-import path from 'node:path';
 import { z } from 'zod';
 import type { ActivitySnapshot, AgentActivity, AgentPhase } from '../../../shared/contracts/activity';
-import type { ActivityHistory, ActivityRecord } from './activity-history';
+import type { ActivityRecord } from './activity-history';
+import type { ActivityConnection, ActivityPublisher, ActivitySession, HistoryRepository, ProcessProbe, SessionOutcome } from './ports';
 
 const uuid = z.string().uuid();
 const token = z.string().regex(/^[a-f0-9]{64}$/);
@@ -24,44 +21,42 @@ const hookEvent = z.object({
 }).strict().refine(e => e.token || (e.harness === 'codex' && e.run));
 type HookEvent = z.infer<typeof hookEvent>;
 type TerminalBinding = { terminalId: string; workspaceId: string; token: string };
-type Entry = AgentActivity & { startedAt: number; completedAt: number | null; run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: Socket; pid?: number; at: number; seen?: number; nonce?: string };
+const uuid4 = () => globalThis.crypto.randomUUID();
+const randomHex = (bytes: number) => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(bytes)), b => b.toString(16).padStart(2, '0')).join('');
+type Entry = AgentActivity & { startedAt: number; completedAt: number | null; run: string; runtime: string; retired: Set<string>; seq: number; completed: number; socket?: ActivityConnection; pid?: number; at: number; seen?: number; nonce?: string };
 
 /** A private local socket. Credentials bind to terminals, never to client-selected workspaces.
  * This protects against unrelated connections, not hostile code running as the same OS user
  * or inside an agent that already possesses the capability. No payloads are logged. */
+export interface ActivityOptions { leaseMs?: number; hookWorkingMs?: number; persistMs?: number; probe: ProcessProbe; now?: () => number }
 export class ActivityService {
-  private server?: Server;
-  private sockets = new Set<Socket>();
+  private connections = new Set<ActivityConnection>();
   private terminals = new Map<string, TerminalBinding>();
   private entries = new Map<string, Entry>();
   private revision = 0;
   private liveness?: ReturnType<typeof setInterval>;
-  private history?: ActivityHistory;
+  private history?: HistoryRepository;
   private persistTimer?: ReturnType<typeof setTimeout>;
   directory = '';
   endpoint = '';
+  protected readonly leaseMs: number;
   // Hook agents can stop reporting without exiting (Claude interrupted with Esc fires no hook): Working this long
   // without any event becomes unknown. Long silent tool runs also hit it; unknown is honest there too.
-  constructor(private publish: (snapshot: ActivitySnapshot) => void, private leaseMs = 20000, private hookWorkingMs = 15 * leaseMs, private persistMs = 1000) {}
-  async start() {
-    // macOS AF_UNIX paths are short; os.tmpdir() can exceed their limit.
-    this.directory = await mkdtemp('/tmp/stingray-activity-');
-    await chmod(this.directory, 0o700);
-    this.endpoint = path.join(this.directory, 'events.sock');
-    this.server = createServer(socket => this.accept(socket));
-    try {
-      await new Promise<void>((resolve, reject) => {
-        this.server!.once('error', reject);
-        this.server!.listen(this.endpoint, () => { this.server!.off('error', reject); resolve(); });
-      });
-      await chmod(this.endpoint, 0o600);
-      this.server.on('error', () => { for (const socket of this.sockets) socket.destroy(); });
-      // Hook-reported agents have no socket to close: their liveness is the agent process.
-      this.liveness = setInterval(() => this.checkProcesses(), Math.min(5000, this.leaseMs)); this.liveness.unref();
-    } catch (error) { await this.close(); throw error; }
+  private readonly hookWorkingMs: number;
+  private readonly persistMs: number;
+  private readonly probe: ProcessProbe;
+  private readonly now: () => number;
+  constructor(private publish: ActivityPublisher, options: ActivityOptions) {
+    this.leaseMs = options.leaseMs ?? 20000; this.hookWorkingMs = options.hookWorkingMs ?? 15 * this.leaseMs;
+    this.persistMs = options.persistMs ?? 1000; this.probe = options.probe; this.now = options.now ?? Date.now;
+  }
+  /** Hook-reported agents have no socket to close: their liveness is the agent process. */
+  startLiveness() {
+    this.liveness = setInterval(() => this.checkLiveness(), Math.min(5000, this.leaseMs));
+    (this.liveness as { unref?: () => void }).unref?.();
   }
   bind(terminalId: string, workspaceId: string) {
-    const binding = { terminalId, workspaceId, token: randomBytes(32).toString('hex') };
+    const binding = { terminalId, workspaceId, token: randomHex(32) };
     this.terminals.set(terminalId, binding);
     return { STINGRAY_ACTIVITY_SOCKET: this.endpoint, STINGRAY_ACTIVITY_TOKEN: binding.token };
   }
@@ -81,7 +76,7 @@ export class ActivityService {
   }
   /** Load the previous session's entries as restored history: their terminals are gone, so they only leave by dismissal,
    * workspace removal or retention. Later changes are saved at most once per `persistMs`; `flushHistory` saves at once. */
-  restore(history: ActivityHistory) {
+  restore(history: HistoryRepository) {
     this.history = history;
     for (const r of history.load()) if (!this.entries.has(r.id)) this.entries.set(r.id, {
       id: r.id, terminalId: r.terminalId, workspaceId: r.workspaceId, harness: r.harness, connection: 'disconnected', phase: r.phase,
@@ -122,17 +117,15 @@ export class ActivityService {
       this.persistTimer = setTimeout(() => {
         this.persistTimer = undefined; this.saveHistory();
       }, this.persistMs);
-      this.persistTimer.unref();
+      (this.persistTimer as { unref?: () => void }).unref?.();
     }
   }
-  private checkProcesses() {
+  checkLiveness() {
     let changed = false;
     for (const entry of this.entries.values()) {
       if (!entry.pid || entry.connection !== 'connected') continue;
-      if (entry.phase === 'working' && Date.now() - entry.seen! > this.hookWorkingMs) { entry.phase = 'unknown'; changed = true; }
-      try { process.kill(entry.pid, 0); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') { entry.connection = 'disconnected'; changed = true; }
-      }
+      if (entry.phase === 'working' && this.now() - entry.seen! > this.hookWorkingMs) { entry.phase = 'unknown'; changed = true; }
+      if (!this.probe.alive(entry.pid)) { entry.connection = 'disconnected'; changed = true; }
     }
     if (changed) this.changed();
   }
@@ -144,22 +137,26 @@ export class ActivityService {
     if (disposable) this.entries.delete(disposable.id);
     return Boolean(disposable);
   }
-  private hookEvent(socket: Socket, e: HookEvent) {
+  private hookEvent(conn: ActivityConnection, e: HookEvent) {
     // A nonce alone only reaches the live run that registered it: it cannot create entries or revive a dead one.
     const terminal = e.token ? [...this.terminals.values()].find(t => t.token === e.token)
       : this.terminals.get([...this.entries.values()].find(x => x.nonce === e.run && x.run === e.session && x.harness === e.harness && x.connection === 'connected')?.terminalId ?? '');
-    if (!terminal) { socket.destroy(); return; }
+    if (!terminal) { conn.destroy(); return; }
     let entry = [...this.entries.values()].find(x => x.terminalId === terminal.terminalId && x.harness === e.harness && x.run === e.session);
-    socket.end();
+    conn.end();
     if (entry && e.at < entry.at) return; // a racing older hook must not overwrite a newer state
-    if (e.resume && entry?.phase !== 'waiting') return;
+    if (e.resume && entry?.phase !== 'waiting') {
+      // A long Working turn reports only resume events (Claude PostToolUse): they keep it alive without a phase change.
+      if (entry && entry.phase === 'working' && e.at >= entry.at) { entry.seen = this.now(); entry.pid = e.pid; entry.at = e.at; }
+      return;
+    }
     if (!entry) {
       if (e.ended || !this.admit(terminal.terminalId)) return;
-      entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: e.harness, run: e.session, runtime: '', retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown', restored: false, startedAt: Date.now(), lastEventAt: Date.now(), completedAt: null };
+      entry = { id: uuid4(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: e.harness, run: e.session, runtime: '', retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown', restored: false, startedAt: this.now(), lastEventAt: this.now(), completedAt: null };
       this.entries.set(entry.id, entry);
     }
     const before = `${entry.connection}/${entry.phase}`;
-    entry.at = e.at; entry.pid = e.pid; entry.seen = entry.lastEventAt = Date.now();
+    entry.at = e.at; entry.pid = e.pid; entry.seen = entry.lastEventAt = this.now();
     if (e.token && e.run) entry.nonce = e.run;
     // An observed clean end (e.g. Claude /clear starts a new session) is not a lost connection.
     if (e.ended && entry.reviewRevision === null) { this.entries.delete(entry.id); this.changed(); return; }
@@ -168,89 +165,67 @@ export class ActivityService {
     if (e.completed || before !== `${entry.connection}/${entry.phase}`) this.changed();
     else this.persistSoon(); // keep the saved last-event time current
   }
-  private accept(socket: Socket) {
-    if (this.sockets.size >= 64) { socket.destroy(); return; }
-    this.sockets.add(socket);
-    let buffer = Buffer.alloc(0);
+  /** One accepted connection; null when 64 are open. The caller frames lines, applies size/rate limits and lease timers. */
+  openSession(conn: ActivityConnection): ActivitySession | null {
+    if (this.connections.size >= 64) return null;
+    this.connections.add(conn);
     let entry: Entry | undefined;
-    let windowStart = Date.now(), count = 0;
-    // Absolute authentication/valid-frame deadlines: partial-byte drips must not
-    // keep a slot or a previously Working state alive indefinitely.
-    let deadline = setTimeout(() => socket.destroy(), 2000);
-    const renewLease = () => { clearTimeout(deadline); deadline = setTimeout(() => socket.destroy(), this.leaseMs); };
-    socket.on('error', () => {});
-    socket.on('close', () => {
-      clearTimeout(deadline);
-      this.sockets.delete(socket);
-      if (entry?.socket === socket) {
+    const message = (value: unknown): SessionOutcome => {
+      if (!entry) {
+        const event = hookEvent.safeParse(value);
+        if (event.success) { this.hookEvent(conn, event.data); return 'stop'; }
+        const parsed = hello.safeParse(value);
+        if (!parsed.success) { conn.destroy(); return 'stop'; }
+        const h = parsed.data;
+        const terminal = [...this.terminals.values()].find(t => t.token === h.token);
+        if (!terminal) { conn.destroy(); return 'stop'; }
+        entry = [...this.entries.values()].find(e => e.terminalId === terminal.terminalId && e.harness === 'pi' && e.run === h.run);
+        if (entry) {
+          if (entry.retired.has(h.runtime)) { entry = undefined; conn.destroy(); return 'stop'; }
+          if (entry.runtime !== h.runtime) {
+            if (entry.retired.size >= 64) { entry = undefined; conn.destroy(); return 'stop'; }
+            entry.retired.add(entry.runtime); entry.runtime = h.runtime;
+            entry.seq = 0; entry.completed = 0;
+          }
+          // Reconnection/reload never acknowledges an unseen completion.
+          entry.socket?.destroy();
+        } else {
+          if (!this.admit(terminal.terminalId)) { conn.destroy(); return 'stop'; }
+          entry = { id: uuid4(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: 'pi', run: h.run, runtime: h.runtime, retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown', restored: false, startedAt: this.now(), lastEventAt: this.now(), completedAt: null };
+          this.entries.set(entry.id, entry);
+        }
+        entry.socket = conn;
+        entry.connection = h.supported ? 'connected' : 'unsupported';
+        entry.phase = 'unknown'; entry.lastEventAt = this.now();
+        this.changed(); return 'renew';
+      } else {
+        const parsed = state.safeParse(value);
+        if (!parsed.success || entry.socket !== conn || entry.connection !== 'connected') { conn.destroy(); return 'stop'; }
+        const s = parsed.data;
+        if (s.seq <= entry.seq || s.completed < entry.completed) { conn.destroy(); return 'stop'; }
+        entry.seq = s.seq;
+        const completed = s.completed > entry.completed;
+        const changed = completed || s.phase !== entry.phase;
+        entry.completed = s.completed; entry.phase = s.phase as AgentPhase;
+        if (changed) entry.lastEventAt = this.now();
+        if (completed) { entry.reviewRevision = this.revision + 1; entry.completedAt = entry.lastEventAt; }
+        if (changed) this.changed();
+        return 'renew';
+      }
+    };
+    const closed = () => {
+      this.connections.delete(conn);
+      if (entry?.socket === conn) {
         entry.socket = undefined;
         if (entry.connection !== 'unsupported') entry.connection = 'disconnected';
-        entry.lastEventAt = Date.now(); this.changed();
+        entry.lastEventAt = this.now(); this.changed();
       }
-    });
-    socket.on('data', chunk => {
-      // Strictly bound even an unterminated line, before parsing untrusted JSON.
-      if (buffer.length + chunk.length > 8192) { socket.destroy(); return; }
-      buffer = Buffer.concat([buffer, chunk]);
-      let end: number;
-      while (!socket.destroyed && (end = buffer.indexOf(10)) !== -1) {
-        if (end > 1024) { socket.destroy(); return; }
-        const line = buffer.subarray(0, end); buffer = buffer.subarray(end + 1);
-        if (Date.now() - windowStart >= 1000) { windowStart = Date.now(); count = 0; }
-        if (++count > 100) { socket.destroy(); return; }
-        let value: unknown;
-        try { value = JSON.parse(line.toString('utf8')); } catch { socket.destroy(); return; }
-        if (!entry) {
-          const event = hookEvent.safeParse(value);
-          if (event.success) { this.hookEvent(socket, event.data); return; }
-          const parsed = hello.safeParse(value);
-          if (!parsed.success) { socket.destroy(); return; }
-          const h = parsed.data;
-          const terminal = [...this.terminals.values()].find(t => t.token === h.token);
-          if (!terminal) { socket.destroy(); return; }
-          entry = [...this.entries.values()].find(e => e.terminalId === terminal.terminalId && e.harness === 'pi' && e.run === h.run);
-          if (entry) {
-            if (entry.retired.has(h.runtime)) { entry = undefined; socket.destroy(); return; }
-            if (entry.runtime !== h.runtime) {
-              if (entry.retired.size >= 64) { entry = undefined; socket.destroy(); return; }
-              entry.retired.add(entry.runtime); entry.runtime = h.runtime;
-              entry.seq = 0; entry.completed = 0;
-            }
-            // Reconnection/reload never acknowledges an unseen completion.
-            entry.socket?.destroy();
-          } else {
-            if (!this.admit(terminal.terminalId)) { socket.destroy(); return; }
-            entry = { id: randomUUID(), terminalId: terminal.terminalId, workspaceId: terminal.workspaceId, harness: 'pi', run: h.run, runtime: h.runtime, retired: new Set(), seq: 0, completed: 0, at: 0, reviewRevision: null, connection: 'disconnected', phase: 'unknown', restored: false, startedAt: Date.now(), lastEventAt: Date.now(), completedAt: null };
-            this.entries.set(entry.id, entry);
-          }
-          entry.socket = socket;
-          entry.connection = h.supported ? 'connected' : 'unsupported';
-          entry.phase = 'unknown'; entry.lastEventAt = Date.now();
-          renewLease();
-          this.changed();
-        } else {
-          const parsed = state.safeParse(value);
-          if (!parsed.success || entry.socket !== socket || entry.connection !== 'connected') { socket.destroy(); return; }
-          const s = parsed.data;
-          if (s.seq <= entry.seq || s.completed < entry.completed) { socket.destroy(); return; }
-          renewLease();
-          entry.seq = s.seq;
-          const completed = s.completed > entry.completed;
-          const changed = completed || s.phase !== entry.phase;
-          entry.completed = s.completed; entry.phase = s.phase as AgentPhase;
-          if (changed) entry.lastEventAt = Date.now();
-          if (completed) { entry.reviewRevision = this.revision + 1; entry.completedAt = entry.lastEventAt; }
-          if (changed) this.changed();
-        }
-      }
-      if (buffer.length > 1024) socket.destroy();
-    });
+    };
+    return { message, closed };
   }
-  async close() {
+  close() {
     clearInterval(this.liveness); clearTimeout(this.persistTimer); this.history = undefined;
-    for (const socket of this.sockets) socket.destroy();
-    this.terminals.clear(); this.entries.clear();
-    if (this.server?.listening) await new Promise<void>(resolve => this.server!.close(() => resolve()));
-    if (this.directory) await rm(this.directory, { recursive: true, force: true });
+    for (const c of this.connections) c.destroy();
+    this.connections.clear(); this.terminals.clear(); this.entries.clear();
   }
 }

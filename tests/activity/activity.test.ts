@@ -4,7 +4,7 @@ import { createConnection, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { ActivityService } from '../../electron/core/activity/activity';
+import { ActivityService } from '../../electron/app/wiring/activity';
 import { activityLabel, aggregateActivity, harnessLabel, newerActivity, relativeTime } from '../../src/features/activity/activity';
 import { type AgentActivity } from '../../shared/contracts/activity';
 
@@ -253,6 +253,18 @@ test('hook Working without events expires to unknown while the process lives', a
     await until(() => f.service.snapshot().agents[0]?.phase === 'working');
     await until(() => f.service.snapshot().agents[0].phase === 'unknown');
     assert.equal(f.service.snapshot().agents[0].connection, 'connected');
+  } finally { await f.close(); }
+});
+
+test('resume events keep a long hook Working turn alive; silence still expires it', async () => {
+  const f = await fixture(50, 200);
+  try {
+    const token = f.env.STINGRAY_ACTIVITY_TOKEN, t0 = Date.now();
+    await hook(f, hookEvent(token, { at: t0 }));
+    await until(() => f.service.snapshot().agents[0]?.phase === 'working');
+    for (let i = 1; i <= 8; i++) { await pause(60); await hook(f, hookEvent(token, { at: t0 + i, resume: true })); }
+    assert.equal(f.service.snapshot().agents[0].phase, 'working', '480 ms of resume events > hookWorkingMs 200');
+    await until(() => f.service.snapshot().agents[0].phase === 'unknown');
   } finally { await f.close(); }
 });
 

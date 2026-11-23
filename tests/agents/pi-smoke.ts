@@ -5,8 +5,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promi
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import * as pty from 'node-pty';
-import { ActivityService } from '../../electron/core/activity/activity';
-import { ActivityShell, shellQuote } from '../../electron/adapters/driven/fs/activity-shell';
+import { ActivityService, ActivityShell, shellQuote } from '../../electron/app/wiring/activity';
 
 const cli = process.env.PI_TEST_CLI;
 assert.ok(cli && path.isAbsolute(cli), 'Set PI_TEST_CLI to an installed Pi dist/cli.js');

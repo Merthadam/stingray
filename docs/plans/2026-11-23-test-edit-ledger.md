@@ -21,6 +21,7 @@ Each replacement is at least as strict as the original.
 | 05a | `tests/git/git.test.ts:37` | `removeWorkspace(primaryId, { discard: true, deleteBranch: false })` → rejects `/Only worktrees/` | same plus `fingerprint: '0'.repeat(64)` | The consent schema requires a fingerprint; a well-formed consent still gets the ownership refusal, so the check now isolates ownership from consent validation. |
 | 05a | `tests/git/git.test.ts` | — | new tests: consent without fingerprint refused; stale consent keeps the worktree and a fresh review removes it; existing branch refused before `worktree add`; failing `worktree add` reports git's reason; status with > 4 MiB output | New tests (audit 3, branch exists, git error detail, status buffer). |
 | 05a | `tests/git/worktree-removal.mjs` | — | new check "changes after the review refuse removal and reload the review" | New check (audit 3). |
+| 05b | `tests/activity/activity.test.ts` | — | new test case "resume events keep a long hook Working turn alive; silence still expires it" (audit 4) | New test. Other 05b edits are import paths only (`tests/activity/{activity,activity-shell,activity-history}.test.ts`, `tests/agents/{pi-smoke.ts,pi-observer.test.ts,hook-client.test.ts}` → `electron/app/wiring/activity`). |
 
 Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 
@@ -34,3 +35,4 @@ Baseline unit test count before plan 01: 435 (from `npm test`, `# tests 435`).
 - 03: browser demo (Vite on 127.0.0.1:5199, since the user's Vite holds 5178; headless Chrome) — demo loads, `DEMO` badge (`role=status`, "Demo data") visible in the status bar, no page errors. PASS.
 - 03: desktop mode, no `DEMO` badge — covered by the new `tests/desktop.mjs` check "no DEMO badge in desktop mode" (PASS in `npm run test:e2e`). `npm run dev` not run (port 5178 in use by the user's Vite).
 - 03: missing preload — built app launched (temp data dir) with `dist-electron/preload.cjs` temporarily hidden instead of editing `electron/main.ts`: the bridge-missing message is shown, no demo data, `window.stingray` undefined; file restored. PASS.
+- 05b: `node tests/activity/pi-activity.mjs` (non-blocking) — FAIL at the same step on 941a764 (before 05b) and after 05b: `phase('Idle')` timeout after "scrollback view cannot acknowledge unseen output at bottom" (scroll-to-bottom acknowledgement); every earlier check PASS. Pre-existing, not caused by the activity extraction.

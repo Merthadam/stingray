@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import type { TerminalEvent, TerminalInfo, TerminalSnapshot } from '../../../shared/contracts/terminals';
 import { TerminalMirror } from '../../adapters/driven/pty/terminal-mirror';
-import type { ActivityService } from '../activity/activity';
-import type { ActivityShell } from '../../adapters/driven/fs/activity-shell';
+import type { ActivityService, ShellIntegration } from '../activity';
 
 /** PATH with `dir` first and no other copy of it; unchanged when `dir` is empty. */
 export const prependPath = (value: string | undefined, dir: string) =>
@@ -14,7 +13,7 @@ type Entry = TerminalInfo & { process: pty.IPty; mirror: TerminalMirror; exitCod
 export class Terminals {
   private entries = new Map<string, Entry>();
   viewsBin = ''; // directory of the `stingray-views` launcher, set by main once installed
-  constructor(private send: (event: TerminalEvent) => void, private activity?: ActivityService, private activityShell?: ActivityShell) {}
+  constructor(private send: (event: TerminalEvent) => void, private activity?: ActivityService, private activityShell?: ShellIntegration) {}
   list(): TerminalInfo[] {
     return [...this.entries.values()].map(({ process: _, mirror: __, exitCode: ___, ...info }) => info);
   }

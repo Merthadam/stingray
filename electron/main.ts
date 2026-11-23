@@ -20,9 +20,8 @@ import { openTerminalLink } from './core/terminals/terminal-links';
 import { ContainerService } from './core/runtime/containers';
 import { PortService } from './core/runtime/ports';
 import { inspectCdp } from './core/runtime/chrome-inspect';
-import { ActivityService } from './core/activity/activity';
-import { ActivityShell } from './adapters/driven/fs/activity-shell';
-import { ActivityHistory } from './core/activity/activity-history';
+import { ActivityService, ActivityHistory, ActivityShell } from './app/wiring/activity';
+import { activityHandlers } from './adapters/driving/ipc/activity';
 import { ViewService } from './core/views';
 import { infraServiceById } from '../shared/views/infra/catalog';
 import { createCodeGraphProcessHost } from './adapters/driven/stinggraph-worker/stinggraph-process';
@@ -178,17 +177,13 @@ app.whenReady().then(async () => {
     resizeTerminal: (id, cols, rows) => terminals.resize(id, cols, rows),
     closeTerminal: id => terminals.close(id),
   });
-  registerContract(ipc, activityContract, {
-    activity: () => activity.snapshot(),
-    activityView: ids => {
-      const known = new Set(terminals.list().map(t => t.id));
-      visibleTerminals = new Set(ids.filter(id => known.has(id)));
-    },
-    acknowledgeActivity: (id, terminalId, revision) => {
+  registerContract(ipc, activityContract, activityHandlers({
+    activity,
+    setVisible: ids => { const known = new Set(terminals.list().map(t => t.id)); visibleTerminals = new Set(ids.filter(id => known.has(id))); },
+    acknowledge: (id, terminalId, revision) => {
       if (win.isFocused() && win.isVisible() && !win.isMinimized() && visibleTerminals.has(terminalId)) activity.acknowledge(id, terminalId, revision);
     },
-    dismissActivity: workspaceId => activity.dismissRestored(workspaceId),
-  });
+  }));
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
   registerContract(ipc, stinggraphContract, {
     codegraphSettings: () => ({ sharedBase: sharedBaseEnabled(app.getPath('userData')) }),

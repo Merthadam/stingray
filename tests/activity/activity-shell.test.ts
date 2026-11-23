@@ -1,15 +1,15 @@
 import test, { after } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { build } from 'esbuild';
-import { ActivityService } from '../../electron/core/activity/activity';
-import { claudeHookEvents } from '../../electron/core/activity/harnesses';
+import { ActivityService } from '../../electron/app/wiring/activity';
+import { claudeHookEvents } from '../../electron/app/wiring/activity';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import * as pty from 'node-pty';
-import { ActivityShell, shellQuote } from '../../electron/adapters/driven/fs/activity-shell';
+import { ActivityShell, shellQuote } from '../../electron/app/wiring/activity';
 
 const exec = promisify(execFile);
 const clientRoot = await mkdtemp('/tmp/stingray-shell-client-'), client = path.join(clientRoot, 'hook-client.cjs');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { ActivityService } from '../../electron/core/activity/activity';
+import { ActivityService } from '../../electron/app/wiring/activity';
 import { registerPiObserver, type PiObserverAPI } from '../../agents/pi-observer';
 
 const pause = (ms = 10) => new Promise(r => setTimeout(r, ms));

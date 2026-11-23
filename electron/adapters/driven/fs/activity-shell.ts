@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { claudeSettings, harnesses, shellQuote, type HarnessContext } from '../../../core/activity/harnesses';
+import { claudeSettings, harnesses, shellQuote, type HarnessContext } from '../../../core/activity';
 
 export { shellQuote };
 

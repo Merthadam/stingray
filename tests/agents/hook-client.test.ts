@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { claudeReport, codexReport } from '../../agents/hook-client';
-import { ActivityService } from '../../electron/core/activity/activity';
+import { ActivityService } from '../../electron/app/wiring/activity';
 
 const fixture = async (name: string) => readFile(path.join('tests/fixtures/hooks', name + '.json'), 'utf8');
 const session = '8f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f';
