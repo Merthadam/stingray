@@ -284,3 +284,78 @@ test('a running child that never confirms close: close() rejects, kill() succeed
     assert.deepEqual(logged, ['Code graph release failed; stopping the worker:']);
   } finally { await host.closeAll(); }
 });
+
+test('kill() never counts toward the crash limit: open() still spawns after repeated kills', async () => {
+  const children: EventEmitter[] = [];
+  const spawn = () => {
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true });
+    child.kill = () => { child.signalCode = 'SIGKILL'; setImmediate(() => child.emit('exit', null, 'SIGKILL')); return true; };
+    children.push(child); return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 50, exclude: async () => {} });
+  try {
+    host.open('w1', '/tmp/does-not-matter');
+    for (let i = 0; i < 4; i++) { await host.kill(); host.open('w1', '/tmp/does-not-matter'); }
+    assert.equal(children.length, 5);
+  } finally { await host.closeAll(); }
+});
+
+test('a child that survives kill() stays tracked and is SIGKILLed again by closeAll', async () => {
+  const kills: number[] = [];
+  const children: EventEmitter[] = [];
+  const spawn = () => {
+    const index = children.length;
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true });
+    child.kill = () => { kills.push(index); return true; }; // ignores the signal
+    children.push(child); return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 20, exclude: async () => {} });
+  host.open('w1', '/tmp/does-not-matter');
+  await assert.rejects(host.kill(), /did not stop/);
+  host.open('w1', '/tmp/does-not-matter');
+  assert.equal(children.length, 2, 'the next open() spawns a new worker');
+  kills.length = 0;
+  await host.closeAll();
+  assert.ok(kills.includes(0), 'the stuck worker is killed again at quit');
+});
+
+test('closeAll during a restart backoff does not block the next open()', async () => {
+  const children: EventEmitter[] = [];
+  const spawn = () => {
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null, send: () => true });
+    child.kill = () => { child.signalCode = 'SIGKILL'; setImmediate(() => child.emit('exit', null, 'SIGKILL')); return true; };
+    children.push(child); return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 20, restartBaseMs: 60_000, exclude: async () => {} });
+  try {
+    host.open('w1', '/tmp/does-not-matter');
+    children[0].emit('exit', null, 'SIGKILL'); // crash: restart pending for a minute
+    await host.closeAll();
+    host.open('w1', '/tmp/does-not-matter');
+    assert.equal(children.length, 2);
+  } finally { await host.closeAll(); }
+});
+
+test('close() after a reopen during an in-flight close closes the new graph', async () => {
+  const spawn = () => {
+    const child: any = Object.assign(new EventEmitter(), { pid: 0, exitCode: null, signalCode: null });
+    child.send = (message: WorkerRequest) => {
+      if (message.type === 'close') setTimeout(() => child.emit('message', { type: 'reply', id: message.id, result: null }), 20);
+      return true;
+    };
+    child.kill = () => { child.signalCode = 'SIGKILL'; setImmediate(() => child.emit('exit', null, 'SIGKILL')); return true; };
+    return child;
+  };
+  const host = createCodeGraphProcessHost({ spawn, timeoutMs: 500, exclude: async () => {} });
+  try {
+    host.open('w1', '/tmp/does-not-matter');
+    const first = host.close('w1');
+    const reopened = host.open('w1', '/tmp/does-not-matter');
+    assert.equal(reopened.status().state, 'starting');
+    const second = host.close('w1');
+    assert.notEqual(second, first);
+    await Promise.all([first, second]);
+    assert.deepEqual(reopened.status(), { state: 'unavailable', message: 'Closed.' });
+    assert.notEqual(host.close('w1'), second, 'a settled close is not reused');
+  } finally { await host.closeAll(); }
+});

@@ -72,6 +72,7 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions)
   let child: ChildProcess | null = null, nextId = 0, restart: NodeJS.Timeout | undefined;
   const policy = new RestartPolicy({ now });
   const closing = new Map<string, Promise<void>>(); // workspaceId -> in-flight close (views and stinggraph release share it)
+  const stuck = new Set<ChildProcess>(); // killed children that outlived timeoutMs; closeAll kills them again
 
   const post = (message: WorkerRequest, to = child) => { try { to?.send(message, () => { /* exit is handled below */ }); } catch { /* channel closed */ } };
   // 'down': no child, or it exited before replying.
@@ -218,14 +219,14 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions)
     // confirm in time (it may still hold the worktree's files); 'down' means nothing holds them.
     close(workspaceId) {
       const inFlight = closing.get(workspaceId);
-      if (inFlight) return inFlight;
+      if (inFlight && !graphs.has(workspaceId)) return inFlight; // reopened since: close the new graph too
       const job = (async () => {
         const graph = graphs.get(workspaceId);
         graphs.delete(workspaceId);
         const reply = graph?.active ? await evict(graph, 'Closed.') : undefined;
         if (graph) await excluding.get(graph.root);
         if (reply === 'timeout') throw new Error(`Code graph did not confirm closing ${workspaceId}.`);
-      })().finally(() => closing.delete(workspaceId));
+      })().finally(() => { if (closing.get(workspaceId) === job) closing.delete(workspaceId); });
       closing.set(workspaceId, job);
       return job;
     },
@@ -239,14 +240,19 @@ export function createCodeGraphProcessHost(options: CodeGraphProcessHostOptions)
       const gone = new Promise(resolve => { if (c.exitCode !== null || c.signalCode !== null) resolve(null); else c.once('exit', resolve); });
       try { c.kill('SIGKILL'); } catch { /* already gone */ }
       await within(gone, timeoutMs);
-      if (c.exitCode === null && c.signalCode === null) throw new Error('Code graph process did not stop.');
+      if (c.exitCode === null && c.signalCode === null) {
+        stuck.add(c); c.once('exit', () => stuck.delete(c));
+        throw new Error('Code graph process did not stop.');
+      }
     },
     async conflicts(shared, workspaceIds) {
       const reply = await call({ type: 'conflicts', shared, workspaceIds }, evaluateTimeoutMs);
       return typeof reply === 'object' && 'result' in reply ? reply.result as OverlayConflicts | null : null;
     },
     async closeAll() {
+      if (restart) policy.timerFired(); // a cancelled backoff must not block the next open()
       clearTimeout(restart); restart = undefined;
+      for (const s of stuck) try { s.kill('SIGKILL'); } catch { /* already gone */ }
       for (const graph of graphs.values()) graph.stop('Closed.');
       graphs.clear();
       const excluded = within(Promise.all(excluding.values()), timeoutMs); // bounded like the child, so quitting never waits long
