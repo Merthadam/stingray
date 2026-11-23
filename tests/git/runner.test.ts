@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GIT_SAFE_CONFIG, git, runGit } from '../../electron/adapters/driven/git/runner';
+import { GIT_SAFE_CONFIG, git, gitFailureDetail, runGit } from '../../electron/adapters/driven/git/runner';
 
 const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 async function repo() {
@@ -50,6 +50,11 @@ test('git() failures carry the first stderr line, without control characters or 
     await assert.rejects(git(root, ['fetch', 'https://user:secret@127.0.0.1:1/x.git']),
       (e: Error) => e.message.startsWith('Git operation failed') && !e.message.includes('secret') && e.message.length < 400);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('gitFailureDetail redacts URL passwords that contain @', () => {
+  const detail = gitFailureDetail({ stderr: "fatal: unable to access 'https://u:p@ss@host/x.git/': refused\n" });
+  assert.equal(detail, "fatal: unable to access 'https://<redacted>@host/x.git/': refused");
 });
 
 test('no git process is spawned outside electron/adapters/driven/git/', async () => {

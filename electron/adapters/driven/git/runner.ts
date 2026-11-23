@@ -24,7 +24,7 @@ export function gitFailureDetail(error: unknown): string {
   const stderr = String((error as { stderr?: unknown })?.stderr ?? '');
   const lines = stderr.split('\n').map(l => l.replace(/[\x00-\x1f\x7f]/g, '').trim()).filter(Boolean);
   const line = lines.find(l => /^(fatal|error):/.test(l)) ?? lines[0] ?? '';
-  return line.replace(/:\/\/[^/@\s]*@/g, '://<redacted>@').slice(0, 200);
+  return line.replace(/:\/\/[^/\s]*@/g, '://<redacted>@').slice(0, 200);
 }
 
 /** Bounded git for workspace operations, with a fixed, user-facing failure message. Implements the core GitRunner port. */

@@ -145,7 +145,10 @@ export class GitService {
     const dirty = await this.runner(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']);
     // Stingray's code-graph cache is not user work either.
     const cache = await this.files.isDirectory(path.join(w.path, CACHE_DIR));
-    const changes = parseStatus(dirty).filter(c => !(cache && c.status === '??' && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
+    const userWork = (output: string) => parseStatus(output).filter(c => !(cache && c.status === '??' && (c.path === CACHE_DIR + '/' || c.path.startsWith(CACHE_DIR + '/'))));
+    const changes = userWork(dirty);
+    // The consent covers every untracked file, not just the folders the preview collapses them into.
+    const files = userWork(await this.runner(w.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { maxBuffer: 16 * 1024 * 1024 }));
     const untracked = changes.filter(c => c.status === '??').length;
     const blockers: string[] = [];
     if (!branch) blockers.push('Detached HEAD: attach these commits to a branch before removing the worktree.');
@@ -158,7 +161,7 @@ export class GitService {
     const merged = branch === w.branch && !usedElsewhere ? await mergedInto(repo.path, w.branch, (cwd, args) => this.runner(cwd, args)) : null;
     const review = { branch: w.branch, blockers, push, terminals: this.terminalCount(id), merged,
       changes: { tracked: changes.length - untracked, untracked, paths: changes.slice(0, 20).map(c => c.path) } };
-    return { ...review, fingerprint: removalFingerprint({ branch: w.branch, changes, blockers, push, merged, identity }) };
+    return { ...review, fingerprint: removalFingerprint({ branch: w.branch, changes: files, blockers, push, merged, identity }) };
   }
   removeWorkspace(id: string, consent?: RemovalConsent) {
     return this.serial(async (): Promise<RemovalResult> => {
@@ -179,10 +182,17 @@ export class GitService {
       if (dirty && !discard) throw new Error('This worktree has uncommitted changes. Confirm discarding them to remove it.');
       if (deleteBranch && !review.merged) throw new Error(`${w.branch} is not merged, so it was not deleted. Nothing was removed.`);
       try { await this.lifecycle.runBeforeRemove(id); } catch (error) { await this.lifecycle.runRemoveFailed(id); throw error; }
+      let force: boolean;
+      try {
+        // Listeners (terminals, writers) may have changed files while they ran: the consent must still match.
+        const fresh = await this.removalReview(id);
+        if (fresh.fingerprint !== fingerprint) { await this.lifecycle.runRemoveFailed(id); return { stale: fresh }; }
+        force = fresh.changes.tracked + fresh.changes.untracked > 0 && discard;
+      } catch (error) { await this.lifecycle.runRemoveFailed(id); throw error; }
       try {
         if (await this.files.isDirectory(path.join(w.path, CACHE_DIR))) await this.runner(w.path, ['clean', '-f', '-d', '-x', '-q', '--', CACHE_DIR + '/']);
-        // Without discard consent Git itself refuses if changes appeared after the review.
-        await this.runner(repo.path, ['worktree', 'remove', ...(discard ? ['--force'] : []), '--', w.path]);
+        // Force only for reviewed, consented changes; otherwise Git itself refuses if changes appeared since.
+        await this.runner(repo.path, ['worktree', 'remove', ...(force ? ['--force'] : []), '--', w.path]);
       } catch {
         await this.lifecycle.runRemoveFailed(id);
         throw new Error('Git could not remove the worktree. If files changed since the review, check again and confirm.');

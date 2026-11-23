@@ -73,7 +73,7 @@ export const matchPull = (pulls: RepoPull[], repository: string, branch: string)
 
 type RepoList = { pulls: RepoPull[]; etag: string; checkedAt: number };
 type ListResult = RepoList | { message: string };
-const lookupFailed = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT' ?
+const lookupFailed = (error: unknown) => (error as { code?: string }).code === 'ENOENT' ?
   'GitHub CLI (gh) was not found. Install it and sign in outside Stingray, then retry.' :
   'PR lookup failed. Check gh authentication, repository access and network, then retry. No login or repository changes were attempted.';
 
