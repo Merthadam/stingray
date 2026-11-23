@@ -32,8 +32,11 @@ export async function startActivitySocket(core: Pick<ActivityService, 'openSessi
   } catch (error) { await close(); throw error; }
 
   function accept(socket: Socket) {
-    const session = core.openSession({ end: () => socket.end(), destroy: () => socket.destroy(), get destroyed() { return socket.destroyed; } });
+    let session: ReturnType<typeof core.openSession>;
+    try { session = core.openSession({ end: () => socket.end(), destroy: () => socket.destroy(), get destroyed() { return socket.destroyed; } }); }
+    catch (error) { log('Activity accept failed:', error instanceof Error ? error.message : 'error'); socket.destroy(); return; }
     if (!session) { socket.destroy(); return; }
+    const opened = session;
     sockets.add(socket);
     let buffer = Buffer.alloc(0);
     let windowStart = Date.now(), count = 0;
@@ -41,7 +44,9 @@ export async function startActivitySocket(core: Pick<ActivityService, 'openSessi
     let deadline = setTimeout(() => socket.destroy(), 2000);
     const renewLease = () => { clearTimeout(deadline); deadline = setTimeout(() => socket.destroy(), options.leaseMs); };
     socket.on('error', () => {});
-    socket.on('close', () => { clearTimeout(deadline); sockets.delete(socket); session.closed(); });
+    socket.on('close', () => { clearTimeout(deadline); sockets.delete(socket);
+      try { opened.closed(); } catch (error) { log('Activity close failed:', error instanceof Error ? error.message : 'error'); }
+    });
     socket.on('data', chunk => {
       // Strictly bound even an unterminated line, before parsing untrusted JSON.
       if (buffer.length + chunk.length > 8192) { socket.destroy(); return; }
@@ -55,7 +60,7 @@ export async function startActivitySocket(core: Pick<ActivityService, 'openSessi
         let value: unknown;
         try { value = JSON.parse(line.toString('utf8')); } catch { socket.destroy(); return; }
         let outcome;
-        try { outcome = session.message(value); } catch (error) { log('Activity event failed:', error instanceof Error ? error.message : 'error'); socket.destroy(); return; }
+        try { outcome = opened.message(value); } catch (error) { log('Activity event failed:', error instanceof Error ? error.message : 'error'); socket.destroy(); return; }
         if (outcome === 'stop') return;
         if (outcome === 'renew') renewLease();
       }

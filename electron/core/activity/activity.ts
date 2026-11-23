@@ -13,7 +13,7 @@ const state = z.object({ type: z.literal('state'), seq: z.number().int().min(1).
 /** One-shot frame from a short-lived hook process (Claude Code hooks, Codex notify): authenticate + report, then close.
  * `session` is the harness's opaque session identity, `pid` the agent process used for liveness, `at` orders racing hooks.
  * Codex `start` registers a per-run `run` nonce with the terminal token; Codex notify then authenticates with that nonce
- * alone, so the terminal token never appears in argv. `resume` (async Claude tool hooks) only leaves Waiting. */
+ * alone, so the terminal token never appears in argv. `resume` (async Claude tool hooks) only leaves Waiting; during Working it only refreshes liveness. */
 const hookEvent = z.object({
   type: z.literal('event'), v: z.literal(2), token: token.optional(), run: token.optional(), harness: z.enum(['claude', 'codex']),
   session: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), pid: z.number().int().min(2).max(2 ** 22), at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
