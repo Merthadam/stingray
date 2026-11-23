@@ -1,6 +1,6 @@
 # Step 2 — Dead code (audit 17)
 
-Status: draft · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: draft (decisions final) · Commit 2 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 
@@ -11,6 +11,9 @@ Delete code that no caller uses before contracts and moves, so later steps do no
 - Keeping or deleting anything not listed here. "Looks unused" is not enough; each removal below was grepped.
 - Removing the SQLAlchemy extractor (`extractDbSchema`): it is used by views and the CLI.
 - Removing the demo's sample schema (`demoDbSchema`): demo views use it.
+- Removing `identity` from `reviewPushStatus` (`electron/worktree-removal.ts:4-17`): it is unused today, but the
+  removal consent fingerprint (audit 3, [step 7](2026-11-23-07-audit-fixes-design.md#finding-3--removal-consent-race))
+  needs the upstream tip it carries. It stays.
 
 ## Current behaviour (verified)
 
@@ -32,11 +35,7 @@ Delete code that no caller uses before contracts and moves, so later steps do no
   `src/project-home.prototype.html`. Only entry is the `prototype:home` script (`package.json:12`).
 - `tests/desktop.mjs:102` asserts, among other things, `!document.querySelector('.ph-switcher')`. `.ph-switcher`
   only exists in the prototype. The rest of that check (no horizontal overflow) is real and stays.
-
-### `identity` in `reviewPushStatus`
-
-- `electron/worktree-removal.ts:4-17` returns `{ push, identity }`; the only caller
-  (`electron/git.ts:153`) destructures `{ push }` only. No test reads `identity` (grep `tests/`).
+  Dropping the clause is an assertion replacement and is listed in the PR description (OQ3).
 
 ### `PullRequestService.status()`
 
@@ -51,9 +50,7 @@ Delete code that no caller uses before contracts and moves, so later steps do no
 2. `git rm` the three prototype files; remove the `prototype:home` script; in `tests/desktop.mjs:102` drop only the
    `&& !document.querySelector('.ph-switcher')` clause and the words "or a prototype switcher" from the label.
    The overflow assertion stays as is.
-3. `reviewPushStatus` returns `RemovalReview['push']` directly; `git.ts:153-154` adapts
-   (`const push = branch ? await reviewPushStatus(...) : {...}`).
-4. Delete `PullRequestService.status()`. Rewrite its test calls as `resolve(cwd, branch, remote)` with the same
+3. Delete `PullRequestService.status()`. Rewrite its test calls as `resolve(cwd, branch, remote)` with the same
    branch/remote the fake runner returned:
    - line 74: `service.resolve('/repo', 'feature/ui', 'git@github.com:owner/app.git')`;
    - "missing Git, detached HEAD, absent and unsupported origins" (from line 57): detached → `resolve(cwd, '', remote)`,
@@ -62,6 +59,7 @@ Delete code that no caller uses before contracts and moves, so later steps do no
      `GitStateService.compute` with a failing `status` (no `resolve` call). Check `tests/git-state.test.ts` covers
      "status error → no PR lookup"; add that assertion if not.
    - "isolates remotes" and "missing gh" tests: same substitution; assertions unchanged.
+   - Each substitution is listed old-vs-new in the PR description (OQ3); every case keeps its assertions.
 
 ## Acceptance criteria
 
@@ -69,7 +67,6 @@ Delete code that no caller uses before contracts and moves, so later steps do no
       in `electron/views-cli.ts:34,145,280`, which is the CLI's own injection and stays).
 - [ ] `src/project-home.prototype.*` gone; `prototype:home` gone; `grep -rn "ph-switcher\|project-home.prototype\|prototype:home" src tests package.json`
       finds nothing.
-- [ ] `grep -n identity electron/worktree-removal.ts` finds nothing.
 - [ ] `grep -rn "\.status(" tests/pull-requests.test.ts` finds nothing; every former case still exists as a
       `resolve` case or a git-state case.
 - [ ] `npm run check` and e2e `desktop`, `pull-requests`, `worktree-removal`, `views-tab` pass.
@@ -86,9 +83,11 @@ npm run test:e2e -- desktop pull-requests worktree-removal views-tab
 - A hidden caller of `window.stingray.dbSchema` (e.g. an agent skill or doc) breaks. Grep of `agents/` and `docs/`
   found none. Rollback: revert the commit.
 
-## Open questions
+## Decisions
 
-- `identity` (upstream ref + tip) is exactly the data the removal-consent fingerprint (step 7, finding 3) could use
-  to detect an upstream that moved between review and removal. This spec deletes it as agreed; step 7 hashes the
-  visible `push` (upstream, ahead, behind) instead. If the upstream tip itself should be part of consent, keep
-  `identity` and feed it to the fingerprint instead of deleting it.
+- **Removal identity (OQ4):** `identity` (upstream ref + tip) is not dead code; it is kept and becomes part of the
+  removal consent fingerprint in step 7.
+- **Test replacements (OQ3):** the `.ph-switcher` clause and the `PullRequestService.status()` calls are the only
+  test edits in this commit; both are listed old-vs-new in the PR description and keep every remaining assertion.
+- Deletions are limited to the grepped list above: the `db-schema` route, the project-home prototype,
+  `PullRequestService.status()`.

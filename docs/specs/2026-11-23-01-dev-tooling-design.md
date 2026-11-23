@@ -1,6 +1,6 @@
 # Step 1 — Dev tooling (audit 1, 2, 8)
 
-Status: draft · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: draft (decisions final) · Commit 1 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 
@@ -73,7 +73,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 ```
 
-The `second-instance` handler (main.ts:40) stays: the running instance still focuses its window.
+The `second-instance` handler (main.ts:40) stays: the running instance still focuses its window. Step 5 moves this
+block unchanged into `electron/app/index.ts` ([composition root](2026-11-23-05-composition-root-design.md)).
 
 ### Docs
 
@@ -96,7 +97,8 @@ the dev data dir and auto-restart.
 
 - `npm run check`.
 - `node tests/launch.mjs` (exercises `npm start`). Its ready deadline (`tests/launch.mjs:19`, 20 s) does not cover a
-  full build; raise it so it waits for the build (for example 180 s). This is a timeout change, not a weaker check.
+  full build; raise it so it waits for the build (180 s). This is a timeout change, not a weaker check; it is
+  listed in the PR description with the other test edits (OQ3).
 - New `tests/single-instance.mjs` (moved to `tests/app/` in step 4; native, run by hand and in the done-bar run,
   not a new e2e suite): start
   `electron .` with a temp `STINGRAY_DATA_DIR`, start a second one with the same dir, assert exit code 1 and
@@ -111,7 +113,11 @@ the dev data dir and auto-restart.
 - `npm start` becomes slower (tsc + vite + esbuild). `tests/launch.mjs` timeout must follow (see above).
 - Rollback: revert the commit; behaviour returns to build-once dev and `electron .` start.
 
-## Open questions
+## Decisions
 
-- Should `npm start` skip `tsc --noEmit` (build only with vite + esbuild) to stay fast? This spec follows the
-  agreement and uses `npm run build`.
+- **`npm start` (OQ9):** `npm run build` (incl. `tsc --noEmit` typecheck) then `electron .`; no fast path.
+- Dev data dir is `<appData>/Stingray-dev` unless `STINGRAY_DATA_DIR` is set; nothing is copied into it.
+- Main-process code is rebuilt by esbuild watch and Electron is restarted; no in-process hot reload.
+- A failed single-instance lock prints an error naming the data dir and exits with code 1.
+- Build entry `electron/main.ts` keeps its path through the whole PR (it becomes the thin entry in step 5), so the
+  watch set up here keeps working after the moves.
