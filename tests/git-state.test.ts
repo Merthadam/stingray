@@ -47,7 +47,9 @@ test('shared state reports merge-base lines and the PR from the origin remote, a
     // A commit: watcher refresh with an immediate GitHub re-query.
     await git(f.repo, ['checkout', '-q', '-b', 'feature']);
     await writeFile(path.join(f.repo, 'text'), 'one\ntwo\n'); await git(f.repo, ['add', '.']); await commit(f.repo);
-    const committed = await waitFor(() => f.events.find(e => e.status?.branch === 'feature' && e.status.lines.kind === 'available' && e.status.lines.added === 1));
+    // A snapshot can land between `git add` and `git commit` (staged, not committed); wait for the clean post-commit one.
+    const committed = await waitFor(() => f.events.find(e => e.status?.branch === 'feature' && e.status.lines.kind === 'available' && e.status.lines.added === 1
+      && e.status.changes.length === 0));
     assert.deepEqual(committed.status?.uncommitted, { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 });
     await waitFor(() => f.resolves.some(r => r.branch === 'feature' && r.refresh));
     // A push moves refs/remotes/origin/<branch>.
