@@ -55,3 +55,23 @@ test('rule 2: after a failed first open, the next request retries the graph host
     assert.equal((await service.computeView('w1', root, 'database')).graph.state, 'ready');
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('rule 2: a degraded schema result (worker timeout) is not cached; the next request scans again', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'stingray-views-core-'));
+  try {
+    let calls = 0;
+    const host = { open: (id: string, r: string) => ({ ...unavailableGraph(id, r, ''), status: () => ({ state: 'ready' as const, message: null }) }), async close() {}, async closeAll() {} };
+    const dbSchema = async (id: string) => {
+      calls++;
+      return calls === 1 ? { ...empty(id), warnings: [{ file: '', line: null, message: 'Schema scan unavailable: timed out.' }] } : empty(id);
+    };
+    const service = new ViewService({ host, grammarPath, emit: () => {}, viewFiles: memoryViewFiles({}),
+      fileProvider: () => ({ list: async () => ({ files: [], truncated: false }), read: async () => null }), log: () => {},
+      dbSchema: { dbSchema, sqlSchema: async id => empty(id) } });
+    assert.ok((await service.computeView('w1', root, 'database')).warnings.some(w => /timed out/.test(w.message)));
+    assert.ok(!(await service.computeView('w1', root, 'database')).warnings.some(w => /timed out/.test(w.message)));
+    assert.equal(calls, 2);
+    await service.computeView('w1', root, 'database');
+    assert.equal(calls, 2); // healthy result stays cached while the graph is ready
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -18,6 +18,9 @@ interface Worktree {
   degraded?: boolean; // graph is the stand-in because host.open threw; retried on the next request
 }
 
+/** A schema source that timed out or had no worker: not cached, the next request scans again. */
+const degradedResult = (r: DbSchemaResult) => r.warnings.some(w => w.message.startsWith('Schema scan unavailable'));
+
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
  * class or mixin outside the scope changes the tables inside it), any code file with a graph, flowchart, layers or sequence step, or a file its rules read. */
 function affects(v: ViewFileEntry, changed: string[], code: string[], python: boolean, sql: boolean): boolean {
@@ -116,7 +119,7 @@ export class ViewService {
     const scan = this.schemas.dbSchema(workspaceId, w.root);
     w.schema = scan;
     // Keep the result only while the graph reports changes; otherwise share just the in-flight scan.
-    const drop = () => { if (w.schema === scan && w.graph.status().state === 'unavailable') w.schema = null; };
+    const drop = (r: DbSchemaResult) => { if (w.schema === scan && (w.graph.status().state === 'unavailable' || degradedResult(r))) w.schema = null; };
     scan.then(drop, () => { if (w.schema === scan) w.schema = null; });
     return scan;
   }
@@ -125,7 +128,7 @@ export class ViewService {
     if (w.sqlSchema) return w.sqlSchema;
     const scan = this.schemas.sqlSchema(workspaceId, w.root);
     w.sqlSchema = scan;
-    const drop = () => { if (w.sqlSchema === scan && w.graph.status().state === 'unavailable') w.sqlSchema = null; };
+    const drop = (r: DbSchemaResult) => { if (w.sqlSchema === scan && (w.graph.status().state === 'unavailable' || degradedResult(r))) w.sqlSchema = null; };
     scan.then(drop, () => { if (w.sqlSchema === scan) w.sqlSchema = null; });
     return scan;
   }
