@@ -32,6 +32,8 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
   const [gridded, setGridded] = useState(false);
   const [ready, setReady] = useState(false);
   const positionsRef = useRef(positions); positionsRef.current = positions;
+  // Rebuilt nodes keep their measured size: without it React Flow drops their handles, so edges and frames blink out until re-measured.
+  const measured = useRef(new Map<string, { width: number; height: number }>());
   const stateCallback = useRef(onStateChange); stateCallback.current = onStateChange;
   const byId = useMemo(() => new Map(result.nodes.map(n => [n.id, n])), [result]);
   const state = useMemo<ViewLocalState>(() => ({ hidden: [], expanded: [],
@@ -65,10 +67,10 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
       data: { label: f.group.label, provider: f.group.provider, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined }, style: { width: f.width, height: f.height }, className: f.group.provider ? `flow-frame cloud ${f.group.provider}` : 'flow-frame',
-      draggable: false, selectable: false, focusable: false, zIndex: -1,
+      draggable: false, selectable: false, focusable: false, zIndex: -1, measured: measured.current.get(`flow-frame:${i}`),
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
-      id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n }, ...size(n),
+      id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n }, ...size(n), measured: measured.current.get(n.id),
       ariaLabel: chart ? `${n.kind} ${n.label}` : n.service ? `${n.service.name} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
     })),
   ], [result, positions, frames, selected, chart, size, onOpenSource]);
@@ -97,8 +99,9 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const moved: Positions = {};
-    for (const c of changes) if (c.type === 'position' && c.position && byId.has(c.id)) {
-      moved[c.id] = { x: Math.round(c.position.x), y: Math.round(c.position.y) };
+    for (const c of changes) {
+      if (c.type === 'dimensions' && c.dimensions) measured.current.set(c.id, c.dimensions);
+      else if (c.type === 'position' && c.position && byId.has(c.id)) moved[c.id] = { x: Math.round(c.position.x), y: Math.round(c.position.y) };
     }
     if (Object.keys(moved).length) setPositions(p => ({ ...p, ...moved }));
   }, [byId]);
