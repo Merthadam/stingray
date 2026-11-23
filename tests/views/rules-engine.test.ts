@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LIMITS, createEvaluate, evaluate } from '../../electron/core/views/rules/engine';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
+import { LIMITS, createEvaluate, evaluate, codegraphGrammarDir } from '../../electron/app/wiring/views';
 import type { Emit, GraphApi, GraphStep, ResolvedView, Rule, RunGraphStep, SourcedRule } from '../../electron/core/views/rules/types';
 import type { GraphStatus } from '../../shared/contracts/views';
 
@@ -209,4 +208,15 @@ test('abort stops the evaluation with a partial result', async () => {
     graph: null, graphStatus: READY, grammarDir, signal: controller.signal });
   assert.equal(out.truncated, true);
   assert.deepEqual(out.warnings.map(w => w.message), ['Evaluation aborted']);
+});
+
+test('the engine does not list files when no rule needs them', async () => {
+  let listed = 0;
+  const files = { list: async () => { listed++; throw new Error('must not list'); }, read: async () => null };
+  const out = await evaluate({
+    view: { id: 'g', kind: 'graph', scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [], include: [], exclude: [] },
+    files, graph: null, graphStatus: { state: 'unavailable', message: null }, grammarDir: codegraphGrammarDir(),
+  } as Parameters<typeof evaluate>[0]);
+  assert.equal(listed, 0);
+  assert.ok(Array.isArray(out.nodes));
 });

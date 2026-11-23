@@ -3,7 +3,7 @@
 // per piece (the target's own body, each direct in-repo callee, or `drawn:<id>` for targets without a symbol). `check`
 // recomputes it and flags explanations whose code changed since ("may be outdated: X changed"). `stingray-views check
 // --restamp` writes the current fingerprints back into the file.
-import { createHash } from 'node:crypto';
+import { sha256 } from '../shared/ports';
 import type { DiagramGroup, DiagramNode, ExplainChanges, ExplainDiagnostic, ExplanationStatus, SymbolRef, UnresolvedLink, ViewResult, ViewWarning } from '../../../shared/contracts/views';
 import type { ComputeDeps } from './compute';
 import { MAX_PIECES, type ExplainEntry } from './rules/schema';
@@ -12,7 +12,7 @@ import type { GraphSymbol } from './rules/types';
 export type ReadSource = (file: string) => Promise<string | null>;
 type Target = DiagramNode | DiagramGroup;
 
-const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 12);
+const hash = (text: string) => sha256(text).slice(0, 12);
 const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
 
 /** Fingerprint of a symbol's own body (lines line..endLine; callees are not included), ignoring trailing whitespace and

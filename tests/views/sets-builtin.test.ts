@@ -3,12 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import type { ViewKind } from '../../shared/contracts/views';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { createFileProvider } from '../../electron/adapters/driven/fs/files';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
-import { parseRuleFileYaml } from '../../electron/core/views/rules/schema';
-import { BUILTIN_SETS, TS_EXTRACTORS, EXTRACTOR_DESCRIPTIONS } from '../../electron/core/views/sets';
-import { withInfraServices } from '../../electron/core/views/infra';
+import { evaluate, createFileProvider, codegraphGrammarDir, parseRuleFileYaml, BUILTIN_SETS, TS_EXTRACTORS, EXTRACTOR_DESCRIPTIONS, withInfraServices } from '../../electron/app/wiring/views';
 
 const fixtures = path.join(import.meta.dirname, '../fixtures/views');
 const KINDS: Record<string, ViewKind> = { alembic: 'timeline', langgraph: 'flow', terraform: 'graph', cdk: 'graph' };

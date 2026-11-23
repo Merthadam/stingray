@@ -1,8 +1,7 @@
 // Shared fixtures of the sequence tests: a fake code graph over in-memory files and a runner through the engine.
 import assert from 'node:assert/strict';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
-import { LINK_SETS, type GraphApi, type GraphLayers, type GraphRelation, type GraphSymbol, type ResolvedView, type SequenceStep } from '../../electron/core/views/rules/types';
+import { evaluate, codegraphGrammarDir, LINK_SETS } from '../../electron/app/wiring/views';
+import type { GraphApi, GraphLayers, GraphRelation, GraphSymbol, ResolvedView, SequenceStep } from '../../electron/core/views/rules/types';
 import { formatText } from '../../shared/views/views-text';
 
 const grammarDir = codegraphGrammarDir();

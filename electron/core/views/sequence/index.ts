@@ -1,6 +1,7 @@
 // `kind: sequence` views (docs/sequence-view-spec.md): resolve the entry (function or HTTP route), walk it (walk.ts), then
 // turn the trace into lifelines, rows, fragments and notes. Pure apart from reading files through the FileProvider.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
+import { matchesGlob } from '../../shared/ports';
 import type { DiagramNode, SequenceData, SequenceDiagnostic, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant, ViewWarning } from '../../../../shared/contracts/views';
 import type { FileProvider, GraphApi, GraphLayers, GraphSymbol, LinkSet, SequenceStep } from '../rules/types';
 import { FUNCTION_KINDS, at, createLoader, type ParseText } from '../flowchart';
@@ -44,7 +45,7 @@ export async function runSequence(step: SequenceStep, graph: GraphApi, files: Fi
       warnings.push({ file: entry.symbol.file, line: entry.symbol.line, message: body.error });
       return fail(body.error);
     }
-    const matches = (globs: string[], file: string) => globs.some(g => path.posix.matchesGlob(file, g));
+    const matches = (globs: string[], file: string) => globs.some(g => matchesGlob(file, g));
     const followable = (file: string) => (step.include ? matches(step.include, file) : inScope(file)) && !matches(step.exclude ?? [], file);
     const importsOf = async (file: string) => { const t = await loader.tree(file); return t ? fileImports(t.rootNode) : new Map<string, string>(); };
     const providers = [...step.links.map(l => LINK_PROVIDERS[l]), ...ruleLinks(rules)];
@@ -130,7 +131,7 @@ class Lifelines {
       const cls = this.enclosingClass(s);
       if (cls) return { id: `p:class:${s.file}#${cls.name}`, label: cls.name, kind: 'participant', subtitle: s.file, ...first };
     }
-    return { id: `p:file:${s.file}`, label: path.posix.basename(s.file), kind: 'participant', subtitle: s.file, ...first };
+    return { id: `p:file:${s.file}`, label: path.basename(s.file), kind: 'participant', subtitle: s.file, ...first };
   }
 
   /** Innermost class whose lines contain the function. */

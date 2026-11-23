@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calleesOf } from '../../electron/core/views/rules/callees';
+import { calleesOf } from '../../electron/app/wiring/views';
 import type { GraphApi, GraphRelation, GraphSymbol } from '../../electron/core/views/rules/types';
 
 const sym = (id: string, file: string, line: number): GraphSymbol => ({ id, name: id, kind: 'function', file, line });

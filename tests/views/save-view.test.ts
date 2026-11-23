@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { saveViewAs, viewSlug } from '../../electron/core/views/save-view';
-import { readViewFile } from '../../electron/core/views/view-file';
-import { parseViewYaml } from '../../electron/core/views/rules/schema';
+import { saveViewAs, viewSlug, readViewFile, parseViewYaml } from '../../electron/app/wiring/views';
 
 async function worktree(t: test.TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-save-view-'));

@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { createFileProvider } from '../../electron/adapters/driven/fs/files';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
-import { parseRuleFileYaml } from '../../electron/core/views/rules/schema';
-import { BUILTIN_SETS } from '../../electron/core/views/sets';
+import { evaluate, createFileProvider, codegraphGrammarDir, parseRuleFileYaml, BUILTIN_SETS } from '../../electron/app/wiring/views';
 
 async function run(fixture: string, exclude: string[] = []) {
   const { rules } = parseRuleFileYaml(BUILTIN_SETS.langgraph.yaml, null, 'langgraph', 'builtin/langgraph');

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { closeDatabase, database } from '../../electron/adapters/driven/sqlite/database';
 import { Store } from '../../electron/app/wiring/git';
-import { ViewStateStore } from '../../electron/core/views/view-state';
+import { ViewStateStore } from '../../electron/app/wiring/views';
 import { EditorService } from '../../electron/core/app/editors';
 
 const REPO = '11111111-1111-4111-8111-111111111111', ORPHAN_REPO = '99999999-9999-4999-8999-999999999999';

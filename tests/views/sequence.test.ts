@@ -1,11 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
-import { YamlError, parseViewYaml } from '../../electron/core/views/rules/schema';
+import { evaluate, codegraphGrammarDir, YamlError, parseViewYaml, SEQUENCE_LIMITS } from '../../electron/app/wiring/views';
 import type { GraphLayers, GraphSymbol } from '../../electron/core/views/rules/types';
 import { formatText } from '../../shared/views/views-text';
-import { SEQUENCE_LIMITS } from '../../electron/core/views/sequence/walk';
 import { fakeGraph, run, step } from './sequence-helpers';
 
 const grammarDir = codegraphGrammarDir();
@@ -315,8 +312,8 @@ test('formatText sequence: spec format with links, uncertain marks, notes-only a
 
 test('sequence externals: file imports (python, ts, require), relative imports stay in the repo, view externals win', async () => {
   const { Parser, Language } = await import('web-tree-sitter');
-  const { initTreeSitter, GRAMMAR_FILES } = await import('../../electron/adapters/driven/tree-sitter/grammars');
-  const { fileImports, externalCall } = await import('../../electron/core/views/sequence/externals');
+  const { initTreeSitter, GRAMMAR_FILES } = await import('../../electron/app/wiring/views');
+  const { fileImports, externalCall } = await import('../../electron/app/wiring/views');
   const path = await import('node:path');
   await initTreeSitter();
   const parse = async (language: string, text: string) => {

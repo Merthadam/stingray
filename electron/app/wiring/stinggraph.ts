@@ -1,5 +1,6 @@
 // Stinggraph worker adapters with their driven dependencies (git runner, fs file provider, tree-sitter grammars),
 // under the names the app, the worker entry and the existing tests use.
+import './core-ports';
 import { runGit } from '../../adapters/driven/git/runner';
 import { excludeCodeGraphCache } from '../../adapters/driven/git/git-exclude';
 import { createFileProvider } from '../../adapters/driven/fs/files';

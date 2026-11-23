@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callLabel, caseLabel, decisionLabel, endLabel, errorLabel, loopLabel, splitWords, words } from '../../electron/core/views/flowchart/labels';
+import { callLabel, caseLabel, decisionLabel, endLabel, errorLabel, loopLabel, splitWords, words } from '../../electron/app/wiring/views';
 
 test('splitWords splits snake_case, camelCase and acronyms', () => {
   assert.equal(splitWords('send_reset_email'), 'send reset email');

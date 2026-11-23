@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runLayers } from '../../electron/core/views/rules/layers';
+import { runLayers } from '../../electron/app/wiring/views';
 import type { GraphApi, GraphLayers, GraphRelation, GraphRollupEdge, GraphSymbol } from '../../electron/core/views/rules/types';
 
 // Service a (CRUD backend): modules m1 (a/x.py), m2 (a/y.py); service b: a/../b/z.py; tests/t.py unassigned.

@@ -1,7 +1,7 @@
 // Layers step (`layers:` of a kind: graph view): stinggraph's service layers as a drill-down hierarchy. Services (L1),
 // modules (L2), files (L3) and top-level symbols (L4) are nodes down to `depth`, the levels above them nested groups;
 // edges between files roll up to the drawn nodes and are labelled with their counts. Pure.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { DiagramEdge, DiagramGroup, DiagramNode, LayersDiagnostic, ViewWarning } from '../../../../shared/contracts/views';
 import type { GraphApi, GraphRelation, GraphRollupEdge, GraphSymbol, LayersStep } from './types';
 import { symbolRef } from '../explanation';
@@ -52,8 +52,8 @@ export function runLayers(step: LayersStep, graph: GraphApi, inScope: (file: str
     if (!groups.has(sid)) groups.set(sid, { id: sid, label: serviceLabel, source: null, parent: null });
     if (depth === 2) { nodes.set(mid, node(mid, moduleLabel, 'module', { group: sid })); units[file] = mid; continue; }
     if (!groups.has(mid)) groups.set(mid, { id: mid, label: moduleLabel, source: null, parent: sid });
-    const dir = path.posix.dirname(file);
-    nodes.set(fileId(file), node(fileId(file), path.posix.basename(file), 'file', { group: mid, subtitle: dir === '.' ? null : dir, source: { file, line: 1 } }));
+    const dir = path.dirname(file);
+    nodes.set(fileId(file), node(fileId(file), path.basename(file), 'file', { group: mid, subtitle: dir === '.' ? null : dir, source: { file, line: 1 } }));
     if (depth === 3) units[file] = fileId(file);
     else symbolFiles.push(file);
   }

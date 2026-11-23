@@ -2,8 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SourcedRule } from '../../electron/core/views/rules/types';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
+import { evaluate, codegraphGrammarDir } from '../../electron/app/wiring/views';
 import { fakeGraph, run, step } from './sequence-helpers';
 
 const FASTAPI = {

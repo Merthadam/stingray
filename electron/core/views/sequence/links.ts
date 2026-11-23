@@ -1,6 +1,6 @@
 // Hops the sequence walker takes besides plain `calls` edges (docs/sequence-view-spec.md §Links). Each builtin link set is
 // a LinkProvider (the other sets in *-links.ts, registered in index.ts); link rules of the view become `rule:<id>` providers.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { Node, Tree } from 'web-tree-sitter';
 import type { SourceRef } from '../../../../shared/contracts/views';
 import type { FileProvider, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
@@ -43,7 +43,7 @@ export interface LinkProvider {
 
 /** Tree-sitter node of a function symbol; null when its language is not supported or it is not found. */
 export async function functionNode(fn: GraphSymbol, ctx: LinkContext): Promise<Node | null> {
-  const language = LANGUAGES[path.posix.extname(fn.file).toLowerCase()];
+  const language = LANGUAGES[path.extname(fn.file).toLowerCase()];
   const tree = language ? await ctx.tree(fn.file) : null;
   return tree ? language.adapter.findFunction(tree.rootNode, fn.name, fn.line) : null;
 }
@@ -51,10 +51,10 @@ export async function functionNode(fn: GraphSymbol, ctx: LinkContext): Promise<N
 /** Path without extension an import points to ("services/auth/deps" for `services.auth.deps` or `.deps` from
  * services/auth/api.py, "web/lib/auth" for "./lib/auth" from web/a.ts); null for packages. */
 export function importBase(module: string, from: string): string | null {
-  const dir = path.posix.dirname(from);
-  if (module.includes('/')) return module.startsWith('.') ? path.posix.join(dir, module) : null;
+  const dir = path.dirname(from);
+  if (module.includes('/')) return module.startsWith('.') ? path.join(dir, module) : null;
   const dots = /^\.*/.exec(module)![0].length, rest = module.slice(dots).replaceAll('.', '/');
-  return dots ? path.posix.join(dir, ...Array<string>(dots - 1).fill('..'), rest) : rest;
+  return dots ? path.join(dir, ...Array<string>(dots - 1).fill('..'), rest) : rest;
 }
 
 /** The repo symbol `name` means in `from`: defined in that file, else imported from a repo file, else the only one in the

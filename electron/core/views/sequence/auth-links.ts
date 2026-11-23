@@ -3,7 +3,7 @@
 // and decorators that resolve to repo functions (`@login_required`). TS/JS: Express middleware passed before the handler
 // (`app.get(path, auth, handler)`), earlier `app.use(auth)` on the same router, and top-level wrappers (`withAuth(handler)`).
 // All of the same file as the handler; dependencies of dependencies follow when the walker enters them.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { Node } from 'web-tree-sitter';
 import type { GraphSymbol } from '../rules/types';
 import { named } from '../flowchart/cfg';
@@ -74,7 +74,7 @@ async function pythonDependencies(fn: GraphSymbol, def: Node, ctx: LinkContext):
     // `user: CurrentUser` where `CurrentUser = Annotated[User, Depends(get_user)]` (this file or where the alias is defined).
     const alias = p.childForFieldName('type')?.text;
     if (!found.length && alias && /^[A-Za-z_]\w*$/.test(alias)) {
-      const elsewhere = ctx.graph.findSymbols(alias).filter(s => !FUNCTION_KINDS.has(s.kind) && s.kind !== 'class' && s.file !== fn.file && path.posix.extname(s.file) === '.py');
+      const elsewhere = ctx.graph.findSymbols(alias).filter(s => !FUNCTION_KINDS.has(s.kind) && s.kind !== 'class' && s.file !== fn.file && path.extname(s.file) === '.py');
       for (const file of [fn.file, ...new Set(elsewhere.map(s => s.file))]) {
         const tree = file === fn.file ? def.tree : await ctx.tree(file);
         const value = tree && assigned(file, tree.rootNode, alias, ctx);
@@ -141,7 +141,7 @@ export const authLinks: LinkProvider = {
     if (!ctx.memo.has(key)) ctx.memo.set(key, (async () => {
       const def = await functionNode(fn, ctx);
       if (!def) return [];
-      const names = path.posix.extname(fn.file) === '.py' ? await pythonDependencies(fn, def, ctx) : expressMiddleware(fn, def.tree.rootNode, ctx);
+      const names = path.extname(fn.file) === '.py' ? await pythonDependencies(fn, def, ctx) : expressMiddleware(fn, def.tree.rootNode, ctx);
       const hops: Hop[] = [];
       for (const name of new Set(names)) {
         const to = await symbolNamed(name, fn.file, ctx);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ViewService } from '../../electron/core/views/service';
+import { ViewService } from '../../electron/app/wiring/views';
 import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../electron/core/views/graph';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../../electron/core/views/rules/types';
 import type { DiagramNode, GraphStatus, SymbolRef, ViewsChangedEvent } from '../../shared/contracts/views';

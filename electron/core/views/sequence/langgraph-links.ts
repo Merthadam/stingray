@@ -2,8 +2,9 @@
 // node handlers in edge order, conditional edges as an `alt` over their targets (path-map key, else the router's condition),
 // END stops, an edge back to a node already on the path is drawn once as "(loop)". Graphs come from the `langgraph`
 // builtin set's queries (sets/langgraph.ts) and router analysis (sets/langgraph-routers.ts), run on the files concerned.
-import path from 'node:path';
-import { Query, type Language, type Node, type Tree } from 'web-tree-sitter';
+import * as path from '../../shared/posix-path';
+import type { Language, Node, Query, Tree } from 'web-tree-sitter';
+import { syntaxParser } from '../../shared/ports';
 import type { GraphSymbol, Rule } from '../rules/types';
 import { parseRuleFileYaml } from '../rules/schema';
 import { renderTemplate, templateCaptures } from '../rules/template';
@@ -34,7 +35,7 @@ const queries = new WeakMap<Language, Query[]>(); // one compile per grammar for
 function compiledQueries(language: Language): Query[] {
   rules ??= parseRuleFileYaml(BUILTIN_SETS.langgraph.yaml, null, 'langgraph', 'builtin/langgraph').rules.map(r => r.rule);
   let q = queries.get(language);
-  if (!q) queries.set(language, q = rules.map(r => new Query(language, r.query)));
+  if (!q) queries.set(language, q = rules.map(r => syntaxParser().query(language, r.query)));
   return q;
 }
 
@@ -105,7 +106,7 @@ function extract(file: string, tree: Tree): FileGraphs {
 async function graphsOf(file: string, ctx: LinkContext): Promise<FileGraphs | null> {
   const key = `langgraph:${file}`;
   if (!ctx.memo.has(key)) ctx.memo.set(key, (async () => {
-    const tree = path.posix.extname(file) === '.py' ? await ctx.tree(file) : null;
+    const tree = path.extname(file) === '.py' ? await ctx.tree(file) : null;
     return tree && tree.rootNode.text.includes('StateGraph') ? extract(file, tree) : null;
   })());
   return ctx.memo.get(key) as Promise<FileGraphs | null>;
@@ -184,7 +185,7 @@ async function graphSteps(g: StateGraph, ctx: LinkContext, certain: boolean): Pr
 export const langgraphLinks: LinkProvider = {
   name: 'langgraph',
   async hops(fn, call, ctx) {
-    if (!call || !INVOKE.has(call.callee) || path.posix.extname(fn.file) !== '.py' || ctx.resolve(call)) return [];
+    if (!call || !INVOKE.has(call.callee) || path.extname(fn.file) !== '.py' || ctx.resolve(call)) return [];
     const receiver = call.path.slice(0, -(call.callee.length + 1));
     const found = receiver ? await graphFor(receiver, fn, ctx) : null;
     return found ? graphSteps(found.graph, ctx, found.certain) : [];

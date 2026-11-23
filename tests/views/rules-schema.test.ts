@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { YamlError, parseRuleFileYaml, parseViewYaml } from '../../electron/core/views/rules/schema';
-import { renderTemplate, templateCaptures } from '../../electron/core/views/rules/template';
+import { YamlError, parseRuleFileYaml, parseViewYaml, renderTemplate, templateCaptures } from '../../electron/app/wiring/views';
 
 const F = '.stingray/views/v.yaml';
 const errorOf = (text: string) => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_EXPLANATION, docstringSummary, explanationOf } from '../../electron/core/views/explanation';
+import { MAX_EXPLANATION, docstringSummary, explanationOf } from '../../electron/app/wiring/views';
 
 test('docstringSummary: first paragraph of a Python triple-quoted docstring, whitespace collapsed', () => {
   assert.equal(docstringSummary('"""Accept a Cognito access token\n    only if it is genuine.\n\n    Raises:\n        401 otherwise.\n    """'),

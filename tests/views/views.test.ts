@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { databaseView } from '../../electron/core/views/database';
-import { ViewService } from '../../electron/core/views';
+import { databaseView, ViewService } from '../../electron/app/wiring/views';
 import { createCodeGraphHost } from '../../electron/app/wiring/stinggraph';
 import type { DbColumn, DbSchemaResult, DbTable } from '../../shared/contracts/db-schema';
 

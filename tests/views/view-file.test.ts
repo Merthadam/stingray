@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MAX_VIEW_FILES, inScope, listViewFiles, loadViewPath, readViewFile, tablesView } from '../../electron/core/views/view-file';
+import { MAX_VIEW_FILES, inScope, listViewFiles, loadViewPath, readViewFile, tablesView } from '../../electron/app/wiring/views';
 import type { DiagramNode, ViewResult } from '../../shared/contracts/views';
 
 const valid = 'version: 1\nname: Core\nkind: tables\nuse: [sqlalchemy]\n';

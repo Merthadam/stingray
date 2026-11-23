@@ -1,5 +1,5 @@
 // Graph steps (m3-design.md "Graph steps"): expand start symbols through the code graph into nodes and edges. Pure.
-import path from 'node:path';
+import { matchesGlob } from '../../shared/ports';
 import type { DiagramEdge, DiagramField, DiagramNode } from '../../../../shared/contracts/views';
 import { explanationOf, symbolRef } from '../explanation';
 import type { FollowKind, GraphRelation, GraphSymbol, RunGraphStep } from './types';
@@ -13,7 +13,7 @@ const nodeId = (symbol: GraphSymbol) => 'sym:' + symbol.id;
 const at = (s: GraphSymbol) => `${s.file}:${s.line}`;
 
 export const runGraphStep: RunGraphStep = (step, graph, inScope) => {
-  const matches = (file: string, globs: string[]) => globs.some(g => path.posix.matchesGlob(file, g));
+  const matches = (file: string, globs: string[]) => globs.some(g => matchesGlob(file, g));
   const excluded = (s: GraphSymbol) => matches(s.file, step.exclude ?? []);
   const included = (s: GraphSymbol) => (step.include ? matches(s.file, step.include) : inScope(s.file));
 

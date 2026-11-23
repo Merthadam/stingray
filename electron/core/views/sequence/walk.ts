@@ -1,7 +1,7 @@
 // Walks an entry function depth-first through the code graph and records what a sequence diagram draws as a flat trace:
 // messages in call order, fragment open/branch/close markers from the constructs around call sites, error notes. Which
 // lifeline a function belongs to is decided afterwards (index.ts), when all reached files are known.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { SequenceFragmentKind, SourceRef, SymbolRef } from '../../../../shared/contracts/views';
 import type { Tree } from 'web-tree-sitter';
 import type { FileProvider, GraphApi, GraphRelation, GraphSymbol, SequenceStep } from '../rules/types';
@@ -165,7 +165,7 @@ export class SequenceWalker {
         return false;
       }
       case 'try': {
-        const python = path.posix.extname(f.symbol.file) === '.py';
+        const python = path.extname(f.symbol.file) === '.py';
         await this.arms([{ label: 'try', body: [...c.body, ...c.else] },
           ...c.handlers.map(h => ({ label: python ? truncate(`except ${h.label}`) : 'catch', body: h.body }))], f, { kind: 'try', source: at(c.code) });
         await this.body(c.finally, f);

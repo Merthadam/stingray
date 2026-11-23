@@ -4,7 +4,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MAX_VIEW_STATES, ViewStateStore } from '../../electron/core/views/view-state';
+import { MAX_VIEW_STATES, ViewStateStore } from '../../electron/app/wiring/views';
 import { Store } from '../../electron/app/wiring/git';
 
 const WS = '11111111-1111-4111-8111-111111111111', OTHER = '22222222-2222-4222-8222-222222222222';

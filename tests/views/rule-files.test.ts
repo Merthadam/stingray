@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MAX_FILES, MAX_SOURCE_BYTES, createFileProvider } from '../../electron/adapters/driven/fs/files';
+import { MAX_FILES, MAX_SOURCE_BYTES, createFileProvider } from '../../electron/app/wiring/views';
 
 async function tree(files: Record<string, string>) {
   const root = await mkdtemp(path.join(tmpdir(), 'stingray-rule-files-'));

@@ -36,3 +36,11 @@ export interface GraphHost {
   /** Close everything (app quit). */
   closeAll(): Promise<void>;
 }
+
+/** Stand-in when the graph host failed: no symbols, graph status unavailable, evaluation rejects like a down worker. */
+export function unavailableGraph(workspaceId: string, root: string, message: string): WorktreeGraph {
+  const status = { state: 'unavailable' as const, message };
+  return { workspaceId, root, status: () => status, onChange: () => () => {}, onStatus: () => () => {},
+    findSymbols: async queries => queries.map(() => null), callees: async () => null, fileSymbols: async () => null,
+    evaluateView: async () => { throw new Error('Code graph process unavailable'); } };
+}

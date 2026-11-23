@@ -2,11 +2,11 @@
 import { extractDbSchema } from '../db-schema/db-schema';
 import { extractSqlSchema, isSqlSource } from '../db-schema/sql-schema';
 import type { DbSchemaResult } from '../../../shared/contracts/db-schema';
-import type { ViewResult, ViewSummary, ViewsChangedEvent } from '../../../shared/contracts/views';
-import type { GraphChange, GraphHost, WorktreeGraph } from './graph';
+import type { ViewResult, ViewSummary } from '../../../shared/contracts/views';
+import { unavailableGraph, type GraphChange, type GraphHost, type WorktreeGraph } from './graph';
+import type { FileProviderFactory, ViewFiles, ViewsPublisher } from './ports';
 import { DATABASE_VIEW, databaseView } from './database';
 import { combineSchemas, computeView, linkSymbols } from './compute';
-import { createFileProvider } from '../../adapters/driven/fs/files';
 import { LAYERS_VIEW, RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
 
 interface Worktree {
@@ -15,7 +15,7 @@ interface Worktree {
   unsubscribe: (() => void)[];
   schema: Promise<DbSchemaResult> | null; // latest database extraction, shared by all tables views
   sqlSchema: Promise<DbSchemaResult> | null;
-  pending: { viewIds: Set<string>; listChanged: boolean; timer: NodeJS.Timeout } | null;
+  pending: { viewIds: Set<string>; listChanged: boolean; timer: ReturnType<typeof setTimeout> } | null;
 }
 
 /** Whether changed files can change a view: a rule file it uses; for valid views, any .py file with sqlalchemy (a base
@@ -34,16 +34,21 @@ export class ViewService {
   private readonly released = new Set<string>();
   private readonly host: GraphHost;
   private readonly grammarPath: string;
-  private readonly emit: (event: ViewsChangedEvent) => void;
+  private readonly emit: ViewsPublisher;
   private readonly debounceMs: number;
+  private readonly viewFiles: ViewFiles;
+  private readonly fileProvider: FileProviderFactory;
+  private readonly log: (message: string, error: unknown) => void;
 
-  constructor(options: { host: GraphHost; grammarPath: string; emit: (event: ViewsChangedEvent) => void; debounceMs?: number }) {
+  constructor(options: { host: GraphHost; grammarPath: string; emit: ViewsPublisher; debounceMs?: number;
+    viewFiles: ViewFiles; fileProvider: FileProviderFactory; log?: (message: string, error: unknown) => void }) {
     this.host = options.host; this.grammarPath = options.grammarPath; this.emit = options.emit; this.debounceMs = options.debounceMs ?? 300;
+    this.viewFiles = options.viewFiles; this.fileProvider = options.fileProvider; this.log = options.log ?? console.error;
   }
 
   async listViews(workspaceId: string, root: string): Promise<ViewSummary[]> {
     this.worktree(workspaceId, root);
-    return [DATABASE_VIEW, LAYERS_VIEW.summary, ...(await listViewFiles(root)).map(v => v.summary)];
+    return [DATABASE_VIEW, LAYERS_VIEW.summary, ...(await listViewFiles(this.viewFiles, root)).map(v => v.summary)];
   }
 
   /** Concurrent requests for the same view (and depth override) of a worktree share one computation. */
@@ -83,7 +88,7 @@ export class ViewService {
     const w = this.worktree(workspaceId, root);
     const findSymbols = w.graph.findSymbols.bind(w.graph);
     if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), findSymbols);
-    const file = viewId === LAYERS_VIEW.summary.id ? LAYERS_VIEW : await readViewFile(root, viewId);
+    const file = viewId === LAYERS_VIEW.summary.id ? LAYERS_VIEW : await readViewFile(this.viewFiles, root, viewId);
     if (!file) throw new Error(`Unknown view: ${viewId}`);
     let { view } = file;
     if (!view) throw new Error(`View file ${file.summary.file} is invalid: ${file.summary.error}`);
@@ -93,7 +98,7 @@ export class ViewService {
     if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
     if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
     return computeView({ ...file, view, layout }, {
-      workspaceId, graph: w.graph.status(), findSymbols, callees: ids => w.graph.callees(ids), fileSymbols: f => w.graph.fileSymbols(f), readSource: createFileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
+      workspaceId, graph: w.graph.status(), findSymbols, callees: ids => w.graph.callees(ids), fileSymbols: f => w.graph.fileSymbols(f), readSource: this.fileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
     });
   }
@@ -121,8 +126,12 @@ export class ViewService {
     if (this.released.has(workspaceId)) throw new Error('This workspace is being removed.');
     const existing = this.worktrees.get(workspaceId);
     // Reopening marks the graph recently used and restarts it if the host closed it (open-graph cap, crashed process).
-    if (existing) { this.host.open(workspaceId, root); return existing; }
-    const graph = this.host.open(workspaceId, root);
+    if (existing) { try { this.host.open(workspaceId, root); } catch { /* already degraded or logged on first open */ } return existing; }
+    let graph: WorktreeGraph;
+    try { graph = this.host.open(workspaceId, root); } catch (error) {
+      this.log('Code graph unavailable for views:', error);
+      graph = unavailableGraph(workspaceId, root, 'Code graph unavailable; views without the graph still work.');
+    }
     const wt: Worktree = { root, graph, unsubscribe: [], schema: null, sqlSchema: null, pending: null };
     this.worktrees.set(workspaceId, wt);
     wt.unsubscribe.push(
@@ -154,13 +163,13 @@ export class ViewService {
     listChanged ||= rules; // a rule file can make a view valid or invalid (its summary error)
     if (code.length) ids.add(LAYERS_VIEW.summary.id);
     if (code.length || rules) {
-      for (const v of await listViewFiles(w.root).catch(() => [])) if (affects(v, change.files, code, python, sql)) ids.add(v.summary.id);
+      for (const v of await listViewFiles(this.viewFiles, w.root).catch(() => [])) if (affects(v, change.files, code, python, sql)) ids.add(v.summary.id);
     }
     this.queue(workspaceId, w, ids, listChanged);
   }
 
   private async allViewIds(w: Worktree) {
-    return [DATABASE_VIEW.id, LAYERS_VIEW.summary.id, ...(await listViewFiles(w.root).catch(() => [])).map(v => v.summary.id)];
+    return [DATABASE_VIEW.id, LAYERS_VIEW.summary.id, ...(await listViewFiles(this.viewFiles, w.root).catch(() => [])).map(v => v.summary.id)];
   }
 
   /** Coalesce changes into one event per worktree, at most debounceMs after the first change. */

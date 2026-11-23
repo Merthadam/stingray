@@ -3,7 +3,7 @@
 // whose function is named like the last segment), and `task.delay/apply_async(…)` / `queue.enqueue(fn, …)` -> that task.
 // Registrations are found by text patterns over the followable files (literal names only), so hops are `certain: false`;
 // calls that resolve into the repo (an own `publish` method) stay plain calls.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { GraphSymbol } from '../rules/types';
 import { FUNCTION_KINDS } from '../flowchart';
 import { symbolNamed, type Hop, type LinkContext, type LinkProvider } from './links';
@@ -75,7 +75,7 @@ function registrations(file: string, text: string): Registration[] {
 async function registry(ctx: LinkContext): Promise<Registration[]> {
   const key = 'events:registry';
   if (!ctx.memo.has(key)) ctx.memo.set(key, (async () => {
-    const { files } = await ctx.files.list(f => SOURCES.has(path.posix.extname(f)) && ctx.followable(f));
+    const { files } = await ctx.files.list(f => SOURCES.has(path.extname(f)) && ctx.followable(f));
     const out: Registration[] = [];
     for (const file of files) {
       if (ctx.halted()) break;

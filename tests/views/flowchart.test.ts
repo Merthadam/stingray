@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate } from '../../electron/core/views/rules/engine';
-import { codegraphGrammarDir } from '../../electron/adapters/driven/tree-sitter/grammars';
-import { MAX_FLOWCHART_NODES } from '../../electron/core/views/flowchart/build';
+import { evaluate, codegraphGrammarDir, MAX_FLOWCHART_NODES } from '../../electron/app/wiring/views';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol, ResolvedView } from '../../electron/core/views/rules/types';
 import type { DiagramNode } from '../../shared/contracts/views';
 import { formatText } from '../../shared/views/views-text';

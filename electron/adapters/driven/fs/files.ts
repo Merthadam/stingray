@@ -1,12 +1,13 @@
-// Defensive worktree file provider for the engine: lists regular files (no symlinks, generated/vendored dirs skipped)
+// Defensive worktree file provider for the engine: lists regular files through walk.ts (no symlinks, generated/vendored dirs skipped)
 // and reads them like view-file.ts (O_NOFOLLOW, fstat, bounded read).
-import { open, readdir, realpath } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
-import type { FileProvider } from '../../../core/views/rules/types';
+import type { FileProvider } from '../../../core/views';
+import { walkFiles } from './walk';
 
-export const MAX_SOURCE_BYTES = 1024 * 1024, MAX_FILES = 5000, MAX_WALKED = 200_000;
-const SKIPPED_DIRS = new Set(['.git', '.codegraph', 'node_modules', 'dist', 'build', '.venv', 'venv', '__pycache__', '.next', 'target']);
+export { MAX_FILES } from './walk';
+export const MAX_SOURCE_BYTES = 1024 * 1024;
 
 /** A worktree-relative POSIX path that cannot leave the worktree, or null. */
 const relative = (file: string) => {
@@ -17,23 +18,8 @@ const relative = (file: string) => {
 export function createFileProvider(root: string): FileProvider {
   return {
     async list(keep = () => true) {
-      const files: string[] = [];
-      let walked = 0; // directory entries visited, bounded separately from the kept files
-      const walk = async (dir: string): Promise<boolean> => {
-        let entries;
-        try { entries = await readdir(path.join(root, dir), { withFileTypes: true }); } catch { return true; }
-        entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-        for (const entry of entries) {
-          if (++walked > MAX_WALKED) return false;
-          const file = dir ? `${dir}/${entry.name}` : entry.name;
-          // Dirent types come from lstat semantics: symlinks are neither files nor directories here.
-          if (entry.isDirectory()) { if (!SKIPPED_DIRS.has(entry.name) && !(await walk(file))) return false; }
-          else if (entry.isFile() && keep(file)) { if (files.length >= MAX_FILES) return false; files.push(file); }
-        }
-        return true;
-      };
-      const complete = await walk('');
-      return { files, truncated: !complete };
+      // Views stay silent on unreadable directories and an unreadable root, as before.
+      try { return await walkFiles(root, { keep }); } catch { return { files: [], truncated: false }; }
     },
     async read(file) {
       const rel = relative(file);

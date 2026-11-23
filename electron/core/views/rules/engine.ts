@@ -1,10 +1,11 @@
 // Rule engine: runs a resolved view's tree-sitter rules over the scoped files, merges the emitted nodes/edges/fields/groups,
 // adds the optional graph step and reports per-rule diagnostics. Pure: files and the code graph come in through interfaces,
 // repository code is only parsed, never executed.
-import path from 'node:path';
-import { Language, Parser, Query, type Node, type QueryMatch } from 'web-tree-sitter';
+import * as path from '../../shared/posix-path';
+import type { Language, Node, Parser, Query, QueryMatch } from 'web-tree-sitter';
 import type { DiagramEdge, DiagramField, DiagramGroup, DiagramNode, FlowchartDiagnostic, GraphStepDiagnostic, LayersDiagnostic, RuleDiagnostic, SequenceData, SequenceDiagnostic, SourceRef, SymbolRef, UnresolvedLink, ViewWarning } from '../../../../shared/contracts/views';
-import { GRAMMAR_FILES, initTreeSitter } from '../../../adapters/driven/tree-sitter/grammars';
+import { GRAMMAR_FILES } from '../../shared/grammar-files';
+import { matchesGlob, syntaxParser } from '../../shared/ports';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { explanationOf, symbolRef } from '../explanation';
 import { runGraphStep } from './graph-steps';
@@ -26,7 +27,7 @@ const languages = new Map<string, Promise<Language>>();
 function loadLanguage(file: string): Promise<Language> {
   let lang = languages.get(file);
   if (!lang) {
-    lang = initTreeSitter().then(() => Language.load(file));
+    lang = syntaxParser().loadLanguage(file);
     lang.catch(() => languages.delete(file));
     languages.set(file, lang);
   }
@@ -114,7 +115,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       if (!grammar) fail(`Unknown language "${rule.language}"`);
       else try { lang = await loadLanguage(path.join(input.grammarDir, grammar)); } catch (e) { fail(`Grammar for ${rule.language} could not be loaded: ${(e as Error).message}`); }
       let query: Query | null = null;
-      if (lang) try { query = new Query(lang, rule.query); } catch (e) { diag.errors.push(queryError(sourced, e as Error)); }
+      if (lang) try { query = syntaxParser().query(lang, rule.query); } catch (e) { diag.errors.push(queryError(sourced, e as Error)); }
       if (query) {
         const names = query.captureNames;
         const unknown = [...new Set(emitTemplates(rule.emit).flatMap(templateCaptures))].filter(c => !IMPLICIT.includes(c) && !names.includes(c));
@@ -140,10 +141,10 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       const line = (first?.startPosition.row ?? 0) + 1;
       const defs = enclosing(first);
       const within = c.sourced.rule.within;
-      if (within?.function !== undefined && !path.posix.matchesGlob(defs.function, within.function)) return;
-      if (within?.class !== undefined && !path.posix.matchesGlob(defs.class, within.class)) return;
+      if (within?.function !== undefined && !matchesGlob(defs.function, within.function)) return;
+      if (within?.class !== undefined && !matchesGlob(defs.class, within.class)) return;
       const base = new Map<string, string>([['file', file], ['line', String(line)], ['function', defs.function], ['class', defs.class],
-        ['stem', path.posix.basename(file).replace(/\.[^.]*$/, '')]]);
+        ['stem', path.basename(file).replace(/\.[^.]*$/, '')]]);
       // Quantified captures emit once per node: cartesian product over the captures this emit uses.
       let combos: Map<string, string>[] = [base];
       for (const name of new Set(emitTemplates(emit).flatMap(templateCaptures))) {
@@ -200,7 +201,8 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     }
 
     // ---- scan files ----
-    const listed = await files.list(f => inScope(f, view.scope));
+    // Listing walks the whole scope (up to 200 000 entries): only when a rule will read files.
+    const listed = byLanguage.size ? await files.list(f => inScope(f, view.scope)) : { files: [], truncated: false };
     if (listed.truncated) { truncated = true; warnings.push({ file: null, line: null, message: `More than ${LIMITS.files} files in scope (or too many files to list); only the first were scanned — narrow the scope` }); }
     const scoped = listed.files.filter(f => inScope(f, view.scope)).slice(0, LIMITS.files);
     const parsers = new Map<string, Parser>();
@@ -220,7 +222,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
       filesScanned++;
       for (const { language, lang, rules } of wanted) {
         let parser = parsers.get(language);
-        if (!parser) { parser = new Parser(); parser.setLanguage(lang); parsers.set(language, parser); }
+        if (!parser) { parser = syntaxParser().parser(lang); parsers.set(language, parser); }
         const tree = parser.parse(text);
         if (!tree) continue;
         try {
@@ -312,7 +314,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         let parser = parsers.get(language);
         if (!parser) {
           const lang = await loadLanguage(path.join(input.grammarDir, GRAMMAR_FILES[language]));
-          parser = new Parser(); parser.setLanguage(lang); parsers.set(language, parser);
+          parser = syntaxParser().parser(lang); parsers.set(language, parser);
         }
         const until = Math.min(performance.now() + LIMITS.queryMsPerFile, deadline);
         return parser.parse(text, null, { progressCallback: () => performance.now() > until || !!signal?.aborted });

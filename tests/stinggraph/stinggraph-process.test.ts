@@ -10,7 +10,7 @@ import { createCodeGraphProcessHost, serveCodeGraph, type WorkerRequest } from '
 import type { EvaluateInput, EvaluateOutput, ResolvedView } from '../../electron/core/views/rules/types';
 import type { GraphChange, WorktreeGraph } from '../../electron/core/views/graph';
 import type { GraphState, ViewsChangedEvent } from '../../shared/contracts/views';
-import { ViewService } from '../../electron/core/views/service';
+import { ViewService } from '../../electron/app/wiring/views';
 import { releaseWorkspace } from '../../electron/core/stinggraph';
 
 const worker = path.join(import.meta.dirname, '../../electron/app/stinggraph-worker.ts');

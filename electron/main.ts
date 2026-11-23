@@ -25,13 +25,11 @@ import { PortService } from './core/runtime/ports';
 import { inspectCdp } from './core/runtime/chrome-inspect';
 import { ActivityService, ActivityHistory, ActivityShell } from './app/wiring/activity';
 import { activityHandlers } from './adapters/driving/ipc/activity';
-import { ViewService } from './core/views';
-import { infraServiceById } from '../shared/views/infra/catalog';
+import { ViewService, ViewStateStore, saveViewAs } from './app/wiring/views';
+import { viewsHandlers } from './adapters/driving/ipc/views';
 import { createCodeGraphProcessHost, removeOverlay } from './app/wiring/stinggraph';
 import { stinggraphHandlers } from './adapters/driving/ipc/stinggraph';
 import { installLauncher } from './adapters/driven/fs/launcher';
-import { saveViewAs } from './core/views/save-view';
-import { ViewStateStore } from './core/views/view-state';
 import { EditorService } from './core/app/editors';
 import { StinggraphSettings, releaseWorkspace } from './core/stinggraph';
 import { LiveViews } from './core/runtime/live-view';
@@ -189,19 +187,7 @@ app.whenReady().then(async () => {
   }));
   win.webContents.on('did-start-loading', () => { visibleTerminals.clear(); });
   registerContract(ipc, stinggraphContract, stinggraphHandlers({ settings: stinggraphSettings, host: codegraph }));
-  registerContract(ipc, viewsContract, {
-    views: async id => views.listViews(id, (await git.workspace(id)).path),
-    // ViewService shares concurrent computations of the same view.
-    view: async (id, viewId, options) => views.computeView(id, (await git.workspace(id)).path, viewId, options),
-    viewState: (id, viewId) => viewState.get(id, viewId),
-    saveViewState: (id, viewId, state) => viewState.set(id, viewId, state),
-    saveViewAs: async (id, input) => saveViewAs((await git.workspace(id)).path, input),
-    openServiceDocs: serviceId => {
-      const service = infraServiceById(serviceId);
-      if (!service) throw new Error('Unknown cloud service.');
-      return shell.openExternal(service.docUrl);
-    },
-  });
+  registerContract(ipc, viewsContract, viewsHandlers({ views, viewState, git, saveViewAs, openExternal: url => electronShell.openExternal(url) }));
   registerContract(ipc, runtimeContract, {
     containers: () => containers.list(),
     stopContainer: id => containers.stop(id),

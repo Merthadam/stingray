@@ -2,10 +2,8 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import type { DiagramGroup, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { YamlError, parseViewYaml } from '../../electron/core/views/rules/schema';
-import { applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets } from '../../electron/core/views/explain';
+import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, computeView } from '../../electron/app/wiring/views';
 import type { GraphSymbol } from '../../electron/core/views/rules/types';
-import { computeView } from '../../electron/core/views/compute';
 import { formatText } from '../../shared/views/views-text';
 
 const F = '.stingray/views/v.yaml';

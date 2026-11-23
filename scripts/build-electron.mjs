@@ -3,7 +3,7 @@ import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const electronBuildOptions = { entryPoints: { main: 'electron/main.ts', preload: 'electron/adapters/driving/ipc/preload.ts', 'codegraph-worker': 'electron/app/stinggraph-worker.ts', 'views-cli': 'electron/adapters/driving/cli/views-cli.ts' }, bundle: true, platform: 'node', target: 'node22', format: 'cjs', outdir: 'dist-electron', outExtension: { '.js': '.cjs' }, external: ['electron', 'node-pty', 'web-tree-sitter', '@colbymchenry/codegraph'] };
+export const electronBuildOptions = { entryPoints: { main: 'electron/main.ts', preload: 'electron/adapters/driving/ipc/preload.ts', 'codegraph-worker': 'electron/app/stinggraph-worker.ts', 'views-cli': 'electron/app/views-cli.ts' }, bundle: true, platform: 'node', target: 'node22', format: 'cjs', outdir: 'dist-electron', outExtension: { '.js': '.cjs' }, external: ['electron', 'node-pty', 'web-tree-sitter', '@colbymchenry/codegraph'] };
 // CodeGraph runs in codegraph-worker.cjs (forked by main) and stays external: it resolves its platform bundle (grammars, native kernel, workers) from node_modules at runtime.
 
 export async function buildExtras() {

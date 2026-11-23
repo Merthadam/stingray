@@ -1,10 +1,11 @@
 // YAML view files (.stingray/views/<slug>.yaml) and rule files (.stingray/rules/<name>.yaml): parsing and validation.
 // Errors carry the YAML file and 1-based line so agents can fix them from `stingray-views check` output.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
+import { matchesGlob } from '../../shared/ports';
 import { LineCounter, isMap, isScalar, parseDocument, type Document, type Pair } from 'yaml';
 import { z } from 'zod';
 import { VIEW_KINDS, positionsSchema, type ViewKind, type ViewLayout } from '../../../../shared/contracts/views';
-import { GRAMMAR_FILES } from '../../../adapters/driven/tree-sitter/grammars';
+import { GRAMMAR_FILES } from '../../shared/grammar-files';
 import { LINK_SETS, SEQUENCE_PARTICIPANTS, type Emit, type FlowchartStep, type GraphStep, type LayersStep, type Rule, type RuleSourceName, type Scope, type SequenceStep, type SourcedRule } from './types';
 
 export const SLUG = /^[a-z0-9-]{1,64}$/;
@@ -27,7 +28,7 @@ const templates = z.array(template).max(20);
 
 /** Whether a worktree-relative POSIX path is inside a scope (default: everything). */
 export const inScope = (file: string, scope: Partial<Scope> | undefined) =>
-  (scope?.include ?? ['**/*']).some(g => path.posix.matchesGlob(file, g)) && !(scope?.exclude ?? []).some(g => path.posix.matchesGlob(file, g));
+  (scope?.include ?? ['**/*']).some(g => matchesGlob(file, g)) && !(scope?.exclude ?? []).some(g => matchesGlob(file, g));
 
 const emitSchema = z.strictObject({
   node: z.strictObject({

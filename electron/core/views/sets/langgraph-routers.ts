@@ -1,5 +1,5 @@
 // Static router enrichment for the LangGraph builtin. Keep only metadata: the engine owns/deletes the parsed trees.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { Node } from 'web-tree-sitter';
 
 interface Route { value: string; condition: string }
@@ -156,7 +156,7 @@ export class LangGraphRouters {
     const imported = module.imports.get(router) ?? module.imports.get(router.split('.')[0]);
     if (!imported) return null;
     const dots = imported.module.match(/^\.+/)?.[0].length ?? 0;
-    const base = dots ? path.posix.join(path.posix.dirname(file), ...Array(dots - 1).fill('..'), imported.module.slice(dots).replaceAll('.', '/'))
+    const base = dots ? path.join(path.dirname(file), ...Array(dots - 1).fill('..'), imported.module.slice(dots).replaceAll('.', '/'))
       : imported.module.replaceAll('.', '/');
     const target = imported.name || router.slice(router.indexOf('.') + 1);
     for (const candidate of [`${base}.py`, `${base}/__init__.py`]) {

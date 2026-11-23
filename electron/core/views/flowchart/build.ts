@@ -1,7 +1,7 @@
 // Constructs -> flowchart diagram (docs/flowchart-view-spec.md §Algorithm). Statements chain with `next` edges; branches
 // join at invisible merge points (their dangling edges continue to the next node). Calls resolved through the code graph
 // are expanded inline as groups up to `depth`, else drawn as `call` nodes.
-import path from 'node:path';
+import { matchesGlob } from '../../shared/ports';
 import type { DiagramEdge, DiagramGroup, DiagramNode } from '../../../../shared/contracts/views';
 import type { FlowchartStep, GraphApi, GraphRelation, GraphSymbol } from '../rules/types';
 import type { Call, Code, Construct, Handler } from './cfg';
@@ -243,7 +243,7 @@ export class FlowchartBuilder {
   private resolve(call: Call, f: Frame) { return resolveCall(call, f.outgoing, this.graph, this.symbolsById); }
 
   private expandable(s: GraphSymbol) {
-    const matches = (globs: string[]) => globs.some(g => path.posix.matchesGlob(s.file, g));
+    const matches = (globs: string[]) => globs.some(g => matchesGlob(s.file, g));
     return (this.step.include ? matches(this.step.include) : this.inScope(s.file)) && !matches(this.step.exclude ?? []);
   }
 

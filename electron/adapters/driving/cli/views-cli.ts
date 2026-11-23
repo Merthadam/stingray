@@ -1,5 +1,5 @@
 // `stingray-views`: checks repo view files for agents in Stingray terminals (see .superpowers/sdd/views-platform/m3-design.md).
-// Bundled to dist-electron/views-cli.cjs and run by the launcher (electron/adapters/driven/fs/launcher.ts) with ELECTRON_RUN_AS_NODE=1
+// Bundled (entry electron/app/views-cli.ts) to dist-electron/views-cli.cjs and run by the launcher (electron/adapters/driven/fs/launcher.ts) with ELECTRON_RUN_AS_NODE=1
 // and --liftoff-only. Runs the rule engine in-process; opens an existing .codegraph index read-only, never indexes or writes.
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { isMap, parseDocument } from 'yaml';
@@ -7,16 +7,10 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../../../../shared/contracts/views';
-import type { Evaluate, FileProvider, GraphApi } from '../../../core/views/rules/types';
-import { computeView } from '../../../core/views/compute';
-import { calleesOf } from '../../../core/views/rules/callees';
 import { formatText } from '../../../../shared/views/views-text';
-import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS } from '../../../core/views/sets';
-import { listViewFiles, loadViewPath } from '../../../core/views/view-file';
-import { explainPair } from '../../../core/views/rules/schema';
-import { runGit } from '../../driven/git/runner';
+import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS, calleesOf, computeView, explainPair, type Evaluate, type FileProvider, type GraphApi, type ViewFileEntry } from '../../../core/views';
 
-type LoadedView = Awaited<ReturnType<typeof loadViewPath>>;
+type LoadedView = ViewFileEntry;
 export interface OpenedGraph {
   api: GraphApi | null; status: GraphStatus; close?: () => void;
   indexedMtime?: (file: string) => number | null; // a file's mtime when the index last read it; null = not indexed
@@ -35,6 +29,7 @@ export interface CliDeps {
   sqlSchema: (root: string) => Promise<DbSchemaResult>;
   skillFile: string;
   version: string;
+  worktreeRoot(dir: string): Promise<string | null>;
 }
 
 export const USAGE = `Usage:
@@ -57,16 +52,6 @@ const where = (w: ViewWarning, fallback: string | null = null) => {
   const file = w.file ?? fallback;
   return file ? `${file}${w.line !== null ? `:${w.line}` : ''}: ${w.message}` : w.message;
 };
-
-/** Worktree of `dir`: git toplevel, else the nearest ancestor containing .stingray; null when neither. */
-export async function worktreeRoot(dir: string): Promise<string | null> {
-  try { return await realpath((await runGit(dir, ['rev-parse', '--show-toplevel'], { timeout: 10_000 })).trim()); }
-  catch { /* not a git worktree (or no git) */ }
-  for (let d = await realpath(dir); ; d = path.dirname(d)) {
-    if (await stat(path.join(d, '.stingray')).then(s => s.isDirectory(), () => false)) return d;
-    if (path.dirname(d) === d) return null;
-  }
-}
 
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const [command, ...rest] = argv;
@@ -101,7 +86,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 async function list(deps: CliDeps): Promise<number> {
-  const root = await worktreeRoot(deps.cwd);
+  const root = await deps.worktreeRoot(deps.cwd);
   if (!root) { deps.err('Not inside a git worktree or a folder with .stingray.'); return 1; }
   const views = await deps.listViews(root);
   if (!views.length) deps.out('No views yet. Create .stingray/views/<slug>.yaml (see `stingray-views help`).');
@@ -115,7 +100,7 @@ async function list(deps: CliDeps): Promise<number> {
 async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
-  const root = await worktreeRoot(path.dirname(file));
+  const root = await deps.worktreeRoot(path.dirname(file));
   if (!root || !isInside(root, file)) { deps.err(`${input} is not inside a git worktree (or a folder with .stingray).`); return 1; }
   const relFile = path.relative(root, file).split(path.sep).join('/');
 
@@ -246,44 +231,9 @@ async function restampFile(file: string, relFile: string, entries: ExplainDiagno
   return true;
 }
 
-// ---- Entry (bundled CommonJS only; tests import runCli) ----
+export const short = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0].slice(0, 300);
 
-const short = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0].slice(0, 300);
-
-async function openGraph(root: string): Promise<OpenedGraph> {
-  type Library = typeof import('@colbymchenry/codegraph');
-  try {
-    const m = await import('@colbymchenry/codegraph');
-    const lib = 'CodeGraph' in m ? m : (m as unknown as { default: Library }).default;
-    if (!lib.CodeGraph.isInitialized(root)) return { api: null, status: { state: 'unavailable', message: 'no .codegraph index in this worktree (Stingray builds it when the worktree is open)' } };
-    const cg = await lib.CodeGraph.open(root, { readOnly: true });
-    try {
-      const { createGraphApi } = await import('../../driven/stinggraph-worker/stinggraph-api');
-      return { api: createGraphApi(cg), status: { state: 'read-only', message: null }, close: () => cg.close(),
-        indexedMtime: file => { try { return cg.getFile(file)?.modifiedAt ?? null; } catch { return null; } } };
-    } catch (error) { cg.close(); throw error; }
-  } catch (error) { return { api: null, status: { state: 'unavailable', message: `could not open the code graph: ${short(error)}` } }; }
+/** Rule 1: one error boundary per CLI run — exit code 1 and a one-line message instead of a throw. */
+export async function runCliSafely(argv: string[], deps: CliDeps): Promise<number> {
+  try { return await runCli(argv, deps); } catch (error) { deps.err(`stingray-views: ${short(error)}`); return 1; }
 }
-
-async function main() {
-  // Before CodeGraph is loaded (it reads these at import/open); the launcher sets them too.
-  process.env.CODEGRAPH_TELEMETRY = '0'; process.env.CODEGRAPH_NO_UPDATE_CHECK = '1';
-  const [{ evaluate }, { codegraphGrammarDir }, { createFileProvider }, { extractDbSchema }] = await Promise.all([
-    import('../../../core/views/rules/engine'), import('../../driven/tree-sitter/grammars'), import('../../driven/fs/files'), import('../../../core/db-schema/db-schema')]);
-  const { extractSqlSchema } = await import('../../../core/db-schema/sql-schema');
-  let version = '';
-  try { version = JSON.parse(await readFile(path.join(__dirname, '../package.json'), 'utf8')).version; } catch { /* unknown */ }
-  const deps: CliDeps = {
-    cwd: process.cwd(), out: text => process.stdout.write(text + '\n'), err: text => process.stderr.write(text + '\n'),
-    loadViewPath, listViews: listViewFiles, evaluate, createFileProvider, openGraph, grammarDir: codegraphGrammarDir,
-    dbSchema: root => extractDbSchema('cli', root, path.join(__dirname, 'tree-sitter-python.wasm')),
-    sqlSchema: root => extractSqlSchema('cli', root),
-    skillFile: path.join(__dirname, 'skills/stingray-views/SKILL.md'), version,
-  };
-  let code: number;
-  try { code = await runCli(process.argv.slice(2), deps); } catch (error) { deps.err(`stingray-views: ${short(error)}`); code = 1; }
-  // Exit once output is flushed: an open CodeGraph or tree-sitter handle must not keep the CLI alive.
-  process.stdout.write('', () => process.exit(code));
-}
-
-if (typeof require !== 'undefined' && require.main === module) void main();

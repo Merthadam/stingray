@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_GRAPH_NODES, runGraphStep } from '../../electron/core/views/rules/graph-steps';
+import { MAX_GRAPH_NODES, runGraphStep } from '../../electron/app/wiring/views';
 import type { GraphApi, GraphRelation, GraphStep, GraphSymbol } from '../../electron/core/views/rules/types';
 
 // Symbols are "name@file:line"; relations "from>to:kind" (kind defaults to calls, a trailing ? marks heuristic).

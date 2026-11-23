@@ -1,6 +1,6 @@
 // `kind: flowchart` views: resolve the entry function through the code graph, parse it (and expanded callees) with
 // tree-sitter and draw its control flow. Pure apart from reading files through the FileProvider; code is never run.
-import path from 'node:path';
+import * as path from '../../shared/posix-path';
 import type { Tree } from 'web-tree-sitter';
 import type { DiagramEdge, DiagramGroup, DiagramNode, FlowchartDiagnostic, ViewWarning } from '../../../../shared/contracts/views';
 import type { FileProvider, FlowchartStep, GraphApi, GraphSymbol } from '../rules/types';
@@ -36,7 +36,7 @@ export const at = (s: GraphSymbol) => `${s.file}:${s.line}`;
 export function createLoader(files: FileProvider, parse: ParseText, kind: 'flowchart' | 'sequence' = 'flowchart') {
   const trees = new Map<string, Promise<Tree | null>>(), loaded = new Map<string, Promise<Loaded>>();
   const tree = (file: string): Promise<Tree | null> => {
-    const language = LANGUAGES[path.posix.extname(file).toLowerCase()];
+    const language = LANGUAGES[path.extname(file).toLowerCase()];
     if (!language) return Promise.resolve(null);
     let t = trees.get(file);
     if (!t) trees.set(file, t = files.read(file).then(text => text === null ? null : parse(language.grammar, text)));
@@ -45,8 +45,8 @@ export function createLoader(files: FileProvider, parse: ParseText, kind: 'flowc
   const load = (s: GraphSymbol) => {
     let l = loaded.get(s.id);
     if (!l) loaded.set(s.id, l = (async (): Promise<Loaded> => {
-      const ext = path.posix.extname(s.file).toLowerCase(), language = LANGUAGES[ext];
-      if (!language) return { error: `${kind} does not support ${ext.slice(1) || path.posix.basename(s.file)} files yet` };
+      const ext = path.extname(s.file).toLowerCase(), language = LANGUAGES[ext];
+      if (!language) return { error: `${kind} does not support ${ext.slice(1) || path.basename(s.file)} files yet` };
       const t = await tree(s.file);
       if (!t) return { error: `${s.file} could not be read or parsed in time` };
       const fn = language.adapter.findFunction(t.rootNode, s.name, s.line);
