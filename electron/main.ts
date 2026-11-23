@@ -262,6 +262,8 @@ app.whenReady().then(async () => {
   });
   void win.loadURL(rendererUrl);
 });
+// scripts/dev.mjs restarts the app with SIGUSR2: skip the running-terminals prompt (the clone guard still applies).
+if (devUrl) process.on('SIGUSR2', () => { quitting = true; app.quit(); });
 app.on('window-all-closed', () => app.quit());
 let cleanedUp = false;
 app.on('will-quit', event => {

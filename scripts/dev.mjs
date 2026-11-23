@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import electronPath from 'electron';
 import { context } from 'esbuild';
 import { createServer } from 'vite';
 import { buildExtras, electronBuildOptions } from './build-electron.mjs';
@@ -19,9 +20,17 @@ const env = { ...process.env, STINGRAY_DEV_URL: 'http://127.0.0.1:5178', STINGRA
 delete env.ELECTRON_RUN_AS_NODE;
 
 let child = null, restarting = false, pending = false, stopping = false;
-const stopChild = c => new Promise(resolve => { if (c.exitCode !== null || c.signalCode !== null) resolve(); else { c.once('exit', resolve); c.kill('SIGTERM'); } });
+// SIGUSR2 makes the dev app quit without the "stop running terminals?" prompt (electron/main.ts); a clone in progress
+// still holds the window open, so give up after 10s and kill it.
+const stopChild = c => new Promise(resolve => {
+  if (c.exitCode !== null || c.signalCode !== null) { resolve(); return; }
+  const timer = setTimeout(() => { console.error('Electron did not quit (clone in progress?); killing it.'); c.kill('SIGKILL'); }, 10_000);
+  c.once('exit', () => { clearTimeout(timer); resolve(); });
+  c.kill('SIGUSR2');
+});
 function launch() {
-  const c = spawn('node_modules/.bin/electron', ['.'], { stdio: 'inherit', env });
+  // The real binary, not the cli.js wrapper, so the SIGKILL fallback cannot orphan Electron.
+  const c = spawn(electronPath, ['.'], { stdio: 'inherit', env });
   child = c;
   // Quitting the app (not a restart) ends the dev session, as before.
   c.on('exit', code => { if (child === c) child = null; if (!restarting && !stopping) void shutdown(code || 0); });

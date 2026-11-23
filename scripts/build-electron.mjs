@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export const electronBuildOptions = { entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/codegraph-worker.ts', 'electron/views-cli.ts'], bundle: true, platform: 'node', target: 'node22', format: 'cjs', outdir: 'dist-electron', outExtension: { '.js': '.cjs' }, external: ['electron', 'node-pty', 'web-tree-sitter', '@colbymchenry/codegraph'] };
 // CodeGraph runs in codegraph-worker.cjs (forked by main) and stays external: it resolves its platform bundle (grammars, native kernel, workers) from node_modules at runtime.
@@ -19,7 +20,7 @@ export async function buildExtras() {
 }
 
 // Run directly (npm run build): same output as before. Imported (scripts/dev.mjs): nothing runs.
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await build(electronBuildOptions);
   await buildExtras();
 }
