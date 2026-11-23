@@ -8,5 +8,5 @@ test('port discovery runs only on macOS (injected platform) and asks the scanner
   const calls: string[] = [];
   const service = new PortService(() => [root], async file => { calls.push(file); return file.endsWith('ps') ? '  100     1\n' : ''; }, 'darwin');
   assert.deepEqual(await service.list(), []);
-  assert.ok(calls.length >= 1);
+  assert.deepEqual(calls, ['/bin/ps', '/usr/sbin/lsof']);
 });
