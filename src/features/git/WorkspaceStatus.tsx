@@ -5,7 +5,7 @@ import type { GitLineStats, Workspace } from '../../../shared/contracts/git';
 import { useGitState } from './useGitState';
 import './workspace-git.css';
 import type { AgentActivity } from '../../../shared/contracts/activity';
-import { PreviousActivity, WorkspaceActivity } from '../activity/WorkspaceActivity';
+import { PreviousActivity, WorkspaceActivity } from '../activity';
 
 const counts = (lines: GitLineStats) => lines.kind === 'available' ? `+${lines.added} −${lines.deleted}` : 'unavailable';
 export function WorkspaceStatus({ workspace, selected, disabled, running, agents = [], activityUnavailable = false, onSelect, onChanges, onRemove, children }: {

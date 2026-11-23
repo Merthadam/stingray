@@ -9,10 +9,9 @@ import { watch, type FSWatcher } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ignoredDirs, short } from './stinggraph';
-import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
+import type { EvaluateOutput, GraphChange, GraphHost, GraphSymbol, ResolvedView, SymbolQuery, WorktreeGraph } from '../../../core/views';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
-import type { EvaluateOutput, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
 import { RestartPolicy, type SharedBaseTarget } from '../../../core/stinggraph';
 import type { OverlayConflicts } from '@colbymchenry/codegraph';
 

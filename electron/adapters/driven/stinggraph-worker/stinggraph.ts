@@ -4,14 +4,12 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import type { CodeGraph, Overlay, OverlayConflicts } from '@colbymchenry/codegraph';
-import type { GraphChange, GraphHost, SymbolQuery, WorktreeGraph } from '../../../core/views/graph';
+import type { Evaluate, FileProvider, GraphApi, GraphChange, GraphHost, GraphSymbol, ResolvedView, SymbolQuery, WorktreeGraph } from '../../../core/views';
 import type { GraphState, GraphStatus } from '../../../../shared/contracts/views';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
-import type { Evaluate, FileProvider, GraphApi, GraphSymbol, ResolvedView } from '../../../core/views/rules/types';
 import type { WorkerEvent, WorkerRequest } from './stinggraph-process';
-import { evaluate } from '../../../core/views/rules/engine';
+import { calleesOf, evaluate } from '../../../core/views';
 import { createGraphApi, createOverlayGraphApi } from './stinggraph-api';
-import { calleesOf } from '../../../core/views/rules/callees';
 import { buildOverlay, ensureBase, installOverlay, overlayConflicts, type OverlayGit } from './stinggraph-overlay';
 import type { SharedBaseTarget } from '../../../core/stinggraph';
 

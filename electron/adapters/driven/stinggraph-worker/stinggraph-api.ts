@@ -1,6 +1,6 @@
 // Adapts an open CodeGraph instance (read-write or read-only) to GraphApi. Never throws: errors read as an empty graph.
 import type { CodeGraph, Edge, MergedEdge, MergedNode, Node, Overlay } from '@colbymchenry/codegraph';
-import type { GraphApi, GraphLayers, GraphRelation, GraphRollupEdge, GraphSymbol } from '../../../core/views/rules/types';
+import type { GraphApi, GraphLayers, GraphRelation, GraphRollupEdge, GraphSymbol } from '../../../core/views';
 
 type CodeGraphLibrary = typeof import('@colbymchenry/codegraph');
 
