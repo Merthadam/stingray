@@ -48,6 +48,11 @@ let app, page;
 try {
  app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
  page = await app.firstWindow(); page.setDefaultTimeout(12000); page.on('pageerror', e => errors.push(e.message));
+ // Input is CDP-driven. Keep real desktop keys/pointer out of this test-owned window (they leaked into the PTY)
+ // and emulate OS focus in main as Playwright does in the renderer; otherwise any app taking focus silently
+ // drops acknowledgements. Visibility gating (hide/reload) stays real.
+ await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0];
+  w.setIgnoreMouseEvents(true); w.setFocusable(false); w.blur(); w.isFocused = () => true; });
  await page.getByRole('button',{name:'Add project',exact:true}).click();
  await page.getByLabel('Repository path',{exact:true}).fill(repo);
  await page.getByRole('button',{name:'Open repository',exact:true}).click();
