@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@colbymchenry/codegraph": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.3/colbymchenry-codegraph-1.6.2-sting.3.tgz",
-    "@types/prismjs": "^1.26.6",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-unicode11": "0.9.0",
     "@xterm/addon-webgl": "0.19.0",
@@ -55,6 +54,7 @@
   "devDependencies": {
     "@electron/packager": "20.3.0",
     "@types/node": "^24.0.0",
+    "@types/prismjs": "^1.26.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",

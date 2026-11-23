@@ -81,6 +81,15 @@ try {
   await diagram.getByText('posts', { exact: true }).first().waitFor();
   check('Database view draws the tables', await diagram.getByText('users', { exact: true }).count() > 0);
 
+  // Counts saves of the flow view only: switching away from Database flushes that view's own pending state.
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get('views.saveViewState');
+    globalThis.viewStateSaves = 0;
+    ipcMain.removeHandler('views.saveViewState');
+    ipcMain.handle('views.saveViewState', async (...args) => { if (args[2] === 'agent-flow') globalThis.viewStateSaves++; return original(...args); });
+  });
+  const saves = () => app.evaluate(() => globalThis.viewStateSaves);
+  const waitSaves = async (n) => { for (let i = 0; i < 50 && await saves() < n; i++) await page.waitForTimeout(100); return saves(); };
   await list.getByRole('button', { name: 'Agent flow' }).click();
   const flow = page.getByTestId('flow-diagram');
   await flow.getByRole('button', { name: 'Select transition 1. needs_plan' }).waitFor();
@@ -88,6 +97,15 @@ try {
   check('flow view labels branches with router conditions', await flow.getByRole('button', { name: 'Select transition else' }).count() === 1
     && await flow.getByRole('button', { name: 'Select transition retry' }).count() === 1);
   check('flow view draws every transition', await flow.locator('.react-flow__edge').count() === 6);
+  await page.waitForTimeout(1000); // automatic layout settled
+  check('opening a flow view writes no view state', await saves() === 0);
+  const card = await flow.locator('.flow-card').first().boundingBox();
+  await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2); await page.mouse.down();
+  await page.mouse.move(card.x + card.width / 2 + 80, card.y + card.height / 2 + 40, { steps: 8 }); await page.mouse.up();
+  check('dragging a card saves the layout', await waitSaves(1) >= 1);
+  const afterDrag = await saves();
+  await page.getByRole('button', { name: 'Re-layout the diagram' }).click();
+  check('re-layout saves the new layout once it is computed', await waitSaves(afterDrag + 1) > afterDrag);
   await flow.getByRole('button', { name: 'Select transition 1. needs_plan' }).click();
   check('clicking a branch shows its source', /agent\/graph\/builder\.py:\d+/.test(await page.getByRole('complementary', { name: 'Transition details' }).innerText()));
   await page.getByRole('button', { name: /Diagnostics/ }).click();

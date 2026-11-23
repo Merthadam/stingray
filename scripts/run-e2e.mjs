@@ -9,7 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-export const suites = { desktop: 'app', 'repo-map': 'repo-map', 'terminal-links': 'terminals', 'workspace-status': 'runtime', 'pull-requests': 'git', 'worktree-removal': 'git', 'add-project': 'git', 'views-tab': 'views' };
+export const suites = { desktop: 'app', 'repo-map': 'repo-map', 'terminal-links': 'terminals', 'workspace-status': 'runtime', 'pull-requests': 'git', 'worktree-removal': 'git', 'add-project': 'git', 'views-tab': 'views', 'pi-activity': 'activity' };
 const names = Object.keys(suites);
 
 const args = process.argv.slice(2);

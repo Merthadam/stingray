@@ -5,6 +5,7 @@ import type { LiveViewTarget, WorkspacePort } from '../../shared/contracts/runti
 import type { State, Workspace } from '../../shared/contracts/git';
 import type { TerminalInfo } from '../../shared/contracts/terminals';
 import { TerminalPane } from '../features/terminals/TerminalPane';
+import { terminalEvents } from '../features/terminals';
 import { BrowserPane, BrowserSplitter, useBrowserSplit } from '../features/runtime/BrowserPane';
 import { Modal } from '../shared/Modal';
 import { ProjectHome } from './ProjectHome';
@@ -103,7 +104,7 @@ export default function App() {
     catch (e) { setLoadFailed(true); setError((e as Error).message); }
     finally { setInitializing(false); }
   }
-  useEffect(() => { void load(); return api.onTerminal(e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
+  useEffect(() => { void load(); return terminalEvents.on(null, e => { if (e.exitCode !== undefined) setTerminals(ts => ts.map(t => t.id === e.id ? { ...t, exited: true } : t)); }); }, []);
   // Working-tree edits don't touch .git: the main process polls the selected workspace (5 s); focus/visibility re-read now.
   useEffect(() => {
     void api.selectWorkspace(selected || null).catch(() => {});

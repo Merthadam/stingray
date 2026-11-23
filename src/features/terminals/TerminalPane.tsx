@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { terminalScrollback, type TerminalInfo, type TerminalEvent } from '../../../shared/contracts/terminals';
 import { api } from '../../app/api';
 import { installTerminalLinks } from './terminal-links';
+import { terminalEvents } from './terminal-event-bus';
 
 const exitMessage = (code: number) => '\r\n[Process exited: ' + code + ']\r\n';
 /** How far each disposed pane was scrolled back, so returning to a project restores the reading position. */
@@ -120,8 +121,7 @@ export function TerminalPane({ info, visible, onError, onObserve }: { info: Term
       if (event.data && (event.sequence ?? 0) > sequence) { write(event.data); sequence = event.sequence!; }
       if (event.exitCode !== undefined) showExit(event.exitCode);
     };
-    const off = api.onTerminal(event => {
-      if (event.id !== info.id) return;
+    const off = terminalEvents.on(info.id, event => {
       if (ready) consume(event); else pending.push(event);
     });
     // Restore the main-process mirror (screen, scrollback, alternate screen and input modes) at the PTY's size,

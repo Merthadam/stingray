@@ -35,12 +35,13 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
   // Rebuilt nodes keep their measured size: without it React Flow drops their handles, so edges and frames blink out until re-measured.
   const measured = useRef(new Map<string, { width: number; height: number }>());
   const stateCallback = useRef(onStateChange); stateCallback.current = onStateChange;
+  const userMoved = useRef(false); // only a drag or Re-layout persists positions
   const byId = useMemo(() => new Map(result.nodes.map(n => [n.id, n])), [result]);
   const state = useMemo<ViewLocalState>(() => ({ hidden: [], expanded: [],
     positions: Object.fromEntries(Object.entries(positions).filter(([id]) => byId.has(id)).slice(0, 1000)),
   }), [positions, byId]);
 
-  useEffect(() => { if (ready) stateCallback.current(state); }, [state, ready]);
+  useEffect(() => { if (ready && userMoved.current) stateCallback.current(state); }, [state, ready]);
   useEffect(() => {
     let live = true, timer = 0;
     setGridded(false);
@@ -100,6 +101,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const moved: Positions = {};
     for (const c of changes) {
+      if (c.type === 'position' && c.dragging === false) userMoved.current = true;
       if (c.type === 'dimensions' && c.dimensions) measured.current.set(c.id, c.dimensions);
       else if (c.type === 'position' && c.position && byId.has(c.id)) moved[c.id] = { x: Math.round(c.position.x), y: Math.round(c.position.y) };
     }
@@ -116,7 +118,7 @@ function Diagram({ result, initialState, onStateChange, onOpenSource, onOpenServ
   return <div className="er-diagram flow-diagram" data-testid="flow-diagram" onKeyDown={e => { if (e.key === 'Escape') setSelected(null); }}>
     <div className="er-toolbar" role="toolbar" aria-label="Diagram">
       <span className="er-count">{result.nodes.length} nodes · {result.edges.length} transitions{gridded && ' · automatic layout failed, showing a grid'}</span>
-      <button aria-label="Re-layout the diagram" onClick={() => { positionsRef.current = {}; setPositions({}); setReady(false); setRevision(r => r + 1); }}><LayoutGrid size={13} />Re-layout</button>
+      <button aria-label="Re-layout the diagram" onClick={() => { userMoved.current = true; positionsRef.current = {}; setPositions({}); setReady(false); setRevision(r => r + 1); }}><LayoutGrid size={13} />Re-layout</button>
       <button aria-label="Save as view" disabled={!ready || !onSaveAs}
         title={onSaveAs ? undefined : 'Set the depth back to the view’s own to save it'} onClick={() => onSaveAs?.(state)}><Save size={13} />Save as view…</button>
       <div className="er-toolbar-extra">{toolbarExtra}</div>
