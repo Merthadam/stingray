@@ -73,6 +73,17 @@ test('runLayers depth 1: one node per service with file counts, cross-service ed
   assert.deepEqual(out.diagnostic, { config: '.stinggraph/layers.yaml', depth: 1, services: 3, files: 4, nodes: 3, error: null });
 });
 
+test('runLayers leaves (unassigned) out of inferred layers (no layers.yaml), unless nothing else was found', () => {
+  const inferred = runLayers({ depth: 1 }, fakeGraph({ ...layers, config: null }), all);
+  assert.deepEqual(inferred.nodes.map(n => n.id), ['service:a', 'service:b']);
+  assert.deepEqual(edges(inferred), ['service:a -> service:b [4 · calls 3, imports 1]', 'service:b -> service:a [4 · calls 4] dashed']);
+  assert.deepEqual([inferred.diagnostic.services, inferred.diagnostic.files], [2, 3]);
+
+  const nothing: GraphLayers = { config: null, services: [layers.services[2]], errors: [],
+    assignments: Object.fromEntries(Object.keys(layers.assignments).map(f => [f, { service: '(unassigned)', module: '(unassigned)' }])) };
+  assert.deepEqual(runLayers({ depth: 1 }, fakeGraph(nothing), all).nodes.map(n => [n.id, n.subtitle]), [['service:(unassigned)', '4 files']]);
+});
+
 test('runLayers depth 2 and 3 nest modules and files in their service (and module) groups; edges re-aggregate per level', () => {
   const two = runLayers({ depth: 2 }, fakeGraph(), all);
   assert.deepEqual(two.nodes.map(n => [n.id, n.label, n.group, n.subtitle]).slice(0, 2), [['module:a/m1', 'Plans', 'service:a', '1 file'], ['module:a/m2', 'm2', 'service:a', '1 file']]);

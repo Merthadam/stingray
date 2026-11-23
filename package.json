@@ -30,7 +30,7 @@
     "env:ls": "scripts/test-env.sh ls"
   },
   "dependencies": {
-    "@colbymchenry/codegraph": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.2/colbymchenry-codegraph-1.6.2-sting.2.tgz",
+    "@colbymchenry/codegraph": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.3/colbymchenry-codegraph-1.6.2-sting.3.tgz",
     "@types/prismjs": "^1.26.6",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-unicode11": "0.9.0",
@@ -49,9 +49,9 @@
     "zod": "^4.1.0"
   },
   "optionalDependencies": {
-    "@colbymchenry/codegraph-darwin-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.2/colbymchenry-codegraph-darwin-arm64-1.6.2-sting.2.tgz",
-    "@colbymchenry/codegraph-linux-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.2/colbymchenry-codegraph-linux-arm64-1.6.2-sting.2.tgz",
-    "@colbymchenry/codegraph-linux-x64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.2/colbymchenry-codegraph-linux-x64-1.6.2-sting.2.tgz"
+    "@colbymchenry/codegraph-darwin-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.3/colbymchenry-codegraph-darwin-arm64-1.6.2-sting.3.tgz",
+    "@colbymchenry/codegraph-linux-arm64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.3/colbymchenry-codegraph-linux-arm64-1.6.2-sting.3.tgz",
+    "@colbymchenry/codegraph-linux-x64": "https://github.com/Merthadam/stinggraph/releases/download/v1.6.2-sting.3/colbymchenry-codegraph-linux-x64-1.6.2-sting.3.tgz"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
