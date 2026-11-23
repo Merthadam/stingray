@@ -8,6 +8,7 @@ import { symbolRef } from '../explanation';
 
 /** The edge kinds stinggraph's roll-up counts (ROLLUP_EDGE_KINDS), used for symbol-level edges too. */
 const ROLLUP_KINDS = ['calls', 'references', 'imports', 'instantiates', 'extends', 'implements'];
+const UNASSIGNED = '(unassigned)'; // stinggraph's UNASSIGNED
 
 export interface LayersOutput {
   groups: DiagramGroup[];
@@ -34,7 +35,11 @@ export function runLayers(step: LayersStep, graph: GraphApi, inScope: (file: str
   const expand = new Set(step.expand ?? []);
   const depthOf = (service: string) => !expand.size || expand.has(service) || expand.has(services.get(service)?.label ?? service) ? step.depth : 1;
 
-  const scoped = Object.entries(layers.assignments).filter(([file]) => inScope(file)).sort(([a], [b]) => a.localeCompare(b));
+  // Inferred layers (no layers.yaml) leave only tests, scripts, docs and root files unassigned: not part of the picture,
+  // unless nothing else was found. A declared config's unassigned files stay visible (they were left out on purpose).
+  const hideUnassigned = !layers.config && layers.services.some(s => s.id !== UNASSIGNED);
+  const scoped = Object.entries(layers.assignments)
+    .filter(([file, a]) => inScope(file) && !(hideUnassigned && a.service === UNASSIGNED)).sort(([a], [b]) => a.localeCompare(b));
   const groups = new Map<string, DiagramGroup>(), nodes = new Map<string, DiagramNode>(), counts = new Map<string, number>();
   const units: Record<string, string> = {}, symbolFiles: string[] = [];
   for (const [file] of scoped) {

@@ -375,8 +375,10 @@ explain:
 
 The repo's architecture as a drill-down: services (L1), modules (L2), files (L3) and top-level symbols (L4), from the
 code graph's service layers. Services and modules are inferred from manifests (`package.json`, `pyproject.toml`, …) and
-compose `command`s; a committed `.stinggraph/layers.yaml` names them (labels, aliases, includes/excludes, modules). Every
-file outside a service is in `(unassigned)`. The builtin **Services** view (id `layers`) shows this for every worktree.
+compose `command`s; code no manifest covers (all of a single-package repo) falls back to its top-level folders (through a
+lone `src/`); a committed `.stinggraph/layers.yaml` names them (labels, aliases, includes/excludes, modules). Every
+file outside a service is in `(unassigned)`: without a `layers.yaml` that is only tests, scripts, docs and root files,
+and layer views leave it out. The builtin **Services** view (id `layers`) shows this for every worktree.
 
 ```yaml
 version: 1
