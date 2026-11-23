@@ -11,8 +11,9 @@ import { installTerminalLinks } from './terminal-links';
 const exitMessage = (code: number) => '\r\n[Process exited: ' + code + ']\r\n';
 /** How far each disposed pane was scrolled back, so returning to a project restores the reading position. */
 const scrolledBack = new Map<string, number>();
-/** `localStorage['stingray.terminalRenderer'] = 'dom'` keeps panes off WebGL (GPU issues, DOM-based tests). */
-const domRenderer = () => { try { return localStorage.getItem('stingray.terminalRenderer') === 'dom'; } catch { return false; } };
+/** Panes use the DOM renderer: WebGL drew regular glyphs tiny inside full-size cells on macOS (italic was fine).
+ * `localStorage['stingray.terminalRenderer'] = 'webgl'` opts back in. */
+const domRenderer = () => { try { return localStorage.getItem('stingray.terminalRenderer') !== 'webgl'; } catch { return true; } };
 
 export function TerminalPane({ info, visible, onError, onObserve }: { info: TerminalInfo; visible: boolean; onError: (message: string) => void; onObserve: (id: string, stillObserved: () => boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
