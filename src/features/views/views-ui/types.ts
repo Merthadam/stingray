@@ -17,6 +17,11 @@ export interface ErDiagramProps {
   /** User clicked "Save as view…" with the current hidden nodes and positions; the shell shows the dialog. Absent: the
    * button is disabled (a flowchart shown at an overridden depth). */
   onSaveAs?(state: ViewLocalState): void;
+  /** Why "Save as view…" is off, as its tooltip (when onSaveAs is absent). */
+  saveAsDisabled?: string;
+  /** Flowchart drill-down: open (`open`) or close a call by its call path (DiagramNode/DiagramGroup.callPath); the shell
+   * recomputes the view. Absent: calls cannot be opened or closed one by one. */
+  onToggleCall?(path: string, open: boolean): void;
   /** Toolbar slot the shell fills (e.g. Diagnostics toggle, refresh); rendered at the right end of the diagram toolbar. */
   toolbarExtra?: React.ReactNode;
 }

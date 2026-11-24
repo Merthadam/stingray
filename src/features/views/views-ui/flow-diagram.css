@@ -80,10 +80,21 @@
 /* Flowchart summary: "can fail" badge (folded guards), per-frame "all steps" switch, inspector failure list. */
 .flow-can-fail{display:block;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10.5px/14px system-ui,-apple-system,sans-serif;letter-spacing:0;text-transform:none;color:#e59a8c}
 .flow-can-fail::before{content:"⚠ ";color:#d9705e}
-.flow-frame-steps{position:absolute;top:8px;right:10px;padding:2px 8px;border:1px solid #5a4a3e;border-radius:10px;background:#1c1714;color:#b9a28f;font-size:10.5px;cursor:pointer;pointer-events:all}
+.flow-frame-actions{position:absolute;top:8px;right:10px;display:flex;gap:6px;align-items:center}
+.flow-frame-steps{padding:2px 8px;border:1px solid #5a4a3e;border-radius:10px;background:#1c1714;color:#b9a28f;font-size:10.5px;cursor:pointer;pointer-events:all}
 .flow-frame-steps:hover,.flow-frame-steps[aria-pressed=true]{color:#efe4da;border-color:#8a735f}
 .flow-inspector-failures{margin:0;padding:0 14px 8px;list-style:none}
 .flow-inspector-failures li{padding:6px 0;border-bottom:1px solid #2c241f}
 .flow-inspector-failures li div{display:flex;align-items:center;gap:6px;color:#e59a8c}
 .flow-inspector-failures small{color:#a8968a}
 .flow-frame:has(.flow-frame-steps) .flow-frame-label{padding-right:84px}
+.flow-frame:has(.flow-frame-collapse) .flow-frame-label{padding-right:44px}
+.flow-frame:has(.flow-frame-steps):has(.flow-frame-collapse) .flow-frame-label{padding-right:116px}
+/* Drill-down: a call card's chevron opens the call in place; a frame's header button closes it again. */
+.flow-call-expand,.flow-frame-collapse{display:inline-flex;align-items:center;justify-content:center;padding:1px;border:1px solid transparent;border-radius:5px;background:none;color:#b9a28f;cursor:pointer;pointer-events:all}
+.flow-call-expand{margin-left:4px;vertical-align:-3px}
+.flow-call-expand .flow-call-chevron{margin-left:0}
+.flow-frame-collapse{padding:2px 4px;border-color:#5a4a3e;background:#1c1714}
+.flow-call-expand:hover,.flow-frame-collapse:hover{color:#efe4da;border-color:#8a735f}
+.flow-inspector-actions{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)}
+.flow-inspector-actions button{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:4px 7px;border:1px solid #3a3029;color:#d3c8bf}

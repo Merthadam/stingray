@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../../../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../../../../shared/views/infra/catalog';
 import { infraIconUrl } from '../infra/icons';
@@ -28,13 +28,16 @@ export const ExplanationReason = ({ status, reason }: { status?: ExplanationStat
   reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
 export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
-  steps?: { all: boolean; toggle: () => void } }>>) {
+  steps?: { all: boolean; toggle: () => void }; onCollapse?: () => void }>>) {
   const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
-    {data.steps && <button className="flow-frame-steps nodrag" aria-pressed={data.steps.all} onClick={data.steps.toggle}
-      aria-label={`${data.steps.all ? 'Summarize' : 'Show all steps of'} ${data.label}`}
-      title={data.steps.all ? 'Hide undescribed library steps and fold guards again' : 'Show the hidden library steps and guards of this function'}>
-      {data.steps.all ? 'summary' : 'all steps'}</button>}
+    {(data.steps || data.onCollapse) && <div className="flow-frame-actions">
+      {data.steps && <button className="flow-frame-steps nodrag" aria-pressed={data.steps.all} onClick={data.steps.toggle}
+        aria-label={`${data.steps.all ? 'Summarize' : 'Show all steps of'} ${data.label}`}
+        title={data.steps.all ? 'Hide undescribed library steps and fold guards again' : 'Show the hidden library steps and guards of this function'}>
+        {data.steps.all ? 'summary' : 'all steps'}</button>}
+      {data.onCollapse && <button className="flow-frame-collapse nodrag" aria-label={`Collapse ${data.label}`} title="Close this call back into one step"
+        onClick={data.onCollapse}><ChevronDown size={13} /></button>}</div>}
     {data.provider && <img className="flow-frame-cloud-icon" src={infraIconUrl(INFRA_GROUP_ICONS[data.provider])} alt="" draggable={false} />}
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
       : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
@@ -58,7 +61,7 @@ const CanFail = ({ node }: { node: DiagramNode }) => {
 const UNDESCRIBED = 'No description yet: add a docstring or an explain: entry (stingray-views check lists the key)';
 const Undescribed = <i className="flow-undescribed" title={UNDESCRIBED} aria-label="no description" />;
 
-export type FlowStepNode = Node<{ node: DiagramNode }, 'step'>;
+export type FlowStepNode = Node<{ node: DiagramNode; onExpand?: () => void }, 'step'>;
 
 const handles = <>
   <Handle type="target" position={Position.Top} id="in" />
@@ -79,7 +82,10 @@ export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<Flo
   if (n.kind === 'start' || n.kind === 'end' || n.kind === 'error') return <div className={`flow-card flow-pill ${n.kind}${n.explanation ? ' explained' : ''}`}>
     <strong title={n.detail || n.label}>{n.label}</strong><Explanation node={n} chart />{handles}</div>;
   return <div className={`flow-card flow-chart-${n.kind}${todo ? ' undescribed' : ''}`}>
-    <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}{todo}</strong>
+    <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && (data.onExpand
+      ? <button className="flow-call-expand nodrag" aria-label={`Expand ${n.label}`} title="Show this call's steps here"
+        onClick={e => { e.stopPropagation(); data.onExpand!(); }}><ChevronRight size={13} className="flow-call-chevron" /></button>
+      : <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />)}{todo}</strong>
     {sub && <span className={n.kind === 'call' ? 'flow-call-hint' : undefined} title={sub}>{sub}</span>}
     <Explanation node={n} chart /><CanFail node={n} />{handles}</div>;
 });
