@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, cardSubtitle, cardTitle, edgeLabel, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines, chartLabel, undescribed } from '../../src/features/views/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, cardSubtitle, cardTitle, edgeLabel, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines, chartLabel } from '../../src/features/views/views-ui/flow-layout';
+import { undescribed } from '../../shared/views/undescribed';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -80,9 +81,9 @@ test('a decision\'s explanation titles its diamond; steps without one are undesc
   assert.equal(chartLabel(asked), asked.explanation);
   assert.equal(chartLabel(card('call', 'Verify the password.')), "result get 'ChallengeName' is…", 'other cards show it under the label');
   assert.deepEqual(flowSize(asked, true), { width: 300, height: 104 }, 'sized for the explanation');
-  assert.equal(undescribed(card('decision')), true);
-  assert.equal(undescribed(asked), false);
-  assert.equal(undescribed(card('end')), false);
+  assert.equal(undescribed(card('decision'), 'flowchart'), true);
+  assert.equal(undescribed(asked, 'flowchart'), false);
+  assert.equal(undescribed(card('end'), 'flowchart'), false);
 });
 
 test('branch targets are placed left to right in router condition order', async () => {

@@ -58,8 +58,6 @@ const DIAMONDS = new Set(['decision', 'loop']);
 /** Text a flowchart card is titled with: a decision's or loop's explanation (an `explain:` entry, e.g. keyed by its
  * condition) replaces the label tidied from the code; other cards keep their label and show the explanation under it. */
 export const chartLabel = (node: DiagramNode) => DIAMONDS.has(node.kind) && node.explanation ? node.explanation : node.label;
-/** Steps a reader cannot follow without the code: decisions, loops, calls and actions without an explanation. */
-export const undescribed = (node: DiagramNode) => !node.explanation && (DIAMONDS.has(node.kind) || node.kind === 'call' || node.kind === 'action');
 /** Flowchart card size from its label: shapes keep their default size while the label fits in 2 lines (1 for pills),
  * else widen to WIDE and grow one LINE per extra line. */
 function chartSize(node: DiagramNode) {
