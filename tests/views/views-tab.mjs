@@ -176,7 +176,7 @@ try {
   // Drill-down: one call at a time, by its call path; the new frame takes the clicked card's place on screen.
   const callCard = chart.locator(".react-flow__node", { has: page.locator(".flow-chart-call") });
   const before = await callCard.boundingBox();
-  await chart.getByRole('button', { name: 'Expand check password' }).click();
+  await chart.getByRole('button', { name: 'Expand check password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
   await frame.waitFor();
   check('a call card\'s chevron opens that call in place as a frame', await chart.locator('.flow-chart-call').count() === 0
     && await depth.inputValue() === '0');
@@ -189,7 +189,7 @@ try {
   const saveDialog = page.getByRole('dialog', { name: 'Save as view' });
   check('save as view writes the opened calls to flowchart.expand', (await saveDialog.innerText()).includes('1 expanded call saved to flowchart.expand: check_password'));
   await saveDialog.getByRole('button', { name: 'Cancel' }).click();
-  await chart.getByRole('button', { name: 'Collapse check_password' }).click();
+  await chart.getByRole('button', { name: 'Collapse check_password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
   await chart.locator('.flow-chart-call').waitFor();
   check('the frame\'s collapse button closes it into the call card again', await frame.count() === 0 && await saveAs.isEnabled());
   // "Describe…" writes the step's explain: entry into the view file; Remove deletes it and the docstring shows again.
