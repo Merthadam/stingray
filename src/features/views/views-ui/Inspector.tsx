@@ -42,7 +42,7 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource,
     </div>}
     {node.explanation && <p className="flow-inspector-explanation"><StaleMark status={node.explanationStatus} />{node.explanation}</p>}
     {node.explanation && <ExplanationReason status={node.explanationStatus} reason={node.explanationReason} />}
-    {variant === 'flow' && node.detail && <p className="flow-inspector-detail">{node.detail}</p>}
+    {variant === 'flow' && node.detail && <><h4>Code</h4><p className="flow-inspector-detail" aria-label="Code">{node.detail}</p></>}
     {(variant === 'tables' || node.fields.length > 0) && <><h4>{variant === 'tables' ? 'Columns' : 'Fields'} <span>{node.fields.length}</span></h4>
     <ul className="er-inspector-fields">
       {node.fields.map(f => <li key={f.id}>

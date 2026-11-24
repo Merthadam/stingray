@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel } from '../../src/features/views/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines } from '../../src/features/views/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -53,7 +53,25 @@ test('flow frames follow stored or dragged absolute positions; labels are bounde
   assert.equal(frame.y, 150);
   assert.deepEqual(flowSize(single.nodes[0]), { width: 88, height: 32 });
   assert.equal(shortEdgeLabel('else'), 'else');
-  assert.equal(shortEdgeLabel('1. topic ∈ {stays, flights, cars, trains, ferries, cruises}').length, 38);
+  assert.equal(shortEdgeLabel('1. topic ∈ {stays, flights, cars, trains, ferries, cruises}').length, 59);
+  assert.equal(shortEdgeLabel('1. topic ∈ {stays, flights, cars, trains, ferries, cruises, buses, bikes}').length, 60);
+  const long = { ...edge('a', 'b', 'ValidationError, KeyError, TokenExpired, ProviderUnavailable'), kind: 'except' };
+  const [label] = flowGraph({ ...single, nodes: [node('a', null), node('b', null)], edges: [long] } as ViewResult).edges![0].labels!;
+  assert.deepEqual([label.width, label.height], [220, 38], 'long edge labels wrap to two lines');
+});
+
+test('flowchart cards grow with their label instead of cutting it', () => {
+  assert.equal(textLines('check', 100), 1);
+  assert.equal(textLines('verify the user and the session token', 100), 3); // 14 chars a line
+  assert.equal(textLines('x'.repeat(200), 100), 3, 'clamped to three lines; long words break');
+  const card = (kind: string, label: string): DiagramNode => ({ ...node('n', null), kind, label, subtitle: null });
+  assert.deepEqual(flowSize(card('action', 'sign in'), true), { width: 220, height: 56 });
+  assert.deepEqual(flowSize(card('action', 'store the encrypted auth record for the session'), true), { width: 220, height: 72 });
+  assert.deepEqual(flowSize(card('action', 'store the encrypted auth record and return the random token the browser keeps'), true), { width: 300, height: 88 });
+  assert.deepEqual(flowSize(card('decision', 'has user?'), true), { width: 220, height: 88 });
+  assert.deepEqual(flowSize(card('decision', 'not snapshot or snapshot get kind is not session and expires before now?'), true), { width: 300, height: 104 });
+  assert.deepEqual(flowSize(card('error', 'HTTPException'), true), { width: 180, height: 36 });
+  assert.equal(flowSize(card('error', 'HTTPException: invalid credentials for this user'), true).width, 300);
 });
 
 test('branch targets are placed left to right in router condition order', async () => {

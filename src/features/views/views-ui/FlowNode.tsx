@@ -52,17 +52,19 @@ const handles = <>
   <Handle type="target" position={Position.Right} id="return-in" style={{ top: '30%' }} />
 </>;
 
-/** Flowchart shapes by node kind: pills (start/end, red error), diamonds (decision/loop), boxes (action, call + chevron). */
+/** Flowchart shapes by node kind: pills (start/end, red error), diamonds (decision/loop), boxes (action, call + chevron).
+ * Cards show words, never code: the code text (`detail`) is on hover and in the inspector. Labels wrap and clamp; the
+ * selected card shows them in full. */
 export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<FlowStepNode>) {
-  const n = data.node, sub = n.subtitle || n.detail;
+  const n = data.node, sub = n.subtitle;
   if (n.kind === 'decision' || n.kind === 'loop') return <div className={`flow-diamond ${n.kind}`}>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="50,1 99,50 50,99 1,50" vectorEffect="non-scaling-stroke" /></svg>
     <strong title={n.detail || n.label}>{n.label}</strong>{handles}</div>;
   if (n.kind === 'start' || n.kind === 'end' || n.kind === 'error') return <div className={`flow-card flow-pill ${n.kind}${n.explanation ? ' explained' : ''}`}>
     <strong title={n.detail || n.label}>{n.label}</strong><Explanation node={n} chart />{handles}</div>;
   return <div className={`flow-card flow-chart-${n.kind}`}>
-    <strong title={n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}</strong>
-    {sub && <span className={n.kind === 'call' && n.subtitle ? 'flow-call-hint' : undefined} title={sub}>{sub}</span>}
+    <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}</strong>
+    {sub && <span className={n.kind === 'call' ? 'flow-call-hint' : undefined} title={sub}>{sub}</span>}
     <Explanation node={n} chart />{handles}</div>;
 });
 
