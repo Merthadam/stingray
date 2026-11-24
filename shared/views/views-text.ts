@@ -107,7 +107,8 @@ function flowchartLines(nodes: DiagramNode[], edges: DiagramEdge[], groups: Diag
   // Reached through a heuristic code-graph call (dashed in the diagram): a call node, or the first step of an expanded callee.
   const uncertain = new Set(edges.filter(e => !e.certain).map(e => e.to));
   const nodeText = (n: DiagramNode) => `${MARKERS[n.kind] ?? `[${n.kind}]`} ${n.label}${n.subtitle ? ` — ${n.subtitle}` : ''}`
-    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}${explained(n)}`;
+    + `${n.kind === 'call' && uncertain.has(n.id) ? ' (uncertain)' : ''}${n.source ? ` · L${n.source.line}` : ''}${explained(n)}`
+    + `${n.failures?.length ? ` (can fail: ${n.failures.map(f => f.label).join('; ')})` : ''}`;
   const walk = (from: string, stop: string | null, indent: number, baseDepth: number, group: string | null) => {
     for (let id: string | null = from; id !== null && id !== stop && id !== EXIT;) {
       const n = byId.get(id)!;
