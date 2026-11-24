@@ -5,7 +5,7 @@ UI's "edit label" is phase 5's "Describe…" / "Edit description", which writes 
 phase 3's summary lives in `shared/views/flowchart-summary.ts`; phase 4's call paths are callee names without lines,
 `finish>create_session` / `audit#2`, carried as `callPath` on call nodes and groups while node and group ids stay as
 they were, the depth slider stays and resets the session expansions, and an expansion over the node cap stays a call
-node without an "open as its own flowchart" action); phase 6 open. Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
+node without an "open as its own flowchart" action); phase 6 in progress (see "Phase 6" below). Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
 flow, layers and sequence views follow once this works (how sequence diagrams fit is still open).
 
 ## Problem (example: the auth sign-in flowchart)
@@ -115,8 +115,29 @@ warning, so the author can make it more specific. A key that matches nothing is 
 Every phase: `npm run build`, `npm test`, the relevant `npm run test:*` suite, and a look at the auth sign-in flowchart
 in the Docker test env (before/after screenshots).
 
+## Phase 6: the other view kinds
+
+Decided (on the phase 6 proposal): sequence arrows keep the call name in words, an `explain:` entry for the callee replaces
+it, and clicking a message opens a message inspector (docstring, code, Open in editor); dashed returns stay but never show a
+code value (blank, `response` for http); error notes read "can fail: <type in words>" (raw type on hover); alt/opt/loop
+conditions work like flowchart decisions (an `explain:` snippet key replaces the label; undescribed ones are marked and
+listed by `check`); Describe… covers sequence participants, messages (key = callee symbol name) and fragment conditions;
+identifier titles are humanized ("get user", the raw name in the inspector header); the undescribed marker and `check`
+to-do cover graph-step and flow nodes, L4 symbols and sequence participants/messages/conditions only (not services,
+modules, files, infra or tables); a depth slider for `graph:` steps now, per-call sequence expand later.
+
+One PR each, stacked:
+
+1. **Cards without code (graph/flow/layers)** — done: no code line on cards (a subtitle shows only when it reads as words),
+   identifier titles in words, wrapped titles/fields with text-sized cards, full text when selected, fields in the text
+   font, frame titles wrap (LangGraph groups drop ` (@file)`, the file is in the tooltip), layers edges draw only the count,
+   L4 symbols carry their docstring.
+2. **Undescribed + Describe… for graph/flow/layers.**
+3. **Sequence readability.**
+4. **Sequence descriptions.**
+5. **Graph depth slider.**
+
 ## Open
 
-- How sequence diagrams should work (later, after flowcharts).
 - The exact definition of "trivial library call". Start with value-only calls (assignment or return of a library call
   with no other effect) and tune it on the auth example.
