@@ -214,6 +214,7 @@ export interface SaveViewInput {
   basedOn: string;             // ViewSummary.id the user was looking at ("database" or a repo view slug)
   exclude: string[];           // labels of hidden nodes (tables: table names), merged into the base view's exclude
   layout: ViewLayout | null;   // include current positions when the user ticks "save positions"
+  expand?: string[];           // flowchart call paths opened in the Views tab, merged into the base view's flowchart.expand
 }
 export interface SaveViewResult { id: string; file: string } // slug and worktree-relative file
 
@@ -326,7 +327,7 @@ export const viewsContract = defineContract('views', {
     /** Writes .stingray/views/<slug>.yaml; rejects if that file exists. */
     saveViewAs: [z.tuple([idSchema, z.strictObject({
       name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
-      layout: z.strictObject({ positions: positionsSchema }).nullable(),
+      layout: z.strictObject({ positions: positionsSchema }).nullable(), expand: callPaths.optional(),
     })]), returns<SaveViewResult>()],
     /** Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs. */
     openServiceDocs: [z.tuple([z.string().max(100)]), returns<void>()],

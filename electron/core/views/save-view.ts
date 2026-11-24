@@ -51,6 +51,15 @@ export async function saveViewAs(files: ViewFiles, root: string, input: SaveView
   const added = [...new Set(input.exclude)].filter(label => !existing.includes(label));
   if (isSeq(exclude)) for (const label of added) exclude.add(doc.createNode(label));
   else if (added.length) doc.set('exclude', added);
+  if (input.expand?.length) {
+    const flowchart = doc.get('flowchart');
+    if (!isMap(flowchart)) throw new Error('Only a flowchart view can save expanded calls.');
+    const expand = flowchart.get('expand');
+    const have = (doc.toJS() as { flowchart: { expand?: string[] } }).flowchart.expand ?? [];
+    const opened = [...new Set(input.expand)].filter(p => !have.includes(p));
+    if (isSeq(expand)) for (const p of opened) expand.add(doc.createNode(p));
+    else if (opened.length) flowchart.set('expand', doc.createNode(opened));
+  }
   if (input.layout) {
     const positions = doc.createNode(input.layout.positions);
     if (isMap(positions)) for (const pair of positions.items) if (isMap(pair.value)) pair.value.flow = true; // one line per node
