@@ -60,6 +60,8 @@ export interface FlowchartStep {
   depth: number;                              // 0-4, default 1: call levels expanded inline
   include?: string[];                         // files whose functions may be expanded (default: the view scope)
   exclude?: string[];
+  hide?: string[];                            // calls drawn as nothing (no box, no expansion): callee names or dotted
+                                              // paths ("log", "self.metrics.*"); '*' matches any run of characters
 }
 
 export const LINK_SETS = ['http', 'auth', 'langgraph', 'events'] as const;

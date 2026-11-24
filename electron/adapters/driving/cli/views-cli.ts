@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../../../../shared/contracts/views';
 import { formatText } from '../../../../shared/views/views-text';
+import { summarizeFlowchart } from '../../../../shared/views/flowchart-summary';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS, calleesOf, computeView, explainPair, undescribedSteps, type Evaluate, type FileProvider, type GraphApi, type ViewFileEntry } from '../../../core/views';
 
 type LoadedView = ViewFileEntry;
@@ -33,9 +34,12 @@ export interface CliDeps {
 }
 
 export const USAGE = `Usage:
-  stingray-views check <file.yaml> [--json] [--depth N] [--restamp | --strict]
+  stingray-views check <file.yaml> [--json] [--depth N] [--all-steps] [--restamp | --strict]
                                               validate a view and print diagnostics + a text diagram
-                                              (--depth 0-4: flowchart call levels, overrides flowchart.depth;
+                                              (a flowchart is summarized like in the app: undescribed
+                                               library steps hidden, guards folded into "can fail";
+                                               --all-steps: every step; --json always has every step;
+                                               --depth 0-4: flowchart call levels, overrides flowchart.depth;
                                                1-4: layers level, overrides layers.depth;
                                                0-6: sequence call levels, overrides sequence.depth;
                                                --restamp: after reviewing explain: texts, write the current
@@ -59,8 +63,8 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const usage = () => { deps.err(USAGE); return 2; };
   switch (command) {
     case 'check': {
-      const json = rest.includes('--json'), restamp = rest.includes('--restamp'), strict = rest.includes('--strict');
-      const args = rest.filter(a => a !== '--json' && a !== '--restamp' && a !== '--strict');
+      const json = rest.includes('--json'), restamp = rest.includes('--restamp'), strict = rest.includes('--strict'), allSteps = rest.includes('--all-steps');
+      const args = rest.filter(a => a !== '--json' && a !== '--restamp' && a !== '--strict' && a !== '--all-steps');
       if (json && restamp) { deps.err('--restamp cannot be combined with --json'); return 2; }
       if (strict && restamp) { deps.err('--restamp cannot be combined with --strict'); return 2; }
       let depth: number | null = null;
@@ -70,7 +74,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
         depth = Number(args.splice(at, 2)[1]);
       }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
-      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp, strict);
+      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp, strict, allSteps);
     }
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
@@ -98,7 +102,7 @@ async function list(deps: CliDeps): Promise<number> {
   return views.some(v => v.summary.error) ? 1 : 0;
 }
 
-async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false): Promise<number> {
+async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false, allSteps = false): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
   const root = await deps.worktreeRoot(path.dirname(file));
@@ -194,7 +198,12 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
   }
   deps.out(`scanned ${d.limits.filesScanned} files, ${d.limits.matches} matches${d.limits.truncated ? ' (truncated: a limit was hit)' : ''}`);
   deps.out('');
-  deps.out(formatText(result));
+  const summary = summarizeFlowchart(result, { allSteps });
+  if (summary.hidden || summary.folded) {
+    const parts = [summary.hidden && `${summary.hidden} step${summary.hidden === 1 ? '' : 's'} hidden`, summary.folded && `${summary.folded} guard${summary.folded === 1 ? '' : 's'} folded into "can fail"`].filter(Boolean);
+    deps.out(`summary: ${parts.join(', ')} (--all-steps shows them; describe a hidden step with explain: to show it)`);
+  }
+  deps.out(formatText(summary.result));
   deps.out('');
   deps.out(failed ? 'FAILED: fix the errors above and run check again.' : 'OK: no errors. Check that the diagram above matches the code.');
   if (restamp && failed) { deps.err('restamp: fix the errors first; nothing was written.'); return 1; }

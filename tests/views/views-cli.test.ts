@@ -466,6 +466,33 @@ test('views-cli check lists undescribed flowchart steps with the explain: key th
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('views-cli check prints a flowchart summarized (hidden steps, can-fail guards); --all-steps prints every step', async () => {
+  const root = await repo();
+  try {
+    const flowchart: ResolvedView = { ...view, kind: 'flowchart', rules: [], flowchart: { start: { symbol: 'login' }, depth: 0 } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const edge = (from: string, to: string, label: string | null = null) => ({ id: `${from}->${to}`, from, to, fromField: null, toField: null, kind: label ? label.toLowerCase() : 'next', style: 'solid' as const, certain: true, label, source: null });
+    const result = output({
+      nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }), node('load', { kind: 'call', label: 'load user' }),
+        node('d', { kind: 'decision', label: 'no user?' }), node('err', { kind: 'error', label: 'NotFound' }),
+        node('log', { kind: 'action', label: 'log' }), node('done', { kind: 'end', role: 'end', label: 'done' })],
+      edges: [edge('start', 'load'), edge('load', 'd'), edge('d', 'err', 'Yes'), edge('d', 'log', 'No'), edge('log', 'done')],
+      diagnostics: { rules: [], graph: null, flowchart: { start: 'login (a.py:1)', depth: 0, functions: 1, nodes: 6, truncated: false, error: null }, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1 },
+    });
+    const h = harness(root, { loadViewPath, evaluate: async () => result, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml'), 0);
+    const text = h.out.join('\n');
+    assert.match(text, /summary: 1 step hidden, 1 guard folded into "can fail"/);
+    assert.match(text, /\[call\] load user.*\(can fail: NotFound\)/);
+    assert.doesNotMatch(text, /\[ \] log/);
+    const all = harness(root, { loadViewPath, evaluate: async () => result, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await all.run('check', '.stingray/views/flow.yaml', '--all-steps'), 0);
+    assert.match(all.out.join('\n'), /\[ \] log/);
+    assert.doesNotMatch(all.out.join('\n'), /summary:|can fail/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('views-cli check --depth overrides layers.depth (1-4) and prints the layers diagnostic', async () => {
   const root = await repo();
   try {

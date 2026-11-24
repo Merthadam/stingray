@@ -57,6 +57,28 @@ export function resolveCall(call: Call, outgoing: GraphRelation[], graph: GraphA
   return hit ? { symbol: hit.s!, certain: hit.r.certain } : null;
 }
 
+/** A `hide` pattern against a name: exact, or with `*` matching any run of characters. */
+export function nameMatches(name: string, pattern: string): boolean {
+  if (!pattern.includes('*')) return name === pattern;
+  const escaped = pattern.split('*').map(p => p.replace(/[.+?^$()|[\]{}\\]/g, '\\$&'));
+  return new RegExp('^' + escaped.join('.*') + '$').test(name);
+}
+
+/** The statement only stores the call's result: `x = f(...)`, `const { a } = await f(...)`, `x: T = f(...)` (the call is
+ * the whole right-hand side, not `x = f() if c else g()`). */
+export function valueOnly(statement: string, call: Call): boolean {
+  const m = /^\s*(?:(?:const|let|var)\s+)?([\w$.\[\]{}, :*<>|]+?)\s*=\s*(?:await\s+)?(?:new\s+)?([\w$.]+)\s*(?:<[^>]*>)?\s*\(/.exec(statement);
+  if (!m || m[2] !== call.path) return false;
+  let depth = 1, i = m.index + m[0].length;
+  for (; i < statement.length && depth > 0; i++) {
+    const ch = statement[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === '"' || ch === "'" || ch === '`') { const end = statement.indexOf(ch, i + 1); if (end < 0) return false; i = end; }
+  }
+  return depth === 0 && /^\s*;?\s*$/.test(statement.slice(i));
+}
+
 export class FlowchartBuilder {
   readonly nodes: DiagramNode[] = [];
   readonly edges: DiagramEdge[] = [];
@@ -242,6 +264,11 @@ export class FlowchartBuilder {
 
   private resolve(call: Call, f: Frame) { return resolveCall(call, f.outgoing, this.graph, this.symbolsById); }
 
+  /** `flowchart.hide`: calls drawn as nothing, matched on the callee name or the dotted callee path. */
+  private hidden(call: Call) {
+    return (this.step.hide ?? []).some(h => nameMatches(call.callee, h) || nameMatches(call.path, h));
+  }
+
   private expandable(s: GraphSymbol) {
     const matches = (globs: string[]) => globs.some(g => matchesGlob(s.file, g));
     return (this.step.include ? matches(this.step.include) : this.inScope(s.file)) && !matches(this.step.exclude ?? []);
@@ -255,11 +282,14 @@ export class FlowchartBuilder {
   private async calls(calls: Call[], preds: Pending[], f: Frame, code: Code, mode: 'statement' | 'value' | 'condition'): Promise<Pending[]> {
     const next = (from: string | null): Pending[] => from === null ? preds : this.pend(from, 'next');
     for (const call of calls) {
+      if (this.hidden(call)) continue;
       const target = this.resolve(call, f);
       const at = { text: code.text, line: call.line };
       const into = (certain: boolean) => certain ? preds : preds.map(p => ({ ...p, certain: false }));
       if (!target) {
-        if (mode === 'statement' && call.outer && !call.chained) preds = next(this.node(f, 'action', callLabel(call.callee), at, preds));
+        // A library call whose result is only stored (`now = clock()`, `row = d.get(k)`) is no step of its own: the
+        // statements using the value show what happens.
+        if (mode === 'statement' && call.outer && !call.chained && !valueOnly(code.text, call)) preds = next(this.node(f, 'action', callLabel(call.callee), at, preds));
         continue;
       }
       const { symbol, certain } = target;

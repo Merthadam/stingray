@@ -174,9 +174,11 @@ flowchart:
   depth: 1                 # 0-4, default 1: call levels expanded inline (the Views tab can override it)
   include: ["services/**"] # files whose functions may be expanded (default: the view scope)
   exclude: []
+  hide: [log, "metrics.*"] # calls drawn as nothing (no box, no expansion): callee name or dotted path, `*` = any run
 ```
 
-- Steps follow source order. Statements without calls or control flow are left out.
+- Steps follow source order. Statements without calls or control flow are left out, and so are library calls whose
+  result is only stored (`now = clock()`, `row = d.get(k)`): the steps using the value show what happens.
 - Node kinds: `start`, `end` (a `return`; label = returned value or "done"), `error` (`raise`/`throw`), `action` (a
   call the code graph does not know, e.g. a library), `decision` (`if`/`elif`/`else`, ternary, `match`/`switch`, `try`
   as "succeeds?"), `loop` (`for`/`while`, "more items?"), `call` (a known function that is not expanded: depth reached
@@ -199,6 +201,12 @@ flowchart:
   follow the label (`if user is None` is labelled "has user?", so write "Account found for this email?", not "No
   account?"). `check` ends with `undescribed steps`: every decision, loop, call and action without a docstring or
   `explain:` text, with the key that names it — describe the unclear ones (skip self-explanatory ones like "has user?").
+- Summary: the app and `check` show a flowchart summarized — undescribed `action` steps (library calls) are hidden,
+  decisions/loops left with one way out go too, and a guard (an undescribed decision whose one branch only ends in an
+  error) folds into a "can fail: <error>" badge on the step before it in the same function (text: `(can fail: …)`).
+  `check` prints `summary: N steps hidden, M guards folded`; `--all-steps` prints every step (the app: "All steps" in
+  the toolbar, or a frame's "all steps" switch); `--json` always has every step. To keep a library step in the
+  summary, describe it with `explain:`; to drop noisy calls everywhere, add them to `flowchart.hide`.
 - `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
   decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
   `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.

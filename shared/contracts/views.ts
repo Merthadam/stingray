@@ -55,8 +55,16 @@ export interface DiagramNode {
   explanationStatus?: ExplanationStatus;
   explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
+  failures?: NodeFailure[];    // flowchart summary: guards folded into this step ("can fail" badge); absent when none
   service?: InfraService;      // cloud service of a Terraform resource/data source or CDK construct/stack (builtin terraform
                                // and cdk sets); drawn as its official icon; absent for other nodes
+}
+
+/** A flowchart guard folded into the step before it: a decision whose one branch only ends in an error. */
+export interface NodeFailure {
+  label: string;               // the error, e.g. "ValueError: no name"
+  condition: string | null;    // the decision's label, e.g. "not name?"
+  source: SourceRef | null;    // the raise
 }
 
 export interface DiagramEdge {
