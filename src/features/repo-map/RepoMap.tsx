@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, FileCode2, RefreshCw, X, Maximize2, Minimize2 } from 'lucide-react';
 import { api } from '../../app/api';
-import type { FileInspection, RepoFile, RepoSnapshot } from '../../../shared/contracts/repo-map';
+import type { FileInspection, RepoFile, RepoMapScope, RepoSnapshot } from '../../../shared/contracts/repo-map';
 import type { Workspace } from '../../../shared/contracts/git';
 import { fileKind, kindBadges, reconcileSnapshot } from './repo-map-model';
 import { RepoMapCanvas } from './RepoMapCanvas';
@@ -11,6 +11,10 @@ import { useGitState } from '../git';
 import './repo-map.css';
 
 // Snapshot status reads also update the shared Git state (GitService.onStatus); the map reloads when that state's revision moves.
+const scopeKey = 'stingray-repo-map-scope-v1';
+const scopeLabels: Record<RepoMapScope, string> = { branch: 'Branch', uncommitted: 'Uncommitted' };
+const scopeTitles: Record<RepoMapScope, string> = { branch: 'Changes on this branch: working tree vs the merge-base with origin/main, like the sidebar and a PR diff', uncommitted: 'Uncommitted changes: working tree vs HEAD' };
+const untrackedNote = 'untracked files are shown on the map but not counted.';
 type Props = { workspace: Workspace; reveal: { path: string; line: number | null; nonce: number } | null };
 export function RepoMap({ workspace, reveal }: Props) {
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
@@ -18,6 +22,7 @@ export function RepoMap({ workspace, reveal }: Props) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [changedOnly, setChangedOnly] = useState(false);
+  const [scope, setScope] = useState<RepoMapScope>(() => localStorage.getItem(scopeKey) === 'uncommitted' ? 'uncommitted' : 'branch');
   const [selected, setSelected] = useState('');
   const [panel, setPanel] = useState<'file' | null>(null);
   const [mode, setMode] = useState<'diff' | 'file'>('diff');
@@ -60,7 +65,7 @@ export function RepoMap({ workspace, reveal }: Props) {
     inFlight.current = true; if (foreground) setBusy(true);
     const request = generation.current;
     try {
-      const next = await api.repoSnapshot(workspace.id);
+      const next = await api.repoSnapshot(workspace.id, scope);
       if (alive.current && request === generation.current) {
         const previous = snapshotRef.current;
         const reconciled = reconcileSnapshot(previous, next);
@@ -81,7 +86,7 @@ export function RepoMap({ workspace, reveal }: Props) {
         if (alive.current && (queued || latestRevision.current > loadedRevision.current)) queueMicrotask(() => { void refresh(queued); });
       }
     }
-  }, [workspace.id]);
+  }, [workspace.id, scope]);
   useEffect(() => {
     generation.current++; inFlight.current = false; manualQueued.current = false; loadedRevision.current = 0;
     alive.current = true; void refresh();
@@ -100,7 +105,7 @@ export function RepoMap({ workspace, reveal }: Props) {
       let stamp = '';
       try {
         stamp = JSON.stringify(await api.statFile(workspace.id, selected).catch(() => null));
-        const next = await api.inspectFile(workspace.id, selected);
+        const next = await api.inspectFile(workspace.id, selected, scope);
         if (!cancelled) { fileStamp.current = stamp; setInspection(previous => previous?.revision === next.revision ? previous : next); setFileError(''); }
       } catch (e) {
         // Record the stamp anyway so the 5s stat check retries only after the file changes again.
@@ -110,7 +115,7 @@ export function RepoMap({ workspace, reveal }: Props) {
     refreshFile.current = () => { void load(); };
     void load(true);
     return () => { cancelled = true; refreshFile.current = () => {}; };
-  }, [workspace.id, selected]);
+  }, [workspace.id, selected, scope]);
   // Same-line edits keep counts and status: a cheap stat of the open file (no git) re-inspects when it changed.
   useEffect(() => {
     if (!selected) return;
@@ -138,19 +143,36 @@ export function RepoMap({ workspace, reveal }: Props) {
     openFile(file); setMode('file'); setTargetLine(reveal.line); revealFile.current(file);
   }, [reveal, snapshot, openFile]);
   const showAll = useCallback(() => setChangedOnly(false), []);
-  const hasDiff = !!inspection?.staged || !!inspection?.unstaged;
+  // The other scope's map must not stay on screen under the new label: clear it so the reload is a foreground one.
+  function changeScope(next: RepoMapScope) {
+    if (next === scope) return;
+    localStorage.setItem(scopeKey, next);
+    snapshotRef.current = null; setSnapshot(null); setScope(next);
+  }
+  const hasDiff = !!inspection?.committed || !!inspection?.staged || !!inspection?.unstaged;
+  const changedFiles = snapshot?.files.filter(file => file.status).length;
+  // Branch totals are the sidebar's (GitStatus.lines); without a merge-base the map compares with HEAD like the sidebar's fallback.
+  const branchBase = scope === 'branch' && !!snapshot?.baseCommit;
+  const headerLines = snapshot && (branchBase ? snapshot.lines : snapshot.uncommitted);
+  const headerTitle = scope === 'uncommitted' ? `Uncommitted tracked changes vs HEAD; ${untrackedNote}` : branchBase
+    ? `vs merge-base with origin/main (as of last fetch); ${untrackedNote}`
+    : `No local origin/main shares history with this branch, so Branch falls back to uncommitted changes vs HEAD; ${untrackedNote}`;
   return <section className="repo-map-view" aria-label="Repository map" onKeyDown={event => {
     if (event.key === 'Escape') { event.stopPropagation(); if (query) { setQuery(''); return; } if (expanded) setExpanded(false); else if (panel) closeInspector(); else navigateBack.current(); }
   }}>
     <div className="repo-map-toolbar">
-      <div className="map-title"><span className="map-eyebrow">REVIEW YOUR WORKTREE</span><h2>Repo map <span>{snapshot?.changes.length ?? '—'} changes</span></h2></div>
+      <div className="map-title"><span className="map-eyebrow">REVIEW YOUR WORKTREE</span><h2>Repo map <span title={headerTitle}><span className="map-change-count">{changedFiles ?? '—'} changed files</span>{headerLines && (headerLines.kind === 'available'
+        ? <LineCounts added={headerLines.added} removed={headerLines.deleted} notice={headerTitle} />
+        : <LineCounts added={0} removed={0} unknown={1} notice={headerLines.message} />)}{snapshot && scope === 'branch' && !branchBase && <small className="map-scope-fallback">vs HEAD · no origin/main</small>}</span></h2></div>
+      <div className="map-scope" role="radiogroup" aria-label="Compare the map against">{(['branch', 'uncommitted'] as const).map(value =>
+        <button key={value} role="radio" aria-checked={scope === value} title={scopeTitles[value]} onClick={() => changeScope(value)}>{scopeLabels[value]}</button>)}</div>
       <label className="map-filter"><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Only changes</label>
       <button className="icon" aria-label="Refresh repository map" title="Refresh repository map" disabled={busy} onClick={() => void refresh(true)}><RefreshCw size={15} className={busy ? 'spin' : ''} /></button>
     </div>
     {error && <div role="alert" className="inline-error">{error}{snapshot && ' · Showing the last successful map.'}</div>}
     {revealError && <div role="alert" className="inline-error">{revealError}</div>}
     <div ref={body} className={'repo-map-body ' + (expandedReader ? 'reader-expanded' : '')}>
-      <RepoMapCanvas snapshot={snapshot} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={showAll} backRef={navigateBack} revealRef={revealFile} query={query} onQueryChange={setQuery} />
+      <RepoMapCanvas snapshot={snapshot} scope={scope} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={showAll} backRef={navigateBack} revealRef={revealFile} query={query} onQueryChange={setQuery} />
       {panel && !expandedReader && <div className="inspector-divider" role="separator" tabIndex={0} aria-label="Resize inspector" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={Math.max(210, bodyWidth - 180)} aria-valuenow={Math.round(inspectorWidth)}
         onPointerDown={event => { event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId) && body.current) setPreferredWidth(clampWidth(body.current.getBoundingClientRect().right - event.clientX)); }}
@@ -166,7 +188,7 @@ export function RepoMap({ workspace, reveal }: Props) {
           {fileBusy && !inspection && <p className="inspector-notice" role="status">Reading file…</p>}
           {inspection && <>
             {inspection.notice && <p className="inspector-notice">{inspection.notice}</p>}
-            {mode === 'file' ? <><div className="inspector-source">{inspection.source} · read-only</div>{inspection.content !== null && <CodeView key={`${selected}:${reveal?.nonce}`} content={inspection.content} path={selected} line={targetLine} />}</> : <div className="diff-scroll">{inspection.staged && <><h4 className="diff-label">Staged · HEAD → index</h4><CodeView content={inspection.staged} path={selected} diff /></>}{inspection.unstaged && <><h4 className="diff-label">{selectedFile?.status === '??' || selectedFile?.untrackedReplacement ? 'New untracked file' : 'Unstaged · index → working tree'}</h4><CodeView content={inspection.unstaged} path={selected} diff /></>}{!hasDiff && <div className="map-empty"><Check size={24} /><h3>{inspection.notice ? 'No text diff to display' : 'No content changes'}</h3><p>{inspection.notice ? 'See the notice above for details.' : 'Switch to File to read the current contents.'}</p></div>}</div>}
+            {mode === 'file' ? <><div className="inspector-source">{inspection.source} · read-only</div>{inspection.content !== null && <CodeView key={`${selected}:${reveal?.nonce}`} content={inspection.content} path={selected} line={targetLine} />}</> : <div className="diff-scroll">{inspection.committed && <><h4 className="diff-label">Committed · origin/main → HEAD</h4><CodeView content={inspection.committed} path={selected} diff /></>}{inspection.staged && <><h4 className="diff-label">Staged · HEAD → index</h4><CodeView content={inspection.staged} path={selected} diff /></>}{inspection.unstaged && <><h4 className="diff-label">{selectedFile?.status === '??' || selectedFile?.untrackedReplacement ? 'New untracked file' : 'Unstaged · index → working tree'}</h4><CodeView content={inspection.unstaged} path={selected} diff /></>}{!hasDiff && <div className="map-empty"><Check size={24} /><h3>{inspection.notice ? 'No text diff to display' : 'No content changes'}</h3><p>{inspection.notice ? 'See the notice above for details.' : 'Switch to File to read the current contents.'}</p></div>}</div>}
             <div className="inspector-footer"><span>{fileBusy ? 'Checking for updates…' : 'Read-only inspection'}</span></div>
           </>}
         </>}
