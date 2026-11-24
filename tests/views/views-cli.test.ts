@@ -116,7 +116,7 @@ test('views-cli check: rule errors and graph-step errors with a graph fail, unre
     assert.match(text, /unresolved links.*\n {2}view#edge: "missing" at a\.py:4/);
     assert.match(text, /FAILED/);
 
-    const graphError = output({ diagnostics: { ...output().diagnostics, graph: { started: 0, reached: 0, helpers: 0, truncated: false, error: 'start symbol not found: x' } } });
+    const graphError = output({ diagnostics: { ...output().diagnostics, graph: { depth: 3, started: 0, reached: 0, helpers: 0, truncated: false, error: 'start symbol not found: x' } } });
     const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
     const g = harness(root, { evaluate: async () => graphError, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
     assert.equal(await g.run('check', '.stingray/views/flow.yaml'), 1);

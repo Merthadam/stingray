@@ -113,6 +113,8 @@ export class ViewService {
       view = { ...view, flowchart: { ...view.flowchart, expand: [...new Set([...view.flowchart.expand ?? [], ...expanded])], collapse: collapsed } }; layout = null;
     }
     if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
+    // A graph step's depth only when no layers step owns the slider.
+    if (depth !== undefined && view.graph && !view.layers && depth !== view.graph.depth) { view = { ...view, graph: { ...view.graph, depth: Math.min(6, Math.max(1, depth)) } }; layout = null; }
     if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
     return computeView({ ...file, view, layout }, this.deps(w, workspaceId, viewId));
   }

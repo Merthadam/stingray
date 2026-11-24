@@ -241,6 +241,7 @@ export interface RuleDiagnostic {
 }
 
 export interface GraphStepDiagnostic {
+  depth: number;               // effective `graph.depth` (1-6): the file's unless overridden (Views tab slider)
   started: number;             // start symbols found
   reached: number;             // symbols reached before helpers handling / cap
   helpers: number;             // symbols treated as helpers

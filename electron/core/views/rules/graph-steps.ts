@@ -85,7 +85,7 @@ export const runGraphStep: RunGraphStep = (step, graph, inScope) => {
     nodes: [...nodes.values()],
     edges: [...edges.values()].filter(e => nodes.has(e.from) && nodes.has(e.to))
       .sort((x, y) => rank.get(x.from)! - rank.get(y.from)! || rank.get(x.to)! - rank.get(y.to)! || (x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0)),
-    diagnostic: { started: starts.length, reached: seen.size, helpers: helpers.size, truncated, error: errors.length ? errors.join('; ') : null },
+    diagnostic: { depth: step.depth, started: starts.length, reached: seen.size, helpers: helpers.size, truncated, error: errors.length ? errors.join('; ') : null },
     truncated,
   };
 };

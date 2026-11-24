@@ -115,7 +115,7 @@ test('caps nodes in BFS order and marks the result truncated', () => {
   assert.equal(out.nodes.length, MAX_GRAPH_NODES);
   assert.equal(out.nodes.at(-1)!.label, 'f148');
   assert.equal(out.truncated, true);
-  assert.deepEqual(out.diagnostic, { started: 1, reached: 201, helpers: 0, truncated: true, error: null });
+  assert.deepEqual(out.diagnostic, { depth: 3, started: 1, reached: 201, helpers: 0, truncated: true, error: null });
   assert.equal(runGraphStep(step({}), chain, all).truncated, false);
 });
 
