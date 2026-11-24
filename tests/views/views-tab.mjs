@@ -196,7 +196,7 @@ try {
   const loginFile = path.join(repo, '.stingray/views/login.yaml'), loginYaml = await readFile(loginFile, 'utf8');
   const callExplanation = chart.locator('.flow-chart-call .flow-explanation');
   const waitText = async (want) => { for (let i = 0; i < 100 && await callExplanation.innerText() !== want; i++) await page.waitForTimeout(100); return callExplanation.innerText(); };
-  await chart.getByRole('group', { name: 'call check password' }).click();
+  await chart.getByRole('group', { name: 'call check password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
   const stepInspector = chart.getByRole('complementary', { name: 'Step check password' });
   await stepInspector.getByRole('button', { name: 'Edit description' }).click();
   const description = stepInspector.getByRole('textbox', { name: 'Description' });
