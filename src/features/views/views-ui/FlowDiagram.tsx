@@ -9,7 +9,7 @@ import type { DiagramGroup, DiagramNode, ViewLocalState } from '../../../../shar
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
 import { summarizeFlowchart } from '../../../../shared/views/flowchart-summary';
-import { bandEntry, flowFrames, flowGrid, frameIndex, flowPositions, flowSize } from './flow-layout';
+import { bandEntry, cardTitle, edgeLabel, flowFrames, flowGrid, frameIndex, flowPositions, flowSize } from './flow-layout';
 import { FlowGroup, FlowNode, FlowchartNode, StaleMark, ExplanationReason } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
@@ -103,13 +103,13 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
     ? () => { const f = frames.find(x => x.group.id === g.id); toggleCall(g.callPath!, false, f && { x: f.x, y: f.y }); } : undefined;
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
-      data: { label: f.group.label, provider: f.group.provider, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined,
+      data: { label: f.group.label, file: chart ? undefined : f.group.source?.file, provider: f.group.provider, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined,
         steps: chart && !allSteps && touched.has(f.group.id) ? { all: fullGroups.has(f.group.id), toggle: () => toggleGroup(f.group.id) } : undefined, onCollapse: collapseCall(f.group) }, style: { width: f.width, height: f.height }, className: f.group.provider ? `flow-frame cloud ${f.group.provider}` : 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1, measured: measured.current.get(`flow-frame:${i}`),
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
       id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n, onExpand: expandCall(n) }, ...size(n), measured: measured.current.get(n.id),
-      ariaLabel: chart ? `${n.kind} ${n.label}` : n.service ? `${n.service.name} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
+      ariaLabel: chart ? `${n.kind} ${n.label}` : n.service ? `${n.service.name} ${n.label}` : `${n.role ? n.role : 'Step'} ${cardTitle(n)}`, selected: selected?.kind === 'node' && selected.id === n.id,
     })),
   ], [result, positions, frames, selected, chart, size, onOpenSource, allSteps, touched, fullGroups, toggleGroup, toggleCall]);
   const edges = useMemo<FlowTransition[]>(() => {
@@ -123,7 +123,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
       const right = Math.max(frame ? frame.x + frame.width - 60 : 0,
         positions[e.from].x + size(source).width, positions[e.to].x + size(target).width);
       return {
-        id: e.id, source: e.from, target: e.to, type: 'transition', label: e.label ?? undefined,
+        id: e.id, source: e.from, target: e.to, type: 'transition', label: edgeLabel(e) ?? undefined,
         sourceHandle: returning ? 'return-out' : 'out', targetHandle: returning ? 'return-in' : 'in',
         markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR, width: 16, height: 16 },
         selected: selected?.kind === 'edge' && selected.id === e.id,

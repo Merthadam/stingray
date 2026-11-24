@@ -23,7 +23,7 @@ const fileEdges = [
   { source: 'b/z.py', target: 'a/y.py', kind: 'calls', count: 4, synthesized: 4 },
 ];
 const sym = (id: string, name: string, kind: string, file: string, line = 1): GraphSymbol => ({ id, name, kind, file, line });
-const symbols = [sym('fx', 'x.py', 'file', 'a/x.py'), sym('f1', 'Plan', 'class', 'a/x.py', 3), sym('m', 'save', 'method', 'a/x.py', 4),
+const symbols = [sym('fx', 'x.py', 'file', 'a/x.py'), { ...sym('f1', 'Plan', 'class', 'a/x.py', 3), docstring: 'A trip plan.\n\nMore detail.' }, sym('m', 'save', 'method', 'a/x.py', 4),
   sym('imp', 'os', 'import', 'a/x.py'), sym('fy', 'y.py', 'file', 'a/y.py'), sym('fz', 'z.py', 'file', 'b/z.py'), sym('g', 'store', 'function', 'b/z.py', 2)];
 const relations: GraphRelation[] = [
   { from: 'fx', to: 'f1', kind: 'contains', line: 3, certain: true }, { from: 'f1', to: 'm', kind: 'contains', line: 4, certain: true },
@@ -106,12 +106,13 @@ test('runLayers expand drills only named services (by id or label); scope drops 
     'file:a/x.py -> file:a/y.py [2 · calls 2]', 'file:a/y.py -> service:b [1 · imports 1]']);
 });
 
-test('runLayers depth 4 draws top-level symbols in file groups; members count as their symbol, imports and module-level code drop out', () => {
+test('runLayers depth 4 draws top-level symbols (with their docstring summary) in file groups; members count as their symbol, imports and module-level code drop out', () => {
   const graph = fakeGraph();
   const out = runLayers({ depth: 4, expand: ['a', 'b'] }, graph, f => !f.startsWith('tests/'));
   assert.deepEqual(out.nodes.map(n => [n.id, n.label, n.kind, n.group]), [
     ['file:a/y.py', 'y.py', 'file', 'module:a/m2'], ['sym:f1', 'Plan', 'class', 'file:a/x.py'], ['sym:g', 'store', 'function', 'file:b/z.py']]);
   assert.deepEqual(out.nodes[1].symbol, { id: 'f1', name: 'Plan', kind: 'class', file: 'a/x.py', line: 3 });
+  assert.deepEqual(out.nodes.map(n => n.explanation), [undefined, 'A trip plan.', undefined], 'symbols carry their docstring summary');
   assert.deepEqual(out.groups.find(g => g.id === 'file:a/x.py'), { id: 'file:a/x.py', label: 'x.py', source: { file: 'a/x.py', line: 1 }, parent: 'module:a/m1' });
   // y.py has no symbols, so it stays a file node and keeps its file-level edges.
   assert.deepEqual(graph.units[0], { 'a/y.py': 'file:a/y.py' });

@@ -82,7 +82,7 @@ Pick the view `kind` listed for the set; narrow with `scope`, add inline `rules`
 | `sqlalchemy` | tables | SQLAlchemy models: tables, columns, foreign keys (TypeScript extractor, not rules) |
 | `sql` | tables | Static SQL DDL in `.sql` files and TS/JS/Python strings: tables, columns, primary and foreign keys (TypeScript extractor, not rules) |
 | `alembic` | timeline | one node per `**/versions/*.py` migration (label `rev: message`, alias = revision id), `down_revision -> revision` edges (merge tuples too; `down_revision = None` is the start), `op.*` table operations inside `upgrade()` as fields |
-| `langgraph` | flow | per `StateGraph(...)` variable: `add_node` steps (handler in subtitle/detail), `add_edge`, `add_conditional_edges` (dashed, labelled by path-map key; dict or list path maps), `set_entry_point`/`set_finish_point`, START/END with start/end roles |
+| `langgraph` | flow | per `StateGraph(...)` variable (group titled with the variable; the file is in its tooltip): `add_node` steps (handler in subtitle/detail, shown in the inspector), `add_edge`, `add_conditional_edges` (dashed, labelled by path-map key; dict or list path maps), `set_entry_point`/`set_finish_point`, START/END with start/end roles |
 | `terraform` (preview) | graph | resources, `data.*`, `module.*`, `output.*` by address, grouped by file; edges for references in attributes (incl. `depends_on`, interpolations, lists, objects, nested blocks up to 2 levels) |
 | `cdk` (preview, TypeScript) | graph | stacks (classes extending `*Stack`), `new X(this, 'Id', ...)` constructs grouped by stack, `grant*` edges (grantee -> resource), constructs passed as props (dashed), `addDependency`; `props.x` links to a `this.x = new ...` construct by property name (dashed heuristic); a construct's subtitle is its constructor as written (`s3.Bucket`) |
 
@@ -137,6 +137,15 @@ Captures matching several nodes (quantifiers) emit once per node.
 Edge ends and field `node` resolve against node ids first, then aliases — that is how rules join across files (see
 the Alembic example). An unresolved end drops the edge and is listed under "unresolved links" unless `create` covers it.
 Every item records its source file and line.
+
+## How cards read in the app
+
+Graph, flow and layers cards show words, never code: an identifier title is drawn in words (`get_user` → "get user",
+`planTrip` → "plan trip"; the raw name is in the inspector header and on hover), titles and fields wrap (a title to 3
+lines, the card widening for long ones; a field to 2), and the selected card shows its full text. A subtitle shows only
+when it reads as words (`3 files`); a code-like one (a handler name, a path, `ConversationNode(adapter)`) and `detail`
+are in the inspector's Code section. The text form (`check`, "Show as text") keeps the raw labels. So: put intent into a
+docstring or `explain:` entry (shown under the title), not into `subtitle`/`detail`.
 
 ## Graph steps
 
@@ -428,9 +437,11 @@ exclude: ["(unassigned)"]         # drop a service by label, like any node
 ```
 
 - Levels above the drawn one are nested groups (service › module › file). Edges between files roll up to the drawn
-  nodes; the label is the count, then per kind (`141 · imports 44, calls 40, …`). Dashed: every edge of the pair was
+  nodes; the label is the count, then per kind (`141 · imports 44, calls 40, …`; the app draws only the count and shows
+  the breakdown in the edge inspector). Dashed: every edge of the pair was
   inferred (cross-service HTTP calls the engine synthesized, or heuristic resolution).
 - Symbol level: members (methods) count as their class; module-level code and imports have no symbol and are left out.
+  Symbol cards carry their docstring summary, like graph steps.
 - `stingray-views check <file> --depth N` (1-4) overrides `depth`; the result's `diagnostics.layers` has the config used,
   the depth and the counts. `layers.yaml` problems are warnings. Without a code graph the step is skipped.
 - Keep depth 3-4 to a few `expand`ed services: views stop at 2,000 nodes.

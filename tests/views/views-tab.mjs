@@ -98,6 +98,10 @@ try {
   check('flow view labels branches with router conditions', await flow.getByRole('button', { name: 'Select transition else' }).count() === 1
     && await flow.getByRole('button', { name: 'Select transition retry' }).count() === 1);
   check('flow view draws every transition', await flow.locator('.react-flow__edge').count() === 6);
+  const flowTexts = await flow.locator('.flow-card').allInnerTexts();
+  check('flow cards show words, not the handler code; the graph frame is titled without its file',
+    !flowTexts.some(t => /ConversationNode|plan_node|\(/.test(t)) && (await flow.locator('.flow-frame-label').allInnerTexts()).join() === 'builder'
+    && (await flow.locator('.flow-frame-label').getAttribute('title')) === 'builder\nagent/graph/builder.py');
   await page.waitForTimeout(1000); // automatic layout settled
   check('opening a flow view writes no view state', await saves() === 0);
   const card = await flow.locator('.flow-card').first().boundingBox();
@@ -226,6 +230,15 @@ try {
   await services.getByRole('group', { name: 'Step models.py' }).waitFor();
   check('raising the layers depth draws files inside service frames', await services.getByRole('group', { name: 'Step App service' }).count() === 0
     && (await services.locator('.flow-frame').allInnerTexts()).some(t => t.includes('App service')));
+  const edgeTexts = await services.locator('.flow-edge-label').allInnerTexts();
+  check('file cards show no folder path; roll-up edges show only their count', await services.locator('.flow-step > span').count() === 0
+    && edgeTexts.length > 0 && edgeTexts.every(t => /^\d+$/.test(t.trim())));
+  await layersDepth.fill('4');
+  const symbolCard = services.getByRole('group', { name: 'Step check password' });
+  await symbolCard.waitFor();
+  check('symbol cards are titled in words and carry their docstring summary',
+    await symbolCard.locator('.flow-explanation').innerText() === 'Reject inactive users, then verify the password.');
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-layers.png') });
 
   // A graph view: functions reached through calls; clean (called by both, calls nothing) collapses into a helper field.
   await list.getByRole('button', { name: 'Handler calls' }).click();
@@ -237,6 +250,9 @@ try {
   check('an explain: entry with an old string fingerprint is marked "old fingerprint", not "may be outdated"',
     await calls.getByRole('group', { name: 'Step handle' }).locator('.flow-explanation-stale.legacy').innerText() === 'old fingerprint');
   check('collapsed helpers show as fields of their callers', (await calls.getByRole('list', { name: 'Fields of handle' }).innerText()).includes('clean'));
+  check('graph cards show no code line and set fields in the text font',
+    await calls.locator('.flow-step > span').count() === 0
+    && !/mono/i.test(await calls.getByRole('list', { name: 'Fields of handle' }).evaluate(el => getComputedStyle(el).fontFamily)));
   await calls.getByRole('group', { name: 'Step handle' }).click();
   check('selecting a graph node opens its symbol and helpers in the inspector',
     await calls.getByRole('button', { name: 'Open handle in editor' }).isVisible()

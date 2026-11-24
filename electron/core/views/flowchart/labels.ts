@@ -1,15 +1,12 @@
 // Flowchart labels (docs/flowchart-view-spec.md §Labels): code text tidied into short phrases. Pure; the untidied code
 // always stays in the node's `detail`, so tidying never hides what the code says.
+import { splitWords } from '../../../../shared/views/words';
+export { splitWords };
 
 // Room for up to three wrapped lines in a card; the full code text stays in `detail` (inspector).
 export const MAX_LABEL = 90;
 
 export const truncate = (text: string, max = MAX_LABEL) => text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text;
-
-/** "send_reset_email" / "sendResetEmail" / "HTTPServer" -> "send reset email" / "send reset email" / "http server". */
-export const splitWords = (name: string) => name
-  .replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-  .split(/[_\s$]+/).filter(Boolean).map(w => w.toLowerCase()).join(' ');
 
 const OPERATORS: Record<string, string> = { '=>': '', '===': 'is', '==': 'is', '!==': 'is not', '!=': 'is not', '&&': 'and', '||': 'or', '??': 'or', '!': 'not' };
 const TOKEN = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`)|([A-Za-z_$][\w$]*)|(\d+(?:\.\d+)?)|(=>|===|!==|==|!=|<=|>=|&&|\|\||\?\?|[<>+\-*/%!])|\s+|./gs;

@@ -1,6 +1,7 @@
 // Flow geometry stays in absolute coordinates so local state and saved views share the tables contract.
 import type { ElkNode } from 'elkjs/lib/elk-api.js';
-import type { DiagramNode, ViewResult } from '../../../../shared/contracts/views';
+import type { DiagramEdge, DiagramNode, ViewResult } from '../../../../shared/contracts/views';
+import { splitWords } from '../../../../shared/views/words';
 import type { ElkLayouter, Positions } from './er-layout';
 
 // Flowchart shapes (kind: flowchart): pills for start/end/error, diamonds for decision/loop, boxes otherwise.
@@ -11,8 +12,9 @@ const CHART_SIZES: Record<string, { width: number; height: number }> = {
 // Room for an explanation (docstring summary) clamped to 3 lines: in a box (wider, taller) and under a frame title.
 const EXPLAINED_WIDTH = 260, EXPLANATION_HEIGHT = 48;
 export const FRAME_EXPLANATION_HEIGHT = 52;
-// One row per field in a step card (graph views: collapsed helpers of a function), at most MAX_FIELDS + a '+N more' row.
-const FIELD_HEIGHT = 18, MAX_FIELDS = 8;
+// One line per field in a step card (graph views: collapsed helpers of a function; a field wraps to at most 2 lines), at
+// most MAX_FIELDS + a '+N more' row.
+const FIELD_HEIGHT = 16, MAX_FIELDS = 8;
 /** Fields listed on a step card and how many more are cut (the inspector lists all). */
 export const cardFields = (node: DiagramNode) => ({ fields: node.fields.slice(0, MAX_FIELDS), more: Math.max(0, node.fields.length - MAX_FIELDS) });
 /** Whether the node's card shows its explanation (never diamonds or the plain flow's tiny start/end pills). */
@@ -38,6 +40,20 @@ export function textLines(text: string, width: number, glyph = GLYPH.box): numbe
   }
   return Math.min(lines, MAX_LINES);
 }
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+/** Title of a step card (graph, flow and layers views): a symbol's or rule step's identifier in words (`get_user` → "get
+ * user", like flowchart calls); other labels as they are. The raw name is in the inspector header. */
+export const cardTitle = (node: DiagramNode) =>
+  !node.role && (node.symbol || node.kind === 'step') && IDENTIFIER.test(node.label) ? splitWords(node.label) || node.label : node.label;
+const CODE = /[()[\]{}=_/\\<>@#$`;:.]/;
+/** A step card's subtitle when it reads as words ("3 files"); a code-like one (a handler name, a path, a constructor
+ * call) only shows in the inspector, like `detail`. */
+export const cardSubtitle = (node: DiagramNode) => {
+  const s = node.subtitle?.trim();
+  return s && /\s/.test(s) && !CODE.test(s) && s !== node.symbol?.name ? s : null;
+};
+/** Edge text on the canvas: a layers roll-up shows its total ("141"); the per-kind breakdown is in the edge inspector. */
+export const edgeLabel = (edge: Pick<DiagramEdge, 'kind' | 'label'>) => edge.kind === 'depends' && edge.label ? edge.label.split(' · ')[0] : edge.label;
 const DIAMONDS = new Set(['decision', 'loop']);
 /** Text a flowchart card is titled with: a decision's or loop's explanation (an `explain:` entry, e.g. keyed by its
  * condition) replaces the label tidied from the code; other cards keep their label and show the explanation under it. */
@@ -63,10 +79,19 @@ export const FAILURE_HEIGHT = 20;
 /** Badge text: the first failure, "+N" for more. */
 export const failureText = (node: DiagramNode) =>
   node.failures?.length ? `can fail: ${node.failures[0].label}${node.failures.length > 1 ? ` (+${node.failures.length - 1})` : ''}` : null;
+/** Step card size (graph, flow and layers views) from its text: 220px (260 with an explanation) while the title fits in 2
+ * lines, else WIDE; the title (up to 3 lines), a prose subtitle, fields (up to 2 lines each) and the explanation stack. */
+function stepSize(node: DiagramNode) {
+  const title = cardTitle(node), explained = showsExplanation(node), base = explained ? EXPLAINED_WIDTH : 220;
+  const width = textLines(title, base - 28) <= 2 ? base : WIDE, { fields, more } = cardFields(node);
+  const rows = fields.reduce((n, f) => n + Math.min(2, textLines(f.label, width - 40, 6.2)), 0) + (more ? 1 : 0);
+  return { width, height: 32 + textLines(title, width - 28) * LINE + (cardSubtitle(node) ? 19 : 0) + (rows ? 5 + rows * FIELD_HEIGHT : 0)
+    + (explained ? EXPLANATION_HEIGHT : 0) };
+}
 export const flowSize = (node: DiagramNode, flowchart = false) => {
+  if (!flowchart && !node.service && !node.role) return stepSize(node);
   const sized = flowchart ? chartSize(node) : null;
-  const base = sized ? (node.failures?.length ? { ...sized, height: sized.height + FAILURE_HEIGHT } : sized) : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
-    : { width: 220, height: 64 + Math.min(node.fields.length, MAX_FIELDS + 1) * FIELD_HEIGHT };
+  const base = sized ? (node.failures?.length ? { ...sized, height: sized.height + FAILURE_HEIGHT } : sized) : node.service ? INFRA_SIZE : { width: 88, height: 32 };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };
 const BRANCH_KINDS = new Set(['branch', 'yes', 'no', 'case', 'except']);
@@ -103,7 +128,7 @@ export function flowGraph(result: ViewResult): ElkNode {
     children: prune(children), layoutOptions: { ...options, 'elk.hierarchyHandling': 'INCLUDE_CHILDREN' },
     edges: result.edges.filter(e => ids.has(e.from) && ids.has(e.to)).map((e, i) => ({
       id: `edge:${i}`, sources: [ids.get(e.from)!], targets: [ids.get(e.to)!],
-      labels: e.label ? [edgeLabelSize(e.label)] : [],
+      labels: e.label ? [edgeLabelSize(edgeLabel(e)!)] : [],
     })),
   };
 }
@@ -177,17 +202,21 @@ export function bandEntry(result: ViewResult, index: FrameIndex, positions: Posi
   const sx = p.x + size.width / 2, sy = p.y + size.height;
   // A source ending beside the frame's title or explanation (above its first row) also detours: across to the lane just
   // under the source, labelled on that crossing; a source ending lower keeps its path.
-  if (sy >= frame.y + 50 + FRAME_EXPLANATION_HEIGHT) return undefined;
+  if (sy >= frame.y + frame.head) return undefined;
   const beside = sy >= frame.y, aboveY = beside ? sy + 16 : (sy + frame.y) / 2;
   const laneX = sx < frame.x + frame.width / 2 ? frame.x - 20 : frame.x + frame.width + 20;
-  return { laneX, aboveY, belowY: frame.y + 50 + FRAME_EXPLANATION_HEIGHT - 13,
+  return { laneX, aboveY, belowY: frame.y + frame.head - 13,
     labelX: beside ? (sx + laneX) / 2 : laneX, labelY: beside ? aboveY : (aboveY + frame.y) / 2 };
 }
 
-/** Group frames around their nodes and nested groups' frames, in `result.groups` order (flowchart: parents first). */
+/** Lines a frame title wraps to (at most 2) in a frame `width` px wide, minus padding (and a flowchart frame's buttons). */
+const frameLabelLines = (label: string, width: number, chart: boolean) => Math.min(2, textLines(label, width - (chart ? 150 : 32), 7.2));
+
+/** Group frames around their nodes and nested groups' frames, in `result.groups` order (flowchart: parents first); `head` is
+ * the room above the first row (title, wrapped to 2 lines, and the explanation). */
 export function flowFrames(result: ViewResult, positions: Positions) {
   const chart = result.kind === 'flowchart';
-  type Box = { x: number; y: number; right: number; bottom: number };
+  type Box = { x: number; y: number; right: number; bottom: number; head?: number };
   // Children per group, indexed once: this runs on every drag step.
   const inner = new Map<string, Box[]>(), childGroups = new Map<string, string[]>();
   for (const n of result.nodes) if (n.group && positions[n.id]) {
@@ -199,20 +228,21 @@ export function flowFrames(result: ViewResult, positions: Positions) {
     if (!childGroups.has(g.parent)) childGroups.set(g.parent, []);
     childGroups.get(g.parent)!.push(g.id);
   }
-  const explained = new Set(result.groups.filter(g => g.explanation).map(g => g.id));
-  const boxes = new Map<string, Box | null>();
-  const box = (id: string): Box | null => {
+  const explained = new Set(result.groups.filter(g => g.explanation).map(g => g.id)), labels = new Map(result.groups.map(g => [g.id, g.label]));
+  const boxes = new Map<string, Required<Box> | null>();
+  const box = (id: string): Required<Box> | null => {
     if (boxes.has(id)) return boxes.get(id)!;
     boxes.set(id, null); // guards parent cycles
     const all: Box[] = [...inner.get(id) ?? [], ...(childGroups.get(id) ?? []).flatMap(g => box(g) ?? [])];
-    const top = 50 + (explained.has(id) ? FRAME_EXPLANATION_HEIGHT : 0);
-    const b = all.length ? { x: Math.min(...all.map(i => i.x)) - 40, y: Math.min(...all.map(i => i.y)) - top,
-      right: Math.max(...all.map(i => i.right)) + 100, bottom: Math.max(...all.map(i => i.bottom)) + 40 } : null;
+    if (!all.length) return null;
+    const x = Math.min(...all.map(i => i.x)) - 40, right = Math.max(...all.map(i => i.right)) + 100;
+    const top = 50 + (explained.has(id) ? FRAME_EXPLANATION_HEIGHT : 0) + (frameLabelLines(labels.get(id) ?? '', right - x, chart) - 1) * LINE;
+    const b = { x, y: Math.min(...all.map(i => i.y)) - top, right, bottom: Math.max(...all.map(i => i.bottom)) + 40, head: top };
     boxes.set(id, b);
     return b;
   };
   return result.groups.flatMap(group => {
     const b = box(group.id);
-    return b ? [{ group, x: b.x, y: b.y, width: b.right - b.x, height: b.bottom - b.y }] : [];
+    return b ? [{ group, x: b.x, y: b.y, width: b.right - b.x, height: b.bottom - b.y, head: b.head }] : [];
   });
 }
