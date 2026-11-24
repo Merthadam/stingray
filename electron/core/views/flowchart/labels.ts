@@ -1,7 +1,8 @@
 // Flowchart labels (docs/flowchart-view-spec.md §Labels): code text tidied into short phrases. Pure; the untidied code
 // always stays in the node's `detail`, so tidying never hides what the code says.
 
-export const MAX_LABEL = 40;
+// Room for up to three wrapped lines in a card; the full code text stays in `detail` (inspector).
+export const MAX_LABEL = 90;
 
 export const truncate = (text: string, max = MAX_LABEL) => text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text;
 
