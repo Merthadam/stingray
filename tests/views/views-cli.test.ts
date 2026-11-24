@@ -441,6 +441,31 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('views-cli check lists undescribed flowchart steps with the explain: key that names each', async () => {
+  const root = await repo();
+  try {
+    const flowchart: ResolvedView = { ...view, kind: 'flowchart', rules: [], flowchart: { start: { symbol: 'login' }, depth: 0 } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const verify = { id: 'py:verify', name: 'verify', kind: 'function', file: 'a.py', line: 9 };
+    const result = output({
+      nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }),
+        node('d', { kind: 'decision', label: "result get 'ChallengeName' is…", detail: "result.get('ChallengeName')  ==  'MFA'", source: { file: 'a.py', line: 3 } }),
+        node('c', { kind: 'call', label: 'verify', symbol: verify, detail: 'verify(user)', source: { file: 'a.py', line: 4 } }),
+        node('ok', { kind: 'call', label: 'finish', detail: 'finish()', explanation: 'Create the session.' })],
+      edges: [],
+      diagnostics: { rules: [], graph: null, flowchart: { start: 'login (a.py:1)', depth: 0, functions: 1, nodes: 4, truncated: false, error: null }, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1 },
+    });
+    const h = harness(root, { loadViewPath, evaluate: async () => result, openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml'), 0);
+    const text = h.out.join('\n');
+    assert.match(text, /undescribed steps \(2; describe unclear ones with explain: <key>: \{ text: \.\.\. \}\):/);
+    assert.match(text, /\n {2}decision "result get 'ChallengeName' is…" L3 {2}key: 'result\.get\(''ChallengeName''\) == ''MFA'''/);
+    assert.match(text, /\n {2}call "verify" L4 {2}key: verify\n/);
+    assert.doesNotMatch(text, /key: finish/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('views-cli check --depth overrides layers.depth (1-4) and prints the layers diagnostic', async () => {
   const root = await repo();
   try {
