@@ -93,9 +93,20 @@ test('undescribedSteps: flowchart decisions, loops, calls and actions without an
     node('x', { kind: 'call', label: 'finish', detail: 'finish()', explanation: 'Create the session.' })];
   assert.deepEqual(undescribedSteps({ kind: 'flowchart', nodes: steps }).map(({ node: n, key }) => [n.id, key]),
     [['d', 'user is None'], ['c', 'verify'], ['a', 'now = clock()']]);
-  assert.deepEqual(undescribedSteps({ kind: 'flow', nodes: steps }), []);
   // every key printed names its step again
   for (const { node: n, key } of undescribedSteps({ kind: 'flowchart', nodes: steps })) assert.ok(explainTargets(key, steps, []).some(t => t.id === n.id), key);
+});
+
+test('undescribedSteps: graph and flow steps (symbol steps, layers symbols, every flow step), not services, files, infra, tables or pills', () => {
+  const nodes = [node('sym:1', { kind: 'function', label: 'get_user', symbol: sym('get_user') }), node('sym:2', { kind: 'class', label: 'Plan', symbol: sym('Plan'), explanation: 'A plan.' }),
+    node('service:a', { kind: 'service', label: 'App' }), node('file:a.py', { kind: 'file', label: 'a.py' }), node('users', { kind: 'table', label: 'users', symbol: sym('User') }),
+    node('aws_s3_bucket.logs', { kind: 'resource', label: 'logs', symbol: sym('logs'), service: { id: 's3' } as DiagramNode['service'] }),
+    node('g:chat', { kind: 'step', label: 'chat', detail: 'ConversationNode(adapter)' }), node('g:START', { kind: 'terminal', label: 'START', role: 'start' })];
+  assert.deepEqual(undescribedSteps({ kind: 'graph', nodes }).map(({ node: n, key }) => [n.id, key]), [['sym:1', 'get_user']]);
+  assert.deepEqual(undescribedSteps({ kind: 'flow', nodes }).map(({ node: n, key }) => [n.id, key]),
+    [['sym:1', 'get_user'], ['g:chat', 'g:chat']], 'a rule step without a symbol is keyed by its id');
+  assert.deepEqual(undescribedSteps({ kind: 'tables', nodes }), []);
+  for (const { node: n, key } of undescribedSteps({ kind: 'flow', nodes })) assert.ok(explainTargets(key, nodes, []).some(t => t.id === n.id), key);
 });
 
 test('explanationKey: reuses the entry that explains the target, else the suggested key, else the id when that is ambiguous', async () => {

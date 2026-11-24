@@ -116,6 +116,32 @@ try {
   await page.getByRole('button', { name: /Diagnostics/ }).click();
   check('flow diagnostics drawer lists rules', await page.getByRole('region', { name: 'Diagnostics' }).getByRole('heading', { name: /Rules/ }).isVisible());
   await page.getByRole('button', { name: /Diagnostics/ }).click();
+  check('flow steps without a description are marked; pills are not', await flow.locator('.flow-step.undescribed .flow-undescribed').count() === 3
+    && await flow.locator('.flow-pill .flow-undescribed').count() === 0);
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-flow.png') });
+  // Describe… on a rule step without a symbol writes an explain: entry keyed by its node id; Remove restores the file.
+  const flowFile = path.join(repo, '.stingray/views/agent-flow.yaml'), flowYaml = await readFile(flowFile, 'utf8');
+  await flow.getByRole('group', { name: 'Step chat' }).click();
+  const chatInspector = flow.getByRole('complementary', { name: 'Step chat' });
+  await chatInspector.getByRole('button', { name: 'Describe…' }).click();
+  await chatInspector.getByRole('textbox', { name: 'Description' }).fill('Answer the traveler directly');
+  await chatInspector.getByRole('button', { name: 'Save' }).click();
+  const chatCard = flow.getByRole('group', { name: 'Step chat' });
+  await chatCard.locator('.flow-explanation', { hasText: 'Answer the traveler directly' }).waitFor();
+  check('describing a flow step shows the text on its card, unmarked, and writes it under the step id',
+    await chatCard.locator('.flow-undescribed').count() === 0
+    && (await readFile(flowFile, 'utf8')).includes("explain:\n  agent/graph/builder.py:builder:chat:\n    text: Answer the traveler directly\n"));
+  await chatInspector.getByRole('button', { name: 'Edit description' }).click();
+  await chatInspector.getByRole('button', { name: 'Remove' }).click();
+  await chatCard.locator('.flow-undescribed').waitFor();
+  // shortcut: the yaml library re-pads flow collections (`[langgraph]` → `[ langgraph ]`); compare without that padding.
+  const unpadded = (t) => t.replace(/\[ (.*?) \]/g, '[$1]');
+  check('removing the flow step description restores the view file', unpadded(await readFile(flowFile, 'utf8')) === flowYaml);
+  await page.keyboard.press('Escape');
+  await flow.getByRole('button', { name: 'Select builder' }).click();
+  check('a graph frame opens its group inspector with Describe…',
+    await flow.getByRole('complementary', { name: 'Group builder' }).getByRole('button', { name: 'Describe…' }).isEnabled());
+  await page.keyboard.press('Escape');
 
   // Flowcharts need the code graph; the view refreshes once indexing finishes.
   await list.getByRole('button', { name: 'Login chart' }).click();
@@ -228,6 +254,7 @@ try {
     && await services.getByRole('group', { name: 'Step Agent service' }).count() === 1);
   await layersDepth.fill('3');
   await services.getByRole('group', { name: 'Step models.py' }).waitFor();
+  await services.locator('.flow-frame', { hasText: 'App service' }).first().waitFor(); // frames follow the re-layout
   check('raising the layers depth draws files inside service frames', await services.getByRole('group', { name: 'Step App service' }).count() === 0
     && (await services.locator('.flow-frame').allInnerTexts()).some(t => t.includes('App service')));
   const edgeTexts = await services.locator('.flow-edge-label').allInnerTexts();

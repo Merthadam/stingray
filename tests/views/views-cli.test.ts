@@ -500,6 +500,23 @@ test('views-cli check lists undescribed flowchart steps with the explain: key th
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('views-cli check lists undescribed flow steps too, keyed by symbol name or node id', async () => {
+  const root = await repo();
+  try {
+    const result = output({
+      nodes: [node('START', { kind: 'terminal', role: 'start', label: 'START' }), node('g:chat', { kind: 'step', label: 'chat', source: { file: 'g.py', line: 5 } }),
+        node('g:plan', { kind: 'step', label: 'plan', symbol: { id: 'py:plan_node', name: 'plan_node', kind: 'function', file: 'g.py', line: 9 } }),
+        node('g:done', { kind: 'step', label: 'done', explanation: 'Wrap up.' })],
+      edges: [],
+    });
+    const h = harness(root, { evaluate: async () => result });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml'), 0);
+    const text = h.out.join('\n');
+    assert.match(text, /undescribed steps \(2; /);
+    assert.match(text, /\n {2}step "chat" L5 {2}key: 'g:chat'\n {2}step "plan" {2}key: plan_node\n/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('views-cli check prints a flowchart summarized (hidden steps, can-fail guards); --all-steps prints every step', async () => {
   const root = await repo();
   try {

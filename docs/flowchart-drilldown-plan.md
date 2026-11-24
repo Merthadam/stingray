@@ -132,7 +132,10 @@ One PR each, stacked:
    identifier titles in words, wrapped titles/fields with text-sized cards, full text when selected, fields in the text
    font, frame titles wrap (LangGraph groups drop ` (@file)`, the file is in the tooltip), layers edges draw only the count,
    L4 symbols carry their docstring.
-2. **Undescribed + Describe… for graph/flow/layers.**
+2. **Undescribed + Describe… for graph/flow/layers** — done: `shared/views/undescribed.ts` decides per kind (flowchart steps;
+   graph/flow symbol steps and flow steps; never services, modules, files, infra or tables), used by the card marker and
+   `check`'s to-do; rule nodes and groups without a symbol are keyed by their id; Describe… on every graph/flow card and on
+   frames (click the frame title).
 3. **Sequence readability.**
 4. **Sequence descriptions.**
 5. **Graph depth slider.**

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../../../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../../../../shared/views/infra/catalog';
 import { infraIconUrl } from '../infra/icons';
-import { cardFields, cardSubtitle, cardTitle, chartLabel, failureText, infraName, showsExplanation, undescribed } from './flow-layout';
+import { cardFields, cardSubtitle, cardTitle, chartLabel, failureText, infraName, showsExplanation } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -27,7 +27,7 @@ export const explanationTitle = (text: string, status?: ExplanationStatus, reaso
 export const ExplanationReason = ({ status, reason }: { status?: ExplanationStatus; reason?: string }) =>
   reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; file?: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; file?: string; onSelect?: () => void; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
   steps?: { all: boolean; toggle: () => void }; onCollapse?: () => void }>>) {
   const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
@@ -40,6 +40,8 @@ export function FlowGroup({ data }: NodeProps<Node<{ label: string; file?: strin
         onClick={data.onCollapse}><ChevronDown size={13} /></button>}</div>}
     {data.provider && <img className="flow-frame-cloud-icon" src={infraIconUrl(INFRA_GROUP_ICONS[data.provider])} alt="" draggable={false} />}
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
+      : data.onSelect ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Select ${data.label}`}
+        title={data.file ? `${data.label}\n${data.file}` : data.label} onClick={data.onSelect}>{data.label}</button>
       : <div className="flow-frame-label" title={data.file ? `${data.label}\n${data.file}` : data.label}>{data.label}</div>}
     {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${note ? ` (${note})` : ''}: ${data.explanation}`}
       title={explanationTitle(data.explanation, data.explanationStatus, data.explanationReason)} onClick={data.onExplain}><span className="flow-explanation"><StaleMark status={data.explanationStatus} />{data.explanation}</span></button>}
@@ -61,7 +63,8 @@ const CanFail = ({ node }: { node: DiagramNode }) => {
 const UNDESCRIBED = 'No description yet: add a docstring or an explain: entry (stingray-views check lists the key)';
 const Undescribed = <i className="flow-undescribed" title={UNDESCRIBED} aria-label="no description" />;
 
-export type FlowStepNode = Node<{ node: DiagramNode; onExpand?: () => void }, 'step'>;
+/** `todo`: the node needs a description and has none (shared/views/undescribed): drawn muted with the marker. */
+export type FlowStepNode = Node<{ node: DiagramNode; todo: boolean; onExpand?: () => void }, 'step'>;
 
 const handles = <>
   <Handle type="target" position={Position.Top} id="in" />
@@ -74,7 +77,7 @@ const handles = <>
  * Cards show words, never code: the code text (`detail`) is on hover and in the inspector. Labels wrap and clamp; the
  * selected card shows them in full. */
 export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<FlowStepNode>) {
-  const n = data.node, sub = n.subtitle, todo = undescribed(n) ? Undescribed : null;
+  const n = data.node, sub = n.subtitle, todo = data.todo ? Undescribed : null;
   if (n.kind === 'decision' || n.kind === 'loop') return <div className={`flow-diamond ${n.kind}${todo ? ' undescribed' : ''}`}>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="50,1 99,50 50,99 1,50" vectorEffect="non-scaling-stroke" /></svg>
     <strong title={n.explanation ? explanationTitle(`${n.explanation}\n${n.detail || n.label}`, n.explanationStatus, n.explanationReason) : n.detail || n.label}>
@@ -107,9 +110,9 @@ const InfraCard = ({ node: n }: { node: DiagramNode }) => <div className={`flow-
 export const FlowNode = memo(function FlowNode({ data }: NodeProps<FlowStepNode>) {
   const n = data.node, { fields, more } = cardFields(n), sub = cardSubtitle(n);
   if (n.service) return <InfraCard node={n} />;
-  return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ' flow-step'}`}>
+  return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ' flow-step'}${data.todo ? ' undescribed' : ''}`}>
     <Handle type="target" position={Position.Top} id="in" />
-    <strong title={n.label}>{cardTitle(n)}</strong>
+    <strong title={n.label}>{cardTitle(n)}{data.todo && Undescribed}</strong>
     {!n.role && sub && <span title={sub}>{sub}</span>}
     {!n.role && n.fields.length > 0 && <ul className="flow-fields" aria-label={`Fields of ${n.label}`}>
       {fields.map(f => <li key={f.id} title={f.detail ? `${f.label} · ${f.detail}` : f.label}>{f.label}</li>)}

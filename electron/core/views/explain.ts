@@ -8,6 +8,7 @@ import type { DiagramGroup, DiagramNode, ExplainChanges, ExplainDiagnostic, Expl
 import type { ComputeDeps } from './compute';
 import { MAX_PIECES, type ExplainEntry } from './rules/schema';
 import type { GraphSymbol } from './rules/types';
+import { undescribed } from '../../../shared/views/undescribed';
 
 export type ReadSource = (file: string) => Promise<string | null>;
 type Target = DiagramNode | DiagramGroup;
@@ -113,17 +114,19 @@ export async function collectPieces(targets: Target[], nodes: DiagramNode[], gro
 const NO_CHANGES: ExplainChanges = { changed: [], added: [], removed: [] };
 
 /** The `explain:` key that names a node or group: its function name when it has a symbol (a call, the start node, an
- * expanded call's group), else its code (one line, at most 80 characters: a prefix still matches). Pure. */
+ * expanded call's group, a graph step), else a flowchart step's code (one line, at most 80 characters: a prefix still
+ * matches), else its id (a rule node or group). Pure. */
 export function suggestedKey(t: Target): string {
-  return t.symbol ? t.symbol.name : squash((t as Partial<DiagramNode>).detail || t.label).slice(0, 80).trimEnd();
+  if (t.symbol) return t.symbol.name;
+  const n = t as Partial<DiagramNode>;
+  return n.kind && CODE_STEPS.has(n.kind) ? squash(n.detail || t.label).slice(0, 80).trimEnd() : t.id;
 }
 
-/** Flowchart steps the reader cannot understand without the code: decisions and loops, calls and actions with no
- * explanation (docstring or `explain:`), each with the key that names it (suggestedKey). Pure. */
+/** Nodes the reader cannot understand without the code (shared/views/undescribed: flowchart decisions, loops, calls and
+ * actions; graph and flow views' symbol steps and flow steps) with no explanation (docstring or `explain:`), each with the
+ * key that names it (suggestedKey). Pure. */
 export function undescribedSteps(result: Pick<ViewResult, 'kind' | 'nodes'>): { node: DiagramNode; key: string }[] {
-  if (result.kind !== 'flowchart') return [];
-  return result.nodes.filter(n => !n.explanation && (n.kind === 'decision' || n.kind === 'loop' || n.kind === 'action' || n.kind === 'call'))
-    .map(n => ({ node: n, key: suggestedKey(n) }));
+  return result.nodes.filter(n => undescribed(n, result.kind)).map(n => ({ node: n, key: suggestedKey(n) }));
 }
 
 /** The `explain:` key to write for a node or group of a computed view ("Describe…" in the Views tab), null when the id is
