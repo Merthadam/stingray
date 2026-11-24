@@ -66,11 +66,11 @@ test('sequence python: call order, collapsed internal calls, externals by import
     'end',
     'loop for each user sessions',
     '  api.py -> store.py: save session  (uncertain)',
-    '  store.py --> api.py: persist(s)',
+    '  store.py --> api.py',
     'end',
     'try',
     '  api.py -> store.py: save session  (uncertain)',
-    '  store.py --> api.py: persist(s)',
+    '  store.py --> api.py',
     'end',
   ]);
   const { messages, fragments, notes, participants } = out.seq;
@@ -85,6 +85,15 @@ test('sequence python: call order, collapsed internal calls, externals by import
   assert.deepEqual(participants.map(p => p.id), ['p:file:services/auth/api.py', 'p:file:services/auth/store.py', 'ext:Database', 'ext:JWT']);
   assert.deepEqual(participants.map(p => p.column), [0, 1, 2, 3]);
   assert.equal(out.edges.length, 0);
+});
+
+test('sequence: a message carries its callee\'s docstring summary for the inspector; returns never show code', async () => {
+  const graph = fakeGraph(AUTH, AUTH_CALLS);
+  graph.findSymbols('save_session')[0].docstring = 'Store a session for later sign-ins.\n\nDetails.';
+  const { seq } = await run(AUTH, graph, { start: { symbol: 'sign_in' } });
+  const calls = seq.messages.filter(m => m.symbol?.name === 'save_session');
+  assert.ok(calls.length && calls.every(m => m.explanation === 'Store a session for later sign-ins.'));
+  assert.ok(seq.messages.filter(m => m.kind === 'return').every(m => m.label === ''), 'no returned value on return arrows');
 });
 
 test('sequence: internal show draws self calls, returns: false drops return arrows, depth 0 follows nothing', async () => {
@@ -102,7 +111,7 @@ test('sequence: internal show draws self calls, returns: false drops return arro
 test('sequence: class participants, view exclude drops a participant and its messages', async () => {
   const graph = fakeGraph(AUTH, AUTH_CALLS);
   const classes = await run(AUTH, graph, { start: { symbol: 'sign_in' }, participants: 'class' });
-  assert.ok(classes.seq.participants.some(p => p.id === 'p:class:services/auth/store.py#Store' && p.label === 'Store' && p.subtitle === 'services/auth/store.py'));
+  assert.ok(classes.seq.participants.some(p => p.id === 'p:class:services/auth/store.py#Store' && p.label === 'Store' && p.subtitle === null && p.source?.file === 'services/auth/store.py'));
   assert.equal(classes.diagnostics.sequence!.participants, 'class');
   const excluded = await run(AUTH, graph, { start: { symbol: 'sign_in' } }, { exclude: ['JWT', 'p:file:services/auth/store.py'] });
   assert.deepEqual(excluded.seq.participants.map(p => p.label), ['api.py', 'Database']);

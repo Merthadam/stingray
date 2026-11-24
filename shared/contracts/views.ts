@@ -143,7 +143,7 @@ export interface SequenceParticipant {
   id: string;                  // "actor", "p:<service|module|file|class>:<key>" or "ext:<name>"
   label: string;
   kind: SequenceParticipantKind;
-  subtitle: string | null;     // e.g. "service", "module", the file path of a class, "external"
+  subtitle: string | null;     // e.g. "service", "module of X", "external"; null for file and class lifelines (file in `source`)
   column: number;              // 0-based, left to right (actor, repo units, externals; each by first appearance)
   source: SourceRef | null;    // first function reached in it
   symbol: SymbolRef | null;
@@ -165,6 +165,7 @@ export interface SequenceMessage {
   link: string | null;         // link set or rule that produced it ("http", "auth", "langgraph", "events", "rule:<id>")
   source: SourceRef | null;    // call site
   symbol: SymbolRef | null;    // callee, when known
+  explanation?: string | null; // the callee's docstring summary (message inspector); absent = none
 }
 
 export type SequenceFragmentKind = 'alt' | 'opt' | 'loop' | 'try';

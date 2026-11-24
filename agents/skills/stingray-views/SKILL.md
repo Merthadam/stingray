@@ -279,7 +279,8 @@ sequence:
 - **Participants**, left to right: the actor, then one lifeline per unit of the reached functions, then external
   systems; units and externals each in order of first appearance. `auto` = `service` when the reached files span ≥ 2
   services of the code graph's layers, else `module` when they span ≥ 2 modules, else `file`. `file` lifelines are
-  labelled with the file name, `class` with the enclosing class (functions outside a class: their file). Ids:
+  labelled with the file name, `class` with the enclosing class (functions outside a class: their file); their path is
+  in the participant's source (inspector, hover), not on the lifeline. Ids:
   `actor`, `p:<service|module|file|class>:<key>`, `ext:<label>`. Files outside every service land in `(unassigned)`.
 - **Externals**: a call that does not resolve into the repo is drawn to an external lifeline when the module its
   receiver/callee is imported from (or else the call text, e.g. `self.client.get_user`) starts with a known prefix:
@@ -294,8 +295,8 @@ sequence:
   - call: label = callee in words ("get_user" → "get user"); `(recursive)` = already on the stack, not followed.
   - http (`POST /auth/sign-in`): a client call the code graph matched to a route; continues in the route's handler.
   - link (`[link auth]`, `[link langgraph]`, `[link events]`, `[link rule:<id>]`): a hop from a link set or rule.
-  - return: after a followed call whose callee is on another lifeline; label = the returned value when all returns
-    agree and it is ≤ 24 chars, `response` for http, else empty.
+  - return: after a followed call whose callee is on another lifeline; label `response` for http, else empty (never the
+    returned code).
   - self: a call inside one participant, only with `internal: show`; with `collapse` the arrow is left out but the
     callee's own calls are still drawn. Link hops inside one lifeline are always drawn.
   - `(uncertain)`: heuristically resolved (dashed in the Views tab). A called repo function outside `include` is drawn
@@ -346,8 +347,11 @@ literal `@`); the hop is then drawn when that function is entered, before its bo
   `alt|opt|loop|try <label>` … `else <label>` … `end`, and `note <participant>: <text>`. `--json` has
   `sequence` (participants, messages, fragments, notes) and `diagnostics.sequence` (resolved start, effective
   depth and granularity, counts, messages per link set).
-- Views tab: click an arrow or note to open its source, a participant for its inspector ("Fold into caller" draws its
-  calls on the caller's lifeline; "Unfold" in the toolbar), depth slider; both session-only.
+- Views tab: text in words, wrapped to 2 lines (rows grow; the full text on hover); a participant's explanation shows
+  under its box. Click an arrow for its inspector (the callee's docstring summary, the call's code, Open in editor), a
+  note to open its source, a participant for its inspector ("Fold into caller" draws its calls on the caller's lifeline;
+  "Unfold" in the toolbar), depth slider; both session-only. `--json` messages carry the callee's docstring summary as
+  `explanation`.
 - Limits: 400 messages, 30 participants, 150 distinct functions followed, then the sequence is marked truncated
   ("lower the depth or exclude files").
 - Errors (exit 1): start symbol/route not found or ambiguous (add `file:`), start is not a function, route without a

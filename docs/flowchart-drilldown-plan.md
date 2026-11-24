@@ -136,7 +136,9 @@ One PR each, stacked:
    graph/flow symbol steps and flow steps; never services, modules, files, infra or tables), used by the card marker and
    `check`'s to-do; rule nodes and groups without a symbol are keyed by their id; Describe… on every graph/flow card and on
    frames (click the frame title).
-3. **Sequence readability.**
+3. **Sequence readability** — done: text in the sans font, message/fragment/note labels wrap to 2 lines (rows grow; no
+   engine cut), file/class lifelines lose their path subtitle, participant explanations under their boxes, returns never
+   show code, clicking a message opens a message inspector (callee docstring, code, Open in editor).
 4. **Sequence descriptions.**
 5. **Graph depth slider.**
 

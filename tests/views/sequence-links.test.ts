@@ -54,7 +54,7 @@ test('sequence auth: FastAPI decorators, router and route dependencies, Depends/
     'routes.py -> routes.py: get_current_user  [link auth]',
     '  routes.py -> routes.py: get_token  [link auth]',
     'routes.py -> deps.py: get_db  [link auth]',
-    'deps.py --> routes.py: session()',
+    'deps.py --> routes.py',
   ]);
   assert.deepEqual(out.diagnostics.sequence!.links, { auth: 6 });
   assert.ok(out.seq.messages.filter(m => m.link).every(m => m.kind === 'link' && m.certain));
@@ -94,7 +94,7 @@ test('sequence auth: Express middleware before the handler and earlier router.us
     'server.js -> server.js: requireUser  [link auth]',
   ]);
   const next = await run(EXPRESS, graph, { start: { symbol: 'handler' }, participants: 'file' });
-  assert.deepEqual(next.text, ['participants: me.ts, auth.ts', 'me.ts -> auth.ts: withAuth  [link auth]', 'auth.ts --> me.ts: fn']);
+  assert.deepEqual(next.text, ['participants: me.ts, auth.ts', 'me.ts -> auth.ts: withAuth  [link auth]', 'auth.ts --> me.ts']);
 });
 
 const AGENT = {
@@ -207,12 +207,12 @@ test('sequence langgraph: imported compiled graph, router conditions without a p
     // `async for` runs astream in its header; the loop body draws nothing, so no loop frame.
     'alt 1. urgent',
     '  api.py -> flow.py: finish  [link langgraph]',
-    '  flow.py --> api.py: state',
+    '  flow.py --> api.py',
     'else',
     '  api.py -> flow.py: respond  [link langgraph]',
-    '  flow.py --> api.py: state',
+    '  flow.py --> api.py',
     '  api.py -> flow.py: finish  [link langgraph]',
-    '  flow.py --> api.py: state',
+    '  flow.py --> api.py',
     'end',
   ]);
   // `self.helper.invoke` has no compiled graph behind it ("helper" does not read like one): not linked.
