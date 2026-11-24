@@ -92,6 +92,17 @@ test('saveViewAs adds exclude to a repo view without one', async t => {
   assert.deepEqual(parseViewYaml(await read(root, result.file), result.file).exclude, ['a']);
 });
 
+test('saveViewAs merges calls opened in the Views tab into flowchart.expand; other kinds refuse them', async t => {
+  const root = await worktree(t);
+  await mkdir(path.join(root, '.stingray/views'), { recursive: true });
+  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n');
+  const first = await saveViewAs(root, { name: 'Chart 2', basedOn: 'chart', exclude: [], layout: null, expand: ['check_password', 'finish>audit#2', 'check_password'] });
+  assert.deepEqual(parseViewYaml(await read(root, first.file), first.file).flowchart?.expand, ['check_password', 'finish>audit#2']);
+  const second = await saveViewAs(root, { name: 'Chart 3', basedOn: 'chart-2', exclude: [], layout: null, expand: ['finish>audit#2', 'verify'] });
+  assert.deepEqual(parseViewYaml(await read(root, second.file), second.file).flowchart?.expand, ['check_password', 'finish>audit#2', 'verify']);
+  await assert.rejects(saveViewAs(root, { name: 'Tables', basedOn: 'database', exclude: [], layout: null, expand: ['x'] }), /Only a flowchart view/);
+});
+
 test('saveViewAs refuses existing files, bad names, unknown or invalid bases and symlinked folders', async t => {
   const root = await worktree(t);
   const input = { name: 'Core', basedOn: 'database', exclude: [], layout: null };

@@ -28,6 +28,8 @@ interface Frame {
   outgoing: GraphRelation[];  // the function's `calls` relations
   returns: Pending[] | null;  // expanded callee: returns continue in the caller; null for the entry function
   breakables: Breakable[];
+  path: string;               // call path from the entry ('' for it), e.g. "finish>create_session" (callPath)
+  calls: Map<string, number>; // resolved calls drawn so far per callee name: the "#n" of the next call path
 }
 
 
@@ -98,7 +100,7 @@ export class FlowchartBuilder {
   async entry(symbol: GraphSymbol, constructs: Construct[]) {
     this.functions++;
     const start = this.add({ kind: 'start', label: symbol.name, role: 'start', line: symbol.line, detail: null, symbol }, [], symbol, null)!;
-    const frame = this.frame(symbol, null, 0, [symbol.id], null);
+    const frame = this.frame(symbol, null, 0, [symbol.id], null, '');
     const out = await this.steps(constructs, this.pend(start, 'next'), frame);
     if (out.length) this.add({ kind: 'end', label: 'done', role: 'end', line: null, detail: null }, out, symbol, null);
   }
@@ -114,8 +116,23 @@ export class FlowchartBuilder {
     return [...this.edges].sort((a, b) => rank.get(a.from)! - rank.get(b.from)! || this.edgeSeq.get(a)! - this.edgeSeq.get(b)!);
   }
 
-  private frame(symbol: GraphSymbol, group: string | null, level: number, stack: string[], returns: Pending[] | null): Frame {
-    return { symbol, group, level, stack, outgoing: this.graph.outgoing([symbol.id], ['calls']), returns, breakables: [] };
+  private frame(symbol: GraphSymbol, group: string | null, level: number, stack: string[], returns: Pending[] | null, path: string): Frame {
+    return { symbol, group, level, stack, outgoing: this.graph.outgoing([symbol.id], ['calls']), returns, breakables: [], path, calls: new Map() };
+  }
+
+  /** Stable path of a resolved call (`DiagramNode.callPath`): the frame's path, '>' and the callee name; the n-th (n >= 2)
+   * call of the same name in one function body gets "#n", e.g. "finish>create_session", "audit#2". */
+  private callPath(f: Frame, name: string) {
+    const n = (f.calls.get(name) ?? 0) + 1;
+    f.calls.set(name, n);
+    return `${f.path ? f.path + '>' : ''}${name}${n > 1 ? `#${n}` : ''}`;
+  }
+
+  /** Whether a call is drawn expanded: `flowchart.collapse` (exact paths) wins; then `flowchart.expand` (an exact path when
+   * it has '>' or '#', else any call of that callee name) or the depth. */
+  private wanted(f: Frame, path: string, name: string) {
+    if (this.step.collapse?.includes(path)) return false;
+    return f.level < this.step.depth || (this.step.expand ?? []).some(e => /[>#]/.test(e) ? e === path : e === name);
   }
 
   private uniqueId(base: string) {
@@ -126,7 +143,8 @@ export class FlowchartBuilder {
   }
 
   /** Add a node and connect the pending edges to it; null (nothing added) once the node cap is hit. */
-  private add(n: { kind: string; label: string; line: number | null; detail: string | null; role?: 'start' | 'end'; symbol?: GraphSymbol; subtitle?: string | null },
+  private add(n: { kind: string; label: string; line: number | null; detail: string | null; role?: 'start' | 'end'; symbol?: GraphSymbol; subtitle?: string | null;
+    callPath?: string; expandable?: boolean },
     preds: Pending[], at: GraphSymbol, group: string | null): string | null {
     if (this.nodes.length >= MAX_FLOWCHART_NODES) { this.truncated = true; return null; }
     const line = n.line ?? at.line;
@@ -135,12 +153,13 @@ export class FlowchartBuilder {
     this.nodes.push({
       id, label: n.label, kind: n.kind, subtitle: n.subtitle ?? null, group, fields: [], source: { file: at.file, line },
       symbol: s ? symbolRef(s) : null, role: n.role ?? null, order: null, detail: n.detail, ...explanationOf(s),
+      ...n.callPath !== undefined && { callPath: n.callPath }, ...n.expandable && { expandable: true },
     });
     this.connect(preds, id);
     return id;
   }
 
-  private node(f: Frame, kind: string, label: string, code: Code, preds: Pending[], extra: { symbol?: GraphSymbol; subtitle?: string | null; role?: 'end' } = {}) {
+  private node(f: Frame, kind: string, label: string, code: Code, preds: Pending[], extra: { symbol?: GraphSymbol; subtitle?: string | null; role?: 'end'; callPath?: string; expandable?: boolean } = {}) {
     return this.add({ kind, label, line: code.line, detail: code.text, ...extra }, preds, f.symbol, f.group);
   }
 
@@ -293,39 +312,41 @@ export class FlowchartBuilder {
         continue;
       }
       const { symbol, certain } = target;
-      let subtitle: string | null = null;
+      const callPath = this.callPath(f, symbol.name);
+      let subtitle: string | null = null, expandable = false;
       if (f.stack.includes(symbol.id)) subtitle = 'recursive';
       else if (this.expandable(symbol)) {
         const loaded = await this.load(symbol);
         const steps = 'constructs' in loaded ? countSteps(loaded.constructs) : 0;
         if ('constructs' in loaded && steps > 0) {
-          const fits = this.nodes.length + steps + 1 <= MAX_FLOWCHART_NODES;
-          if (f.level < this.step.depth && fits) {
+          expandable = true;
+          const fits = this.nodes.length + steps + 1 <= MAX_FLOWCHART_NODES, wanted = this.wanted(f, callPath, symbol.name);
+          if (wanted && fits) {
             const nodes = this.nodes.length, groups = this.groups.length, caught = this.catching.map(t => t.caught.map(x => x.length));
-            const out = await this.expand(symbol, loaded.constructs, into(certain), f);
+            const out = await this.expand(symbol, loaded.constructs, into(certain), f, callPath);
             if (this.nodes.length > nodes) { preds = out; continue; }
             // The callee drew nothing (e.g. only library calls in a return, or only a raise the caller catches): show the
             // call instead, and drop what its raises sent to the caller's handlers.
-            this.groups.length = groups; this.functions--;
+            this.groups.length = groups; this.functions--; expandable = false;
             this.catching.forEach((t, i) => t.caught.forEach((x, j) => { x.length = caught[i][j]; }));
           } else {
             if (!fits) this.truncated = true;
-            subtitle = `+${steps} steps (increase depth)`;
+            subtitle = `+${steps} steps${fits ? '' : ' (too big to open here)'}`;
           }
         }
       }
-      if (mode !== 'condition') preds = next(this.node(f, 'call', callLabel(call.callee), at, into(certain), { symbol, subtitle }));
+      if (mode !== 'condition') preds = next(this.node(f, 'call', callLabel(call.callee), at, into(certain), { symbol, subtitle, callPath, expandable }));
     }
     return preds;
   }
 
-  private async expand(symbol: GraphSymbol, constructs: Construct[], preds: Pending[], f: Frame): Promise<Pending[]> {
+  private async expand(symbol: GraphSymbol, constructs: Construct[], preds: Pending[], f: Frame, callPath: string): Promise<Pending[]> {
     this.functions++;
     const base = `call:${symbol.id}`;
     let group = base;
     for (let i = 2; this.groups.some(g => g.id === group); i++) group = `${base}#${i}`;
-    this.groups.push({ id: group, label: symbol.name, source: { file: symbol.file, line: symbol.line }, parent: f.group, symbol: symbolRef(symbol), ...explanationOf(symbol) });
-    const callee = this.frame(symbol, group, f.level + 1, [...f.stack, symbol.id], []);
+    this.groups.push({ id: group, label: symbol.name, source: { file: symbol.file, line: symbol.line }, parent: f.group, symbol: symbolRef(symbol), callPath, ...explanationOf(symbol) });
+    const callee = this.frame(symbol, group, f.level + 1, [...f.stack, symbol.id], [], callPath);
     const out = await this.steps(constructs, preds, callee);
     return [...out, ...callee.returns!];
   }

@@ -173,6 +173,25 @@ try {
   await depth.fill('0');
   await chart.locator('.flow-chart-call').waitFor();
   check('moving the slider back to the file depth drops the override', await saveAs.isEnabled());
+  // Drill-down: one call at a time, by its call path; the new frame takes the clicked card's place on screen.
+  const callCard = chart.locator(".react-flow__node", { has: page.locator(".flow-chart-call") });
+  const before = await callCard.boundingBox();
+  await chart.getByRole('button', { name: 'Expand check password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
+  await frame.waitFor();
+  check('a call card\'s chevron opens that call in place as a frame', await chart.locator('.flow-chart-call').count() === 0
+    && await depth.inputValue() === '0');
+  const frameBox = chart.locator('.react-flow__node-frame', { has: page.getByRole('button', { name: 'Open check_password in editor' }) });
+  let after = await frameBox.boundingBox();
+  for (let i = 0; i < 20 && after && Math.hypot(after.x - before.x, after.y - before.y) > 2; i++) { await page.waitForTimeout(50); after = await frameBox.boundingBox(); }
+  check('the opened frame sits where the call card was', !!before && !!after && Math.hypot(after.x - before.x, after.y - before.y) <= 2);
+  check('save as view stays on with opened calls', await saveAs.isEnabled());
+  await saveAs.click();
+  const saveDialog = page.getByRole('dialog', { name: 'Save as view' });
+  check('save as view writes the opened calls to flowchart.expand', (await saveDialog.innerText()).includes('1 expanded call saved to flowchart.expand: check_password'));
+  await saveDialog.getByRole('button', { name: 'Cancel' }).click();
+  await chart.getByRole('button', { name: 'Collapse check_password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
+  await chart.locator('.flow-chart-call').waitFor();
+  check('the frame\'s collapse button closes it into the call card again', await frame.count() === 0 && await saveAs.isEnabled());
 
   // The builtin Services view: stinggraph layers from .stinggraph/layers.yaml, drilled down with the depth slider.
   await list.getByRole('button', { name: 'Services' }).click();

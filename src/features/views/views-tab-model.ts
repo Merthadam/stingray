@@ -42,11 +42,11 @@ export function pickView(list: ViewSummary[], stored: string | null): string | n
 }
 
 /** "Save as view…" input: hidden node ids become labels (what view files exclude by); positions only for shown nodes. */
-export function saveViewInput(name: string, result: ViewResult, state: ViewLocalState, savePositions: boolean): SaveViewInput {
+export function saveViewInput(name: string, result: ViewResult, state: ViewLocalState, savePositions: boolean, expand: string[] = []): SaveViewInput {
   const hidden = new Set(state.hidden), shown = new Set(result.nodes.filter(n => !hidden.has(n.id)).map(n => n.id));
   const exclude = [...new Set(result.nodes.filter(n => hidden.has(n.id)).map(n => n.label))];
   const positions = Object.fromEntries(Object.entries(state.positions).filter(([id]) => shown.has(id)));
-  return { name: name.trim(), basedOn: result.id, exclude, layout: savePositions && Object.keys(positions).length ? { positions } : null };
+  return { name: name.trim(), basedOn: result.id, exclude, layout: savePositions && Object.keys(positions).length ? { positions } : null, ...expand.length ? { expand } : {} };
 }
 
 /** Indexes of lines containing `query` (case-insensitive); empty for an empty query. */

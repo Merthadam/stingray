@@ -56,6 +56,9 @@ export interface DiagramNode {
   explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
   failures?: NodeFailure[];    // flowchart summary: guards folded into this step ("can fail" badge); absent when none
+  callPath?: string;           // flowchart call node: its stable call path ("finish>create_session", "audit#2"), see
+                               // FlowchartStep.expand; absent for other nodes
+  expandable?: boolean;        // flowchart call node whose callee can be drawn inline (api.view `expanded`); absent = no
   service?: InfraService;      // cloud service of a Terraform resource/data source or CDK construct/stack (builtin terraform
                                // and cdk sets); drawn as its official icon; absent for other nodes
 }
@@ -89,6 +92,7 @@ export interface DiagramGroup {
   explanationStatus?: ExplanationStatus;
   explanationReason?: string;  // as on DiagramNode
   symbol?: SymbolRef | null;   // flowchart expanded call: the callee
+  callPath?: string;           // flowchart expanded call: the call path, as on the call node it replaces
   provider?: InfraProvider;    // every service node in the group is of this cloud: drawn as that cloud's group box
 }
 
@@ -210,6 +214,7 @@ export interface SaveViewInput {
   basedOn: string;             // ViewSummary.id the user was looking at ("database" or a repo view slug)
   exclude: string[];           // labels of hidden nodes (tables: table names), merged into the base view's exclude
   layout: ViewLayout | null;   // include current positions when the user ticks "save positions"
+  expand?: string[];           // flowchart call paths opened in the Views tab, merged into the base view's flowchart.expand
 }
 export interface SaveViewResult { id: string; file: string } // slug and worktree-relative file
 
@@ -307,19 +312,22 @@ const nodeIds = (max: number) => z.array(z.string().min(1).max(300)).max(max);
 export const viewLocalStateSchema = z.strictObject({ hidden: nodeIds(2000), positions: positionsSchema, expanded: nodeIds(500) });
 
 const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
+const callPaths = z.array(z.string().min(1).max(300)).max(100);
 export const viewsContract = defineContract('views', {
   invoke: {
     views: [z.tuple([idSchema]), returns<ViewSummary[]>()],
     /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
-     * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it. */
-    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]), returns<ViewResult>()],
+     * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it.
+     * `expanded`/`collapsed` (flowcharts): call paths drawn open/closed on top of the view's `flowchart.expand` and depth. */
+    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional(),
+      expanded: callPaths.optional(), collapsed: callPaths.optional() }).optional()]), returns<ViewResult>()],
     /** Local (app data) state of a view in a worktree; null when none saved yet. */
     viewState: [z.tuple([idSchema, viewIdSchema]), returns<ViewLocalState | null>()],
     saveViewState: [z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), returns<void>()],
     /** Writes .stingray/views/<slug>.yaml; rejects if that file exists. */
     saveViewAs: [z.tuple([idSchema, z.strictObject({
       name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
-      layout: z.strictObject({ positions: positionsSchema }).nullable(),
+      layout: z.strictObject({ positions: positionsSchema }).nullable(), expand: callPaths.optional(),
     })]), returns<SaveViewResult>()],
     /** Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs. */
     openServiceDocs: [z.tuple([z.string().max(100)]), returns<void>()],

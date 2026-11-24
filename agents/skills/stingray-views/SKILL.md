@@ -27,7 +27,7 @@ files. Prefer a builtin set (`use:`) when one fits; write rules for the project'
 1. Look at the code you want to show (which files, which calls/assignments define nodes and edges).
 2. Run `stingray-views sets` and check whether a builtin set already covers it.
 3. Write `.stingray/views/<slug>.yaml` (slug: `a-z`, `0-9`, `-`, 1-64 chars).
-4. Run `stingray-views check .stingray/views/<slug>.yaml` (`--depth N` for flowcharts, layers and sequences). It prints per-rule diagnostics (files, matches, emitted,
+4. Run `stingray-views check .stingray/views/<slug>.yaml` (`--depth N` for flowcharts, layers and sequences; `--expand`/`--collapse` for flowcharts). It prints per-rule diagnostics (files, matches, emitted,
    skipped, errors with `file:line`), the graph step result, unresolved links, warnings and a text diagram.
    Exit code 1 means errors.
 5. Fix until there are no errors **and** the diagram matches the code (right nodes, no missing edges, no unresolved
@@ -175,6 +175,7 @@ flowchart:
   include: ["services/**"] # files whose functions may be expanded (default: the view scope)
   exclude: []
   hide: [log, "metrics.*"] # calls drawn as nothing (no box, no expansion): callee name or dotted path, `*` = any run
+  expand: [finish, "load_user>db_get"] # calls opened beyond depth: a call path, or a callee name (max 50)
 ```
 
 - Steps follow source order. Statements without calls or control flow are left out, and so are library calls whose
@@ -182,7 +183,7 @@ flowchart:
 - Node kinds: `start`, `end` (a `return`; label = returned value or "done"), `error` (`raise`/`throw`), `action` (a
   call the code graph does not know, e.g. a library), `decision` (`if`/`elif`/`else`, ternary, `match`/`switch`, `try`
   as "succeeds?"), `loop` (`for`/`while`, "more items?"), `call` (a known function that is not expanded: depth reached
-  — subtitle "+N steps (increase depth)" —, outside `include`, or "recursive").
+  — subtitle "+N steps" —, outside `include`, or "recursive").
 - Edge kinds: `next`, `yes`/`no` (labels Yes/No), `case` (label = pattern, "other" = default/no match), `except`
   (label = exception type), `loop` (back-edges, `continue`). Heuristically resolved calls are dashed (in the text
   tree: `(uncertain)` after the call node or the expanded callee's `» name`).
@@ -190,6 +191,11 @@ flowchart:
   → "has x?"; `len(x) == 0` / `!x.length` → "x empty?"; calls by name in words ("send_reset_email" → "send reset
   email"). The code itself is in each node's detail and source link.
 - Expanded calls are groups named after the callee (`call:<symbol id>`); a callee's `return` continues in the caller.
+- Call paths name each call of a known function: the callee names from the entry joined by `>`, with `#n` for the n-th
+  call of the same name in one function (`check_password`, `finish>create_session`, `audit#2`). They are on `call`
+  nodes and expanded groups as `callPath` (`--json`); a call node that can be opened has `expandable: true`.
+  `flowchart.expand` opens calls beyond `depth`: an entry with `>` or `#` is an exact path, a bare name opens every call
+  of that callee inside opened frames. Keep `depth: 0` and list the calls a reader needs instead of raising the depth.
 - Explanations: groups, `call` nodes and the start node (and `graph` step nodes and rule nodes linked with `symbol:`)
   carry `explanation` = the first paragraph of the function's docstring/JSDoc, when it has one. The text diagram
   appends it as ` — <explanation>` (e.g. `» identity — Accept a Cognito access token …`); `--json` has the field on
@@ -207,14 +213,20 @@ flowchart:
   `check` prints `summary: N steps hidden, M guards folded`; `--all-steps` prints every step (the app: "All steps" in
   the toolbar, or a frame's "all steps" switch); `--json` always has every step. To keep a library step in the
   summary, describe it with `explain:`; to drop noisy calls everywhere, add them to `flowchart.hide`.
-- `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
-  decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
-  `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.
+- `stingray-views check <file> --depth N` overrides `depth` for one run; `--expand a,b>c` adds call paths (or names) to
+  `flowchart.expand` and `--collapse x,y` draws those exact paths closed even within the depth, for one run. The text
+  diagram is an indented tree: decisions list their branches until they merge, `→ x` = the branch continues at x,
+  `↻ x` = back to x (loops), `» name` = an expanded call, and a call that can be opened ends with `(expand: <path>)` —
+  pass that path to `--expand` or put it in `flowchart.expand`. The effective depth is in `diagnostics.flowchart.depth`.
+- In the app a call card's chevron opens that call in place and a frame's header button (or the inspector's Collapse)
+  closes it again; these are session-only, and the depth slider resets them. "Save as view…" writes the opened calls to
+  the new file's `flowchart.expand` (not while a call opened by the depth is collapsed, or the depth is overridden).
 - The view-level `exclude:` drops matching flowchart nodes and their edges, which cuts the chart apart; prefer
   `flowchart.exclude` (file globs) to keep a callee unexpanded.
 - Not drawn: `finally` on paths that end in return/raise inside the try; labelled `break`/`continue` go to the innermost
   loop.
-- Limits: 150 nodes (then calls stay unexpanded and the chart is marked truncated); 200 ms parse time per file.
+- Limits: 150 nodes (then calls stay unexpanded, also those listed in `expand`, and the chart is marked truncated);
+  200 ms parse time per file.
 - Errors (exit 1): start symbol not found or ambiguous, language not supported, function not found in its file.
   Without a code graph the flowchart is skipped.
 

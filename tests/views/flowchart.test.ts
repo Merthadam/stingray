@@ -105,7 +105,7 @@ test('python: if/elif/else, early return, raise, loop with continue/break, calls
     '        (error) ValueError: no name · L6',
     '      Yes:',
     '        → db get',
-    '    [call] db get — +1 steps (increase depth) · L7',
+    '    [call] db get — +1 steps · L7 (expand: load_user>db_get)',
     '  <?> has user? · L17',
     '    No:',
     '      (end) done · L18',
@@ -163,7 +163,7 @@ test('python: depth 0 draws call nodes, depth 2 expands nested calls in nested g
   const flat = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0 });
   assert.deepEqual(flat.groups, []);
   assert.deepEqual(flat.nodes.filter(n => n.kind === 'call').map(n => [n.label, n.subtitle]), [
-    ['load user', '+3 steps (increase depth)'], ['send reset email', '+1 steps (increase depth)'], ['audit', '+1 steps (increase depth)'], ['audit', '+1 steps (increase depth)'],
+    ['load user', '+3 steps'], ['send reset email', '+1 steps'], ['audit', '+1 steps'], ['audit', '+1 steps'],
   ]);
   assert.equal(flat.diagnostics.flowchart!.functions, 1);
   // The condition's call `check(...)` is not drawn separately when not expanded: the decision names it.
@@ -193,8 +193,8 @@ test('docstring summaries explain the start node, expanded-call groups and call 
   assert.ok(!('explanation' in out.groups.find(g => g.label === 'audit')!));
   assert.ok(out.nodes.filter(n => n.kind !== 'start' && n.kind !== 'call').every(n => !('explanation' in n)));
   assert.deepEqual(out.text.slice(0, 3), ['  (start) login · L15 — Sign a user in.', '  » load_user — Find the user by name.', '    <?> name? · L5']);
-  assert.ok(out.text.includes('    [call] db get — +1 steps (increase depth) · L7 — Read one row.'), out.text.join('\n'));
-  assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) .*$/, '')));
+  assert.ok(out.text.includes('    [call] db get — +1 steps · L7 — Read one row. (expand: load_user>db_get)'), out.text.join('\n'));
+  assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) [^.]*\./, '')));
 });
 
 test('python: try/except/else/finally, match, with, await, ternary', async () => {
@@ -319,7 +319,7 @@ test('typescript: throw, for-of, switch with fallthrough labels and break, terna
     '      → has s?',
     '    case other:',
     '      » fallback',
-    '        [call] helper — +2 steps (increase depth) · L25',
+    '        [call] helper — +2 steps · L25 (expand: fallback>helper)',
     '      (end) fallback mode · L14',
     '  » helper',
     '    <?> has s? · L2',
@@ -367,7 +367,7 @@ test('node cap: stops expanding, marks unexpanded calls and reports truncation',
   const out = await run(files, ['main>a', 'main>b', 'main>c'], { start: { symbol: 'main' } });
   assert.ok(out.nodes.length <= MAX_FLOWCHART_NODES);
   assert.deepEqual(out.groups.map(g => g.label), ['a', 'b']);
-  assert.equal(node(out.nodes, 'c').subtitle, '+60 steps (increase depth)');
+  assert.equal(node(out.nodes, 'c').subtitle, '+60 steps (too big to open here)');
   assert.equal(out.truncated, true);
   assert.equal(out.diagnostics.flowchart!.truncated, true);
   assert.ok(out.warnings.some(w => /Flowchart stopped/.test(w.message)));
@@ -681,4 +681,36 @@ def helper(k):
   assert.ok(!py.groups.length, 'a hidden resolved call is not expanded');
   const ts = await run(files, [], { start: { symbol: 'go', file: 'n.ts' }, hide: ['metrics.*'] });
   assert.deepEqual(ts.nodes.filter(n => n.kind === 'action').map(n => n.label), ['parse', 'store']);
+});
+
+test('call paths: callee names from the entry joined by ">", "#n" for the n-th call of a name in one body; on call nodes and groups', async () => {
+  const flat = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0 });
+  assert.deepEqual(flat.nodes.filter(n => n.kind === 'call').map(n => [n.label, n.callPath, n.expandable]), [
+    ['load user', 'load_user', true], ['send reset email', 'send_reset_email', true], ['audit', 'audit', true], ['audit', 'audit#2', true],
+  ]);
+  const deep = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 2 });
+  assert.deepEqual(deep.groups.map(g => [g.label, g.callPath]), [
+    ['load_user', 'load_user'], ['db_get', 'load_user>db_get'], ['send_reset_email', 'send_reset_email'], ['audit', 'audit'], ['audit', 'audit#2'],
+  ]);
+  // `query` draws nothing (only `return None`): a call node that cannot be expanded.
+  const query = node(deep.nodes, 'query');
+  assert.deepEqual([query.callPath, query.expandable], ['load_user>db_get>query', undefined]);
+});
+
+test('flowchart.expand opens calls by callee name or exact path beyond the depth; collapse (exact paths) wins over depth', async () => {
+  const byName = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0, expand: ['audit', 'db_get'] });
+  // `db_get` is only reached inside load_user, which stays closed at depth 0.
+  assert.deepEqual(byName.groups.map(g => g.callPath), ['audit', 'audit#2']);
+  const byPath = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0, expand: ['audit#2', 'load_user', 'load_user>db_get'] });
+  assert.deepEqual(byPath.groups.map(g => g.callPath), ['load_user', 'load_user>db_get', 'audit#2']);
+  assert.equal(byPath.groups[1].parent, byPath.groups[0].id);
+  const collapsed = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 2, collapse: ['load_user>db_get', 'audit'], expand: ['audit'] });
+  assert.deepEqual(collapsed.groups.map(g => g.callPath), ['load_user', 'send_reset_email', 'audit#2']);
+  assert.deepEqual([node(collapsed.nodes, 'db get').callPath, node(collapsed.nodes, 'db get').expandable], ['load_user>db_get', true]);
+});
+
+test('a recursive call is not expandable, even when expand names it', async () => {
+  const out = await run(TS, ['go>go'], { start: { symbol: 'go' }, depth: 0, expand: ['go'] });
+  const self = out.nodes.find(n => n.kind === 'call')!;
+  assert.deepEqual([self.callPath, self.expandable, self.subtitle], ['go', undefined, 'recursive']);
 });

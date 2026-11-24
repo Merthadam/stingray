@@ -1,5 +1,5 @@
 // Right-hand panel for the selected table: all fields, relations (both directions) and source links.
-import { ExternalLink, X } from 'lucide-react';
+import { ChevronRight, ExternalLink, X } from 'lucide-react';
 import type { DiagramEdge, DiagramNode, SourceRef } from '../../../../shared/contracts/views';
 import { infraIconUrl } from '../infra/icons';
 import { ExplanationReason, StaleMark } from './FlowNode';
@@ -13,6 +13,7 @@ interface Props {
   onClose(): void;
   onOpenSource(file: string, line: number | null): void;
   onOpenServiceDocs?(serviceId: string): void;
+  onExpand?(): void;           // flowchart call that can be opened in place
 }
 
 function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label: string; onOpenSource: Props['onOpenSource'] }) {
@@ -22,7 +23,7 @@ function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label:
 
 const fieldLabel = (node: DiagramNode | undefined, id: string | null) => id === null ? null : node?.fields.find(f => f.id === id)?.label ?? id;
 
-export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, onOpenServiceDocs, variant = 'tables' }: Props) {
+export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, onOpenServiceDocs, onExpand, variant = 'tables' }: Props) {
   const relations = edges.filter(e => e.from === node.id || e.to === node.id);
   return <aside className="er-inspector" aria-label={`${variant === 'tables' ? 'Table' : 'Step'} ${node.label}`}>
     <header>
@@ -42,6 +43,8 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource,
     </div>}
     {node.explanation && <p className="flow-inspector-explanation"><StaleMark status={node.explanationStatus} />{node.explanation}</p>}
     {node.explanation && <ExplanationReason status={node.explanationStatus} reason={node.explanationReason} />}
+    {onExpand && <div className="flow-inspector-actions"><button title="Show this call's steps here" onClick={onExpand}>
+      <ChevronRight size={12} />Expand here</button></div>}
     {node.failures?.length ? <><h4>Can fail <span>{node.failures.length}</span></h4>
       <ul className="flow-inspector-failures" aria-label="Can fail">{node.failures.map((f, i) => <li key={i}>
         <div><strong>{f.label}</strong>{f.source && <OpenButton source={f.source} label={f.label} onOpenSource={onOpenSource} />}</div>

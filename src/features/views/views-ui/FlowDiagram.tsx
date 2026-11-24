@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Controls, MarkerType, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Node, type NodeChange } from '@xyflow/react';
-import { ExternalLink, LayoutGrid, ListTree, Save, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, LayoutGrid, ListTree, Save, X } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import './er-diagram.css';
 import './flow-diagram.css';
 import type { ErDiagramProps } from './types';
-import type { DiagramNode, ViewLocalState } from '../../../../shared/contracts/views';
+import type { DiagramGroup, DiagramNode, ViewLocalState } from '../../../../shared/contracts/views';
 import type { Positions } from './er-layout';
 import { sharedElk } from './elk-client';
 import { summarizeFlowchart } from '../../../../shared/views/flowchart-summary';
@@ -23,7 +23,9 @@ export function FlowDiagram(props: ErDiagramProps) {
   return <ReactFlowProvider><Diagram {...props} /></ReactFlowProvider>;
 }
 
-function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOpenServiceDocs, onSaveAs, toolbarExtra }: ErDiagramProps) {
+type Point = { x: number; y: number };
+
+function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOpenServiceDocs, onSaveAs, saveAsDisabled, onToggleCall, toolbarExtra }: ErDiagramProps) {
   const flow = useReactFlow();
   const chart = full.kind === 'flowchart';
   // Flowcharts open as a summary (shared/views/flowchart-summary.ts): undescribed library steps hidden, guards folded into
@@ -41,6 +43,10 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
   const [revision, setRevision] = useState(0);
   const [gridded, setGridded] = useState(false);
   const [ready, setReady] = useState(false);
+  const [laidOut, setLaidOut] = useState<object | null>(null); // the result `positions` were laid out for
+  // A call opened or closed here: after the new result is laid out, the frame (opened) or call card (closed) that replaces
+  // the clicked one is moved under the same screen point.
+  const anchor = useRef<{ path: string; open: boolean; at: Point; from: object } | null>(null);
   const positionsRef = useRef(positions); positionsRef.current = positions;
   // Rebuilt nodes keep their measured size: without it React Flow drops their handles, so edges and frames blink out until re-measured.
   const measured = useRef(new Map<string, { width: number; height: number }>());
@@ -68,6 +74,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
       const fixed = !chart || (Object.keys(positionsRef.current).length === result.nodes.length && result.nodes.every(n => positionsRef.current[n.id]))
         ? positionsRef.current : {};
       setPositions(Object.fromEntries(result.nodes.map(n => [n.id, fixed[n.id] ?? next[n.id]])));
+      setLaidOut(result);
       setReady(true);
     });
     return () => { live = false; window.clearTimeout(timer); };
@@ -75,17 +82,34 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
 
   const frames = useMemo(() => flowFrames(result, positions), [result, positions]);
   const framesBy = useMemo(() => frameIndex(result, frames), [result, frames]);
+  const toggleCall = useCallback((path: string, open: boolean, at: Point | undefined) => {
+    anchor.current = at ? { path, open, at, from: result } : null;
+    onToggleCall?.(path, open);
+  }, [onToggleCall, result]);
+  useEffect(() => {
+    const a = anchor.current;
+    if (!a || laidOut !== result || result === a.from) return;
+    anchor.current = null;
+    const frame = a.open ? frames.find(f => f.group.callPath === a.path) : undefined;
+    const p = frame ?? (a.open ? undefined : positions[result.nodes.find(n => n.callPath === a.path)?.id ?? '']);
+    if (!p) return;
+    const { x, y, zoom } = flow.getViewport();
+    void flow.setViewport({ x: x + (a.at.x - p.x) * zoom, y: y + (a.at.y - p.y) * zoom, zoom });
+  }, [laidOut, result, frames, positions, flow]);
+  const expandCall = (n: DiagramNode) => chart && onToggleCall && n.expandable && n.callPath ? () => toggleCall(n.callPath!, true, positions[n.id]) : undefined;
+  const collapseCall = (g: DiagramGroup) => chart && onToggleCall && g.callPath
+    ? () => { const f = frames.find(x => x.group.id === g.id); toggleCall(g.callPath!, false, f && { x: f.x, y: f.y }); } : undefined;
   const nodes = useMemo<Node[]>(() => [
     ...frames.map((f, i) => ({ id: `flow-frame:${i}`, type: 'frame', position: { x: f.x, y: f.y },
       data: { label: f.group.label, provider: f.group.provider, explanation: f.group.explanation, explanationStatus: f.group.explanationStatus, explanationReason: f.group.explanationReason, onExplain: () => setSelected({ kind: 'group', id: f.group.id }), onOpen: chart && f.group.source ? () => onOpenSource(f.group.source!.file, f.group.source!.line) : undefined,
-        steps: chart && !allSteps && touched.has(f.group.id) ? { all: fullGroups.has(f.group.id), toggle: () => toggleGroup(f.group.id) } : undefined }, style: { width: f.width, height: f.height }, className: f.group.provider ? `flow-frame cloud ${f.group.provider}` : 'flow-frame',
+        steps: chart && !allSteps && touched.has(f.group.id) ? { all: fullGroups.has(f.group.id), toggle: () => toggleGroup(f.group.id) } : undefined, onCollapse: collapseCall(f.group) }, style: { width: f.width, height: f.height }, className: f.group.provider ? `flow-frame cloud ${f.group.provider}` : 'flow-frame',
       draggable: false, selectable: false, focusable: false, zIndex: -1, measured: measured.current.get(`flow-frame:${i}`),
     })),
     ...result.nodes.filter(n => positions[n.id]).map(n => ({
-      id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n }, ...size(n), measured: measured.current.get(n.id),
+      id: n.id, type: chart ? 'chart' : 'step', position: positions[n.id], data: { node: n, onExpand: expandCall(n) }, ...size(n), measured: measured.current.get(n.id),
       ariaLabel: chart ? `${n.kind} ${n.label}` : n.service ? `${n.service.name} ${n.label}` : `${n.role ? n.role : 'Step'} ${n.label}`, selected: selected?.kind === 'node' && selected.id === n.id,
     })),
-  ], [result, positions, frames, selected, chart, size, onOpenSource, allSteps, touched, fullGroups, toggleGroup]);
+  ], [result, positions, frames, selected, chart, size, onOpenSource, allSteps, touched, fullGroups, toggleGroup, toggleCall]);
   const edges = useMemo<FlowTransition[]>(() => {
     const lanes = new Map<string, number>();
     return result.edges.filter(e => positions[e.from] && positions[e.to]).map(e => {
@@ -135,7 +159,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
         <ListTree size={13} />{allSteps ? 'Summary' : `All steps (+${summary.hidden + summary.folded})`}</button>}
       <button aria-label="Re-layout the diagram" onClick={() => { userMoved.current = true; positionsRef.current = {}; setPositions({}); setReady(false); setRevision(r => r + 1); }}><LayoutGrid size={13} />Re-layout</button>
       <button aria-label="Save as view" disabled={!ready || !onSaveAs}
-        title={onSaveAs ? undefined : 'Set the depth back to the view’s own to save it'} onClick={() => onSaveAs?.(state)}><Save size={13} />Save as view…</button>
+        title={onSaveAs ? undefined : saveAsDisabled ?? 'Set the depth back to the view’s own to save it'} onClick={() => onSaveAs?.(state)}><Save size={13} />Save as view…</button>
       <div className="er-toolbar-extra">{toolbarExtra}</div>
     </div>
     <div className="er-body">
@@ -151,7 +175,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
             <Controls showInteractive={false} />
           </ReactFlow>}
       </div>
-      {node && <Inspector variant="flow" node={node} nodes={byId} edges={result.edges} onSelect={focusNode}
+      {node && <Inspector variant="flow" node={node} nodes={byId} edges={result.edges} onSelect={focusNode} onExpand={expandCall(node)}
         onClose={() => setSelected(null)} onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} />}
       {edge && <aside className="er-inspector" aria-label="Transition details">
         <header><div><strong>{byId.get(edge.from)?.label} → {byId.get(edge.to)?.label}</strong>
@@ -170,6 +194,8 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
           <button aria-label="Open function in editor" onClick={() => onOpenSource(group.source!.file, group.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
         {group.explanation && <p className="flow-inspector-explanation"><StaleMark status={group.explanationStatus} />{group.explanation}</p>}
         {group.explanation && <ExplanationReason status={group.explanationStatus} reason={group.explanationReason} />}
+        {collapseCall(group) && <div className="flow-inspector-actions"><button title="Close this call back into one step" onClick={collapseCall(group)}>
+          <ChevronDown size={12} />Collapse</button></div>}
       </aside>}
     </div>
   </div>;

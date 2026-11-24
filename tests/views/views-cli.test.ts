@@ -441,6 +441,40 @@ test('views-cli check --depth: overrides flowchart.depth, prints the flowchart d
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('views-cli check --expand/--collapse: call paths reach the flowchart step; closed calls print the path to expand; bad uses exit 2', async () => {
+  const root = await repo();
+  try {
+    const flowchart: ResolvedView = { ...view, kind: 'flowchart', rules: [], flowchart: { start: { symbol: 'login' }, depth: 0, expand: ['audit'] } };
+    const loadViewPath: CliDeps['loadViewPath'] = async () => ({ summary: { ...summary, kind: 'flowchart' }, view: flowchart, ruleFiles: [], errors: [] });
+    const fakeGraph = { findSymbols: () => [], symbols: () => new Map(), outgoing: () => [], incoming: () => [], fileSymbols: () => [], layers: () => null, rollup: () => [] };
+    const result = output({
+      nodes: [node('start', { kind: 'start', role: 'start', label: 'login' }),
+        node('c', { kind: 'call', label: 'finish', explanation: 'Create the session.', callPath: 'finish', expandable: true }),
+        node('q', { kind: 'call', label: 'query', explanation: 'Read a row.', callPath: 'finish>query' })],
+      edges: [{ id: 'e1', from: 'start', to: 'c', fromField: null, toField: null, kind: 'next', style: 'solid', certain: true, label: null, source: null },
+        { id: 'e2', from: 'c', to: 'q', fromField: null, toField: null, kind: 'next', style: 'solid', certain: true, label: null, source: null }],
+      diagnostics: { rules: [], graph: null, flowchart: { start: 'login (a.py:1)', depth: 0, functions: 1, nodes: 3, truncated: false, error: null }, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 1 },
+    });
+    const h = harness(root, { loadViewPath, evaluate: async input => { h.calls.evaluate.push(input); return result; },
+      openGraph: async () => ({ api: fakeGraph, status: { state: 'read-only', message: null } }) });
+    assert.equal(await h.run('check', '.stingray/views/flow.yaml', '--expand', 'finish, login>audit#2', '--collapse', 'audit'), 0);
+    const step = h.calls.evaluate[0].view.flowchart!;
+    assert.deepEqual([step.expand, step.collapse], [['audit', 'finish', 'login>audit#2'], ['audit']]);
+    const text = h.out.join('\n');
+    assert.match(text, /\[call\] finish — Create the session\. \(expand: finish\)\n/);
+    assert.match(text, /\[call\] query — Read a row\.\n/); // not expandable: no path to pass
+
+    for (const argv of [['--expand'], ['--expand', ','], ['--collapse', '--json']]) {
+      const bad = harness(root, { loadViewPath });
+      assert.equal(await bad.run('check', '.stingray/views/flow.yaml', ...argv), 2, argv.join(' '));
+      assert.match(bad.err.join('\n'), /needs comma-separated call paths/);
+    }
+    const notFlowchart = harness(root);
+    assert.equal(await notFlowchart.run('check', '.stingray/views/flow.yaml', '--collapse', 'a'), 2);
+    assert.match(notFlowchart.err.join('\n'), /--expand and --collapse only apply to kind: flowchart views/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('views-cli check lists undescribed flowchart steps with the explain: key that names each', async () => {
   const root = await repo();
   try {

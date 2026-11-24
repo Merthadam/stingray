@@ -38,6 +38,7 @@ interface NodeAcc {
   id: string; label: string | null; kind: string | null; subtitle: string | null; group: string | null;
   role: 'start' | 'end' | null; order: number | null; detail: string | null; source: SourceRef | null;
   symbolName: string | null; symbol: SymbolRef | null; fields: DiagramField[]; aliases: Set<string>; explanation?: string | null;
+  callPath?: string; expandable?: boolean; // flowchart call nodes
 }
 interface PendingEdge {
   rule: string; from: string; to: string; kind: string; label: string | null; certain: boolean; style: 'solid' | 'dashed';
@@ -431,6 +432,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     let finalNodes: DiagramNode[] = [...nodes.values()].map(n => ({
       id: n.id, label: n.label ?? n.id, kind: n.kind ?? 'node', subtitle: n.subtitle, group: n.group, fields: n.fields,
       source: n.source, symbol: n.symbol, role: n.role, order: n.order, detail: n.detail, ...(n.explanation ? { explanation: n.explanation } : {}), ...(n.aliases.size ? { aliases: [...n.aliases] } : {}),
+      ...(n.callPath !== undefined ? { callPath: n.callPath } : {}), ...(n.expandable ? { expandable: true } : {}),
     })).filter(n => !exclude.has(n.id) && !exclude.has(n.label));
     if (finalNodes.length > LIMITS.nodes) {
       const kept = (n: DiagramNode) => include.has(n.id) || include.has(n.label);

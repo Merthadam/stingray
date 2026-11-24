@@ -31,6 +31,9 @@ function affects(v: ViewFileEntry, changed: string[], code: string[], python: bo
   return code.some(f => inScope(f, view.scope) && view.rules.some(({ rule }) => !rule.files || inScope(f, { include: rule.files, exclude: [] })));
 }
 
+/** api.view options: a depth override and flowchart call paths opened/closed (see FlowchartStep.expand/collapse). */
+export interface ViewOptions { depth?: number; expanded?: string[]; collapsed?: string[] }
+
 const degradedSchema = (workspaceId: string, error: unknown): DbSchemaResult => ({ workspaceId, scannedAt: Date.now(), filesScanned: 0, filesParsed: 0,
   truncated: false, groups: [], warnings: [{ file: '', line: null, message: `Schema scan unavailable: ${error instanceof Error ? error.message : String(error)}` }] });
 
@@ -58,12 +61,13 @@ export class ViewService {
     return [DATABASE_VIEW, LAYERS_VIEW.summary, ...(await listViewFiles(this.viewFiles, root)).map(v => v.summary)];
   }
 
-  /** Concurrent requests for the same view (and depth override) of a worktree share one computation. */
-  computeView(workspaceId: string, root: string, viewId: string, options: { depth?: number } = {}): Promise<ViewResult> {
-    const key = `${workspaceId}\0${viewId}\0${options.depth ?? ''}`;
+  /** Concurrent requests for the same view (and depth override and call expansions) of a worktree share one computation. */
+  computeView(workspaceId: string, root: string, viewId: string, options: ViewOptions = {}): Promise<ViewResult> {
+    const paths = (p?: string[]) => [...p ?? []].sort().join('\n');
+    const key = `${workspaceId}\0${viewId}\0${options.depth ?? ''}\0${paths(options.expanded)}\0${paths(options.collapsed)}`;
     let computation = this.computations.get(key);
     if (!computation) {
-      const started: Promise<ViewResult> = computation = this.compute(workspaceId, root, viewId, options.depth)
+      const started: Promise<ViewResult> = computation = this.compute(workspaceId, root, viewId, options)
         .finally(() => { if (this.computations.get(key) === started) this.computations.delete(key); });
       this.computations.set(key, computation);
     }
@@ -91,7 +95,7 @@ export class ViewService {
     await this.host.closeAll();
   }
 
-  private async compute(workspaceId: string, root: string, viewId: string, depth: number | undefined): Promise<ViewResult> {
+  private async compute(workspaceId: string, root: string, viewId: string, { depth, expanded = [], collapsed = [] }: ViewOptions): Promise<ViewResult> {
     const w = this.worktree(workspaceId, root);
     const findSymbols = w.graph.findSymbols.bind(w.graph);
     if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), findSymbols);
@@ -102,6 +106,10 @@ export class ViewService {
     let layout = file.layout;
     // Another depth draws other nodes: the file's saved positions belong to its own depth.
     if (depth !== undefined && view.flowchart && depth !== view.flowchart.depth) { view = { ...view, flowchart: { ...view.flowchart, depth: Math.min(4, depth) } }; layout = null; }
+    // Calls opened/closed in the Views tab: like a depth override, other nodes than the file's layout is for.
+    if (view.flowchart && (expanded.length || collapsed.length)) {
+      view = { ...view, flowchart: { ...view.flowchart, expand: [...new Set([...view.flowchart.expand ?? [], ...expanded])], collapse: collapsed } }; layout = null;
+    }
     if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
     if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
     return computeView({ ...file, view, layout }, {

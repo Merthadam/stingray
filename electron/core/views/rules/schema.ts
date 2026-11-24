@@ -78,6 +78,7 @@ const flowchartSchema = z.strictObject({
   include: globs.optional(),
   exclude: globs.optional(),
   hide: z.array(z.string().min(1).max(200)).max(100).optional(),
+  expand: z.array(z.string().min(1).max(300)).max(50).optional(),
 });
 
 const sequenceSchema = z.strictObject({
