@@ -22,6 +22,10 @@ export interface ErDiagramProps {
   /** Flowchart drill-down: open (`open`) or close a call by its call path (DiagramNode/DiagramGroup.callPath); the shell
    * recomputes the view. Absent: calls cannot be opened or closed one by one. */
   onToggleCall?(path: string, open: boolean): void;
+  /** "Describe…" on flowchart steps and expanded calls: write the `explain:` entry of a node or group id (empty text removes
+   * it); the shell recomputes the view. Absent: the button is disabled with `saveExplanationDisabled` as its tooltip. */
+  onSaveExplanation?(target: string, text: string): Promise<void>;
+  saveExplanationDisabled?: string;
   /** Toolbar slot the shell fills (e.g. Diagnostics toggle, refresh); rendered at the right end of the diagram toolbar. */
   toolbarExtra?: React.ReactNode;
 }
