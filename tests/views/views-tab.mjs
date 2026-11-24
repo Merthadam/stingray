@@ -128,6 +128,13 @@ try {
     && (await startExplanation.innerText()).endsWith('Sign a user in by email'));
   check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
+  const cardTexts = await chart.locator('.flow-card').allInnerTexts();
+  check('flowchart cards show words, not code', cardTexts.length > 0 && !cardTexts.some(t => /[=_]|\w\(/.test(t)));
+  if (process.env.FLOWCHART_SCREENSHOT) await page.screenshot({ path: process.env.FLOWCHART_SCREENSHOT });
+  await chart.getByRole('group', { name: 'action find user' }).click();
+  check('the inspector shows the step\'s code', (await page.getByRole('complementary', { name: 'Step find user' }).getByLabel('Code').innerText())
+    .includes('find_user(email)'));
+  await page.keyboard.press('Escape');
   const depth = page.getByRole('slider', { name: 'Flowchart depth' });
   check('depth slider starts at the view file depth', await depth.inputValue() === '0');
   await depth.fill('1');

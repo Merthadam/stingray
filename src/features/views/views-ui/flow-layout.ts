@@ -23,13 +23,47 @@ const INFRA_SIZE = { width: 168, height: 104 };
 /** Name of a cloud resource under its icon: a Terraform address without its type (`aws_s3_bucket.logs` → `logs`, also
  * `data.<type>.<name>`); other labels (CDK construct ids) as they are. */
 export const infraName = (node: DiagramNode) => node.label.replace(/^(data\.)?[a-z0-9]+_[a-z0-9_]+\.(?=.)/, '');
+// Flowchart text metrics (layout runs without a DOM): average glyph widths of the card fonts, line heights, and the
+// widest a card may grow before its label wraps to more lines (labels clamp at MAX_LINES; full text when selected).
+const GLYPH = { box: 7, pill: 6.6 }, LINE = 16, MAX_LINES = 3, WIDE = 300;
+/** Lines `text` takes when word-wrapped at `width` px (greedy, like the browser), at most MAX_LINES. */
+export function textLines(text: string, width: number, glyph = GLYPH.box): number {
+  const max = Math.max(1, Math.floor(width / glyph));
+  let lines = 1, used = 0;
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    for (let w = word.length; w > 0; w -= max) { // a word longer than a line breaks (overflow-wrap: anywhere)
+      const len = Math.min(w, max);
+      if (used && used + 1 + len > max) { lines++; used = len; } else used += used ? 1 + len : len;
+    }
+  }
+  return Math.min(lines, MAX_LINES);
+}
+/** Flowchart card size from its label: shapes keep their default size while the label fits in 2 lines (1 for pills),
+ * else widen to WIDE and grow one LINE per extra line. */
+function chartSize(node: DiagramNode) {
+  const base = CHART_SIZES[node.kind] ?? { width: 220, height: 56 };
+  if (node.kind === 'start' || node.kind === 'end' || node.kind === 'error') {
+    const width = Math.min(WIDE, Math.max(base.width, Math.ceil(node.label.length * GLYPH.pill) + 28));
+    return { width, height: base.height + (textLines(node.label, width - 24, GLYPH.pill) - 1) * 12 };
+  }
+  const pad = node.kind === 'decision' || node.kind === 'loop' ? 96 : node.kind === 'call' ? 46 : 28; // diamond insets, chevron
+  const fits = textLines(node.label, base.width - pad) <= 2;
+  const width = fits ? base.width : WIDE, lines = textLines(node.label, width - pad);
+  return { width, height: base.height + Math.max(0, lines - (node.kind === 'decision' || node.kind === 'loop' ? 2 : 1)) * LINE };
+}
 export const flowSize = (node: DiagramNode, flowchart = false) => {
-  const base = flowchart ? CHART_SIZES[node.kind] ?? { width: 220, height: 56 } : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
+  const base = flowchart ? chartSize(node) : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
     : { width: 220, height: 64 + Math.min(node.fields.length, MAX_FIELDS + 1) * FIELD_HEIGHT };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };
 const BRANCH_KINDS = new Set(['branch', 'yes', 'no', 'case', 'except']);
-export const shortEdgeLabel = (label: string) => label.length > 38 ? `${label.slice(0, 37)}…` : label;
+// Edge labels wrap to two lines; longer ones are cut (full text on hover and in the transition inspector).
+const EDGE_LABEL_MAX = 60, EDGE_LABEL_WIDTH = 220;
+export const shortEdgeLabel = (label: string) => label.length > EDGE_LABEL_MAX ? `${label.slice(0, EDGE_LABEL_MAX - 1)}…` : label;
+const edgeLabelSize = (label: string) => {
+  const text = shortEdgeLabel(label), width = Math.min(EDGE_LABEL_WIDTH, Math.ceil(text.length * 6.5) + 16);
+  return { text, width, height: textLines(text, width - 14, 6.5) > 1 ? 38 : 24 };
+};
 const options = {
   'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.edgeRouting': 'ORTHOGONAL',
   'elk.spacing.nodeNode': '90', 'elk.layered.spacing.nodeNodeBetweenLayers': '100',
@@ -56,7 +90,7 @@ export function flowGraph(result: ViewResult): ElkNode {
     children: prune(children), layoutOptions: { ...options, 'elk.hierarchyHandling': 'INCLUDE_CHILDREN' },
     edges: result.edges.filter(e => ids.has(e.from) && ids.has(e.to)).map((e, i) => ({
       id: `edge:${i}`, sources: [ids.get(e.from)!], targets: [ids.get(e.to)!],
-      labels: e.label ? [{ text: shortEdgeLabel(e.label), width: shortEdgeLabel(e.label).length * 6.5 + 16, height: 24 }] : [],
+      labels: e.label ? [edgeLabelSize(e.label)] : [],
     })),
   };
 }
