@@ -202,7 +202,7 @@ try {
   await page.getByRole('button', { name: 'Unchanged file README.md', exact: true }).waitFor();
   await page.getByLabel('Only changes', { exact: true }).check();
   await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
-  await page.getByText('No uncommitted changes in this view.', { exact: true }).waitFor();
+  await page.getByText('No changes on this branch in this view.', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(evidence, 'desktop-clean-status.png') });
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   await page.getByRole('button', { name: 'Close Terminal 1', exact: true }).click();

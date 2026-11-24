@@ -1,13 +1,13 @@
 import { memo, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { ArrowLeft, Search, X } from 'lucide-react';
-import type { RepoFile, RepoSnapshot } from '../../../shared/contracts/repo-map';
+import type { RepoFile, RepoMapScope, RepoSnapshot } from '../../../shared/contracts/repo-map';
 import { aggregate, buildRepoTree, fileKind, findFolder, inRange, kindBadges, kindLabels } from './repo-map-model';
 import { treemap, type LayoutTile, type MapScope } from './repo-map-layout';
 import { LineCounts } from './LineCounts';
 
-type Props = { snapshot: RepoSnapshot | null; busy: boolean; changedOnly: boolean; onFile: (file: RepoFile) => void; viewportRef: RefObject<HTMLDivElement | null>;
+type Props = { snapshot: RepoSnapshot | null; scope: RepoMapScope; layers?: number; busy: boolean; changedOnly: boolean; onFile: (file: RepoFile) => void; viewportRef: RefObject<HTMLDivElement | null>;
   onShowAll: () => void; backRef: MutableRefObject<() => void>; revealRef: MutableRefObject<(file: RepoFile) => void>; query: string; onQueryChange: (query: string) => void };
-export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, changedOnly, onFile, viewportRef, onShowAll, backRef, revealRef, query, onQueryChange: setQuery }: Props) {
+export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, scope: compare, layers = Infinity, busy, changedOnly, onFile, viewportRef, onShowAll, backRef, revealRef, query, onQueryChange: setQuery }: Props) {
   const [history, setHistory] = useState<MapScope[]>([{ folder: '' }]);
   const scope = history.at(-1)!;
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -21,7 +21,7 @@ export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, chang
   const tree = useMemo(() => buildRepoTree((snapshot?.files || []).filter(file => !changedOnly || file.status)), [snapshot?.files, changedOnly]);
   const current = useMemo(() => findFolder(tree, scope.folder), [tree, scope.folder]);
   const nodes = useMemo(() => (current?.children || []).filter(node => (!scope.range || inRange(node, scope.range)) && (!scope.file || node.path === scope.file)), [current, scope]);
-  const tiles = useMemo(() => treemap(nodes, size.width, size.height, scope.folder), [nodes, size, scope.folder]);
+  const tiles = useMemo(() => treemap(nodes, size.width, size.height, scope.folder, 2000, layers), [nodes, size, scope.folder, layers]);
   const detailTile = detail && tiles.find(tile => tile.id === detail.id);
   const totals = useMemo(() => aggregate(nodes), [nodes]);
   const results = useMemo(() => query.trim() ? (snapshot?.files || []).filter(file => file.path.toLowerCase().includes(query.toLowerCase().trim())).slice(0, 60) : [], [query, snapshot]);
@@ -33,7 +33,7 @@ export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, chang
     observer.observe(view); return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   }, [viewportRef]);
   useEffect(() => { setActive(0); }, [scope]);
-  useEffect(() => { setDetail(null); }, [scope, query, changedOnly, size]);
+  useEffect(() => { setDetail(null); }, [scope, query, changedOnly, size, layers]);
   function back() { setHistory(previous => previous.length > 1 ? previous.slice(0, -1) : scope.folder ? [{ folder: scope.folder.split('/').slice(0, -1).join('/') }] : previous); setQuery(''); }
   backRef.current = back;
   useEffect(() => { viewportRef.current?.focus({ preventScroll: true }); }, [history, viewportRef]);
@@ -61,7 +61,7 @@ export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, chang
       <nav aria-label="Map folders"><button className="icon" aria-label="Back to parent group or folder" disabled={history.length === 1 && !scope.folder} onClick={back}><ArrowLeft size={14} /></button><button onClick={() => setHistory([{ folder: '' }])}>Root</button>{scope.folder && <button title={scope.folder} onClick={() => navigate({ folder: scope.folder })}>{scope.folder}</button>}{scope.range && <span title={scope.range.label}> / Group</span>}{scope.file && <span> / File</span>}</nav>
       <label className="map-search"><Search size={14} /><input placeholder="Find any file…" aria-label="Find a file on the map" value={query} onChange={event => setQuery(event.target.value)} />{query && <button aria-label="Clear file search" onClick={() => setQuery('')}><X size={12} /></button>}</label>
     </div>
-    <div className="map-summary"><span>{totals.total.toLocaleString()} files · {totals.textLines.toLocaleString()} text lines{totals.unknownSizes ? ' (partial)' : ''}</span><LineCounts {...totals} /></div>
+    <div className="map-summary"><span>{totals.total.toLocaleString()} files · {totals.textLines.toLocaleString()} text lines{totals.unknownSizes ? ' (partial)' : ''}</span><LineCounts {...totals} notice={totals.unknown ? '' : compare === 'branch' && snapshot?.baseCommit ? 'Net line changes vs the merge-base with origin/main, including new untracked files.' : ''} /></div>
     {query.trim() && <div className="map-search-results" aria-label="File search results">
       {results.map(file => <button key={file.path} aria-label={`Find file ${file.path}`} onClick={() => { revealFile(file); onFile(file); }}><span className={`map-badge ${fileKind(file.status)}`}>{kindBadges[fileKind(file.status)]}</span><span>{file.path}{changedOnly && !file.status && <small>Hidden by Only changes · click to show all and reveal</small>}</span><LineCounts added={file.lines?.added || 0} removed={file.lines?.removed || 0} unknown={file.status && file.lines == null ? 1 : 0} notice={file.lineNotice} /></button>)}
       {!results.length && <p>No matching files.</p>}{results.length === 60 && <p>First 60 matches. Refine your search.</p>}
@@ -73,7 +73,7 @@ export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, chang
         setActive(next); viewportRef.current?.querySelectorAll<HTMLButtonElement>('.map-tile')[next]?.focus({ preventScroll: true });
       } else if (event.target === viewportRef.current && event.key === 'Enter') { event.preventDefault(); openTile(tiles[Math.min(active, tiles.length - 1)]); }
     }}>
-      {!snapshot ? <div className="map-empty"><h3>{busy ? 'Mapping your repository…' : 'Map unavailable'}</h3><p>Reading Git inventory and text line counts.</p></div> : !nodes.length ? <div className="map-empty"><h3>{changedOnly ? 'All clear.' : 'No files here'}</h3><p>{changedOnly ? 'No uncommitted changes in this view.' : 'Choose Root or search the full inventory.'}</p></div> : tiles.map((tile, index) => {
+      {!snapshot ? <div className="map-empty"><h3>{busy ? 'Mapping your repository…' : 'Map unavailable'}</h3><p>Reading Git inventory and text line counts.</p></div> : !nodes.length ? <div className="map-empty"><h3>{changedOnly ? 'All clear.' : 'No files here'}</h3><p>{changedOnly ? compare === 'branch' ? 'No changes on this branch in this view.' : 'No uncommitted changes in this view.' : 'Choose Root or search the full inventory.'}</p></div> : tiles.map((tile, index) => {
         const file = tile.node?.file; const kind = file ? fileKind(file.status) : 'clean';
         const label = file ? `${kindLabels[kind]} file ${file.path}` : tile.range ? `Explore group ${tile.name}` : `Open folder ${tile.node!.path}`;
         const visible = tile.width > 48 && tile.height > 18;
@@ -85,7 +85,7 @@ export const RepoMapCanvas = memo(function RepoMapCanvas({ snapshot, busy, chang
           className={`map-tile ${file ? 'file ' + kind : tile.range ? 'group' : 'folder'} ${!file && tile.totals.changed ? 'changed-folder' : ''} ${tile.terminal ? 'terminal-tile' : 'folder-frame'}`}
           style={{ left: tile.x, top: tile.y, width: tile.width, height: tile.height }} aria-label={label} aria-describedby={detailTile?.id === tile.id ? tooltipId : undefined} onClick={() => openTile(tile)}>
           {visible && <span className="tile-header"><strong>{file ? `${kindBadges[kind]} ${tile.name}` : tile.range ? `${tile.totals.total.toLocaleString()} files` : `${tile.name}/`}</strong>{tile.width > 150 && <LineCounts {...tile.totals} nativeTooltip={false} />}</span>}
-          {tile.terminal && tile.height > 55 && tile.width > 85 && <span className="tile-detail">{file ? file.size?.state === 'known' ? `${file.size.textLines.toLocaleString()} text lines` : 'Size ' + (file.size?.state || 'unavailable') : `${tile.totals.total.toLocaleString()} files · click to focus`}{tile.width <= 150 && <LineCounts {...tile.totals} nativeTooltip={false} />}</span>}
+          {tile.terminal && tile.height > 55 && tile.width > 85 && <span className="tile-detail">{file ? file.size?.state === 'known' ? `${file.size.textLines.toLocaleString()} text lines` : 'Size ' + (file.size?.state || 'unavailable') : `${tile.totals.total.toLocaleString()} files${tile.totals.changed ? ` · ${tile.totals.changed.toLocaleString()} changed` : ''} · click to focus`}{tile.width <= 150 && <LineCounts {...tile.totals} nativeTooltip={false} />}</span>}
         </button>;
       })}
     </div>

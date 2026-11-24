@@ -4,7 +4,8 @@ import type { DemoContext } from '../../shared/demo-context';
 
 export function createRepoMapDemo(ctx: DemoContext): Invoke<typeof repoMapContract> & Events<typeof repoMapContract> {
   return {
-    repoSnapshot: async id => ({
+    repoSnapshot: async (id, scope = 'branch') => ({
+      scope, ...(scope === 'branch' ? { baseCommit: '0'.repeat(40) } : {}),
       lines: { kind: 'available' as const, added: id === ctx.mainId ? 8 : 124, deleted: id === ctx.mainId ? 2 : 36, binaryFiles: 0 },
       uncommitted: ctx.uncommitted, base: 'origin/main' as const,
       branch: ctx.state.workspaces.find(w => w.id === id)?.branch || 'unknown',
@@ -17,7 +18,7 @@ export function createRepoMapDemo(ctx: DemoContext): Invoke<typeof repoMapContra
       if (!file) throw new Error('Demo file not found.');
       const content = file.status.includes('D') ? '// Previous version\n' : ctx.content(path);
       const { added, removed } = file.lines!;
-      return { path, content, source: file.status.includes('D') ? 'HEAD' : 'working tree', staged: '',
+      return { path, content, source: file.status.includes('D') ? 'HEAD' : 'working tree', committed: '', staged: '',
         unstaged: file.status ? `--- ${removed ? 'a/' + path : '/dev/null'}\n+++ ${added ? 'b/' + path : '/dev/null'}\n@@ -${removed ? 1 : 0},${removed} +${added ? 1 : 0},${added} @@\n` + (removed ? '-// Previous version\n' : '') + (added ? content.trimEnd().split('\n').map(line => '+' + line).join('\n') + '\n' : '') : '',
         notice: file.status.includes('D') ? 'Deleted file · showing simulated HEAD contents.' : '',
         revision: 'demo-' + path,

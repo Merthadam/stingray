@@ -15,7 +15,7 @@ export async function measureSizes(root: string, files: RepoFile[], unborn = fal
       const probe = await ports.files.probe(root, file.path);
       if (probe === 'emptyFile') file.size = { state: 'known', source: 'working tree', textLines: 0 };
       absent = probe === 'missing';
-      if (absent && file.status.includes('D') && file.lines) file.size = { state: 'known', source: 'HEAD', textLines: file.lines.removed };
+      if (absent && file.status.includes('D') && file.lines) file.size = { state: 'known', source: file.committed ? 'origin/main' : 'HEAD', textLines: file.lines.removed };
     }
     if (file.status === '??' || file.untrackedReplacement || unborn && file.status && !file.status.includes('U') && !['AA', 'DD'].includes(file.status)) {
       file.lines = unborn && absent ? { added: 0, removed: 0 } : file.size.state === 'known' && file.size.source === 'working tree'

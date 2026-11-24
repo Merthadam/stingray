@@ -8,6 +8,7 @@ import { sqliteStateRepository } from '../../adapters/driven/sqlite/state-reposi
 import { GitService as CoreGitService, GitStateService as CoreGitStateService, PullRequestService as CorePullRequestService, Store as CoreStore,
   WorkspaceLifecycle, originMainBase as coreOriginMainBase, readGitLines as coreReadGitLines, type GitStateOptions, type GitStatePublisher, type LineRunner, type PRRunner } from '../../core/git';
 import type { Change } from '../../../shared/contracts/git';
+import type { RepoMapScope } from '../../../shared/contracts/repo-map';
 import './core-ports';
 import { createRepoMapService } from './repo-map';
 
@@ -25,8 +26,8 @@ export class GitService extends CoreGitService {
   }
   /** Repo Map for this service (production IPC and the existing tests' service.repoSnapshot/inspectFile). */
   readonly repoMap = createRepoMapService(this);
-  repoSnapshot(id: string) { return this.repoMap.repoSnapshot(id); }
-  inspectFile(id: string, relative: string) { return this.repoMap.inspectFile(id, relative); }
+  repoSnapshot(id: string, scope?: RepoMapScope) { return this.repoMap.repoSnapshot(id, scope); }
+  inspectFile(id: string, relative: string, scope?: RepoMapScope) { return this.repoMap.inspectFile(id, relative, scope); }
 }
 
 export class GitStateService extends CoreGitStateService {

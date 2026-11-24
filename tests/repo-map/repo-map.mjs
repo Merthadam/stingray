@@ -27,6 +27,8 @@ await put('.gitignore', 'ignored/\n');
 await put('long.txt', Array.from({ length: 6000 }, (_, i) => `line ${i + 1}`).join('\n'));
 for (let start = 0; start < 2048; start += 64) await Promise.all(Array.from({ length: 64 }, (_, i) => put(`bulk/file-${String(start + i).padStart(4, '0')}.ts`, '// Tracked file\n')));
 git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture');
+// A local origin/main at the fixture commit: Branch scope compares with it (merge-base = HEAD until a worktree commits).
+git('update-ref', 'refs/remotes/origin/main', 'HEAD');
 await put('src/App.tsx', padding + 'export const App = () => "Staged";\n'); git('add', 'src/App.tsx');
 await put('src/App.tsx', padding + 'export const App = () => "Working";\n');
 await put('src/components/Dialog.tsx', 'export const Dialog = () => "New dialog";\n');
@@ -111,6 +113,12 @@ try {
   check('inspector starts closed with no reserved panel space', await page.locator('.map-inspector').count() === 0);
   await framed('dense nested overview fits on one screen');
   check('no pan/zoom controls, pictograms or pagination', await page.locator('.map-controls,.map-pagination,.map-tile.file svg').count() === 0);
+  check('default shows only the top layer', await page.getByRole('radio', { name: '1 layer' }).getAttribute('aria-checked') === 'true' &&
+    await page.locator('.map-tile[data-depth="1"]').count() === 0 && await page.locator('.folder-frame').count() === 0 && await page.locator('.map-tile.folder.terminal-tile').count() > 0);
+  await page.getByRole('radio', { name: '2 layers' }).click();
+  check('two layers nest one level only', await page.locator('.map-tile[data-depth="1"]').count() > 0 && await page.locator('.map-tile[data-depth="2"]').count() === 0);
+  await page.getByRole('radio', { name: 'All layers' }).click();
+  check('layer choice persists', await page.evaluate(() => localStorage.getItem('stingray-repo-map-layers-v1')) === 'all');
   check('folder frames contain nested descendants', await page.locator('.map-tile[data-depth="1"]').count() > 0 && await page.locator('.folder-frame').count() > 0);
   check('default all-files view includes unchanged entries', await page.locator('.map-tile.file.clean').count() > 0);
   const snapshot = await page.evaluate(id => window.stingray.repoSnapshot(id), id);
@@ -192,12 +200,13 @@ try {
   await put('electron/main.ts', '// Main process\n'.repeat(40) + '// synced edit\n');
   await page.waitForFunction(before => document.querySelector('[aria-label="main Git summary"] .git-lines')?.getAttribute('aria-label') !== before, labelBefore, { timeout: 15000 });
   const shared = await page.evaluate(workspaceId => window.stingray.gitState(workspaceId), id);
-  await page.waitForFunction(n => document.querySelector('.map-title h2 span')?.textContent === `${n} changes`, shared.status.changes.length, { timeout: 15000 });
+  await page.waitForFunction(n => document.querySelector('.map-change-count')?.textContent === `${n} changed files`, shared.status.changes.length, { timeout: 15000 });
   check('sidebar and Repo Map agree at the same revision after an unstaged edit',
     (await summary().locator('.git-lines').innerText()).replace(/\s+/g, '') === `+${shared.status.lines.added}−${shared.status.lines.deleted}` &&
-    (await page.locator('.map-title h2 span').innerText()) === `${shared.status.changes.length} changes`);
+    (await page.locator('.map-change-count').innerText()) === `${shared.status.changes.length} changed files` &&
+    await page.locator('.map-title').getByLabel(`${shared.status.lines.added} lines added, ${shared.status.lines.deleted} lines removed`, { exact: true }).count() === 1);
   await put('electron/main.ts', '// Main process\n'.repeat(40));
-  await page.waitForFunction(n => document.querySelector('.map-title h2 span')?.textContent === `${n} changes`, shared.status.changes.length - 1, { timeout: 15000 });
+  await page.waitForFunction(n => document.querySelector('.map-change-count')?.textContent === `${n} changed files`, shared.status.changes.length - 1, { timeout: 15000 });
   const sidebar = page.locator('.map-inspector'); const initialWidth = (await sidebar.boundingBox()).width;
   const divider = page.getByRole('separator', { name: 'Resize inspector' });
   await divider.focus(); await page.keyboard.press('ArrowLeft');
@@ -334,7 +343,7 @@ try {
   check('workspace switch resets an open inspector without renderer reload', await sidebar.count() === 0 && state.workspaces.length === 2);
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor(); await releaseGate(); await page.waitForTimeout(150);
   await rm(path.join(repo, 'held-by-gate.txt'));
-  check('late snapshot cannot overwrite new workspace inventory or inspector', (await page.locator('.inspector-file-heading').innerText()).includes('README.md') && (await page.locator('.map-title').innerText()).includes('0 changes') && await page.locator('.inline-error').count() === 0);
+  check('late snapshot cannot overwrite new workspace inventory or inspector', (await page.locator('.inspector-file-heading').innerText()).includes('README.md') && (await page.locator('.map-change-count').innerText()) === '0 changed files' && await page.locator('.inline-error').count() === 0);
   await gateResponse('repo-map.inspectFile', 'README.md'); await button('Refresh repository map').click(); await waitGate();
   await page.getByRole('navigation', { name: 'Project workspaces' }).getByRole('button', { name: 'main', exact: true }).click();
   await page.locator('.map-tile').first().waitFor(); await find('src/App.tsx'); await page.getByText('Staged · HEAD → index', { exact: true }).waitFor();
@@ -360,6 +369,25 @@ try {
   await find('README.md'); await page.getByLabel('File content', { exact: true }).waitFor();
   await button('Close inspector').focus(); await page.keyboard.press('Escape');
   check('Escape closes inspector and returns focus to map', await sidebar.count() === 0 && await page.locator('.map-viewport').evaluate(el => document.activeElement === el));
+  // Committed work stays on the Branch map (like the sidebar) while Uncommitted is clear.
+  const cleanPath = (await page.evaluate(() => window.stingray.state())).workspaces.find(w => w.branch === 'clean-worktree').path;
+  await writeFile(path.join(cleanPath, 'README.md'), '# Repo map fixture\nCommitted on the branch\n');
+  execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-qam', 'branch work'], { cwd: cleanPath });
+  await button('Refresh repository map').click();
+  await button('Modified file README.md').waitFor();
+  check('Branch scope shows committed changes vs the origin/main merge-base', await page.locator('.map-change-count').innerText() === '1 changed files' &&
+    await page.locator('.map-title').getByLabel('1 lines added, 0 lines removed', { exact: true }).count() === 1);
+  await button('Modified file README.md').click(); await page.getByText('Committed · origin/main → HEAD', { exact: true }).waitFor();
+  check('inspector shows the committed branch diff', (await page.locator('.diff-scroll').innerText()).includes('Committed on the branch'));
+  await button('Close inspector').click();
+  await page.getByLabel('Only changes', { exact: true }).check();
+  await page.getByRole('radio', { name: 'Uncommitted', exact: true }).click();
+  await page.getByRole('heading', { name: 'All clear.', exact: true }).waitFor();
+  check('Uncommitted scope is clear after the commit', await page.getByText('No uncommitted changes in this view.', { exact: true }).isVisible() &&
+    await page.evaluate(() => localStorage.getItem('stingray-repo-map-scope-v1')) === 'uncommitted');
+  await page.getByRole('radio', { name: 'Branch', exact: true }).click(); await button('Modified file README.md').waitFor();
+  check('scope toggle is a persisted radio group', await page.getByRole('radio', { name: 'Branch', exact: true }).getAttribute('aria-checked') === 'true' &&
+    await page.evaluate(() => localStorage.getItem('stingray-repo-map-scope-v1')) === 'branch');
   check('no renderer exceptions', errors.length === 0);
   await writeFile(path.join(evidence, 'input-state-trace.json'), JSON.stringify(await page.evaluate(() => window.mapTestTrace || []), null, 2));
   await writeFile(path.join(evidence, 'results.json'), JSON.stringify({ checks, errors, timings, scope: `${executablePath ? 'Packaged macOS Electron' : 'Isolated source Electron'}, temporary Git fixtures with 2,048-file directory. OS pointer input ignored; Playwright CDP input retained. 100k coverage is model-only. No real agents or component rendering.` }, null, 2));
