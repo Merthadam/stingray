@@ -44,7 +44,8 @@ await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a val
 await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n'
   + 'explain:\n  handle: { text: Serve one request, fingerprint: "000000000000" }\n');
 await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n'
-  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: { app/auth.py::login: "000000000000" } }\n');
+  + 'explain:\n  login: { text: Sign a user in by email, fingerprint: { app/auth.py::login: "000000000000" } }\n'
+  + "  'user is None': { text: Account found for this email? }\n");
 // A FastAPI-like route -> service -> repository: a sequence view with an if/else (alt) and a raise (error note).
 await put('app/routes.py', 'from app.service import authenticate\n\n\ndef sign_in_route(request):\n    return authenticate(request.email, request.password)\n');
 await put('app/service.py', 'from app.repo import fetch_account, touch_login\n\n\ndef authenticate(email, password):\n    account = fetch_account(email)\n'
@@ -128,6 +129,11 @@ try {
     && (await startExplanation.innerText()).endsWith('Sign a user in by email'));
   check('flowchart labels the decision branches Yes/No', await chart.getByRole('button', { name: 'Select transition Yes' }).count() === 1
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
+  check('an explain: entry keyed by its condition titles the decision diamond',
+    (await chart.locator('.flow-diamond').innerText()).trim() === 'Account found for this email?');
+  check('steps without a description are marked; described ones are not',
+    await chart.locator('.flow-chart-action.undescribed .flow-undescribed').count() === 1 && await chart.locator('.flow-diamond.undescribed').count() === 0
+    && await chart.locator('.flow-chart-call.undescribed').count() === 0);
   const cardTexts = await chart.locator('.flow-card').allInnerTexts();
   check('flowchart cards show words, not code', cardTexts.length > 0 && !cardTexts.some(t => /[=_]|\w\(/.test(t)));
   if (process.env.FLOWCHART_SCREENSHOT) await page.screenshot({ path: process.env.FLOWCHART_SCREENSHOT });

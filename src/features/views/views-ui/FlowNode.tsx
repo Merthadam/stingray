@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../../../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../../../../shared/views/infra/catalog';
 import { infraIconUrl } from '../infra/icons';
-import { cardFields, infraName, showsExplanation } from './flow-layout';
+import { cardFields, chartLabel, infraName, showsExplanation, undescribed } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -43,6 +43,10 @@ const Explanation = ({ node, chart }: { node: DiagramNode; chart?: boolean }) =>
   showsExplanation(node, chart) ? <p className="flow-explanation" title={explanationTitle(node.explanation!, node.explanationStatus, node.explanationReason)}>
     <StaleMark status={node.explanationStatus} />{node.explanation}</p> : null;
 
+/** Marker on a step without a description (docstring or `explain:` entry): `stingray-views check` lists its key. */
+const UNDESCRIBED = 'No description yet: add a docstring or an explain: entry (stingray-views check lists the key)';
+const Undescribed = <i className="flow-undescribed" title={UNDESCRIBED} aria-label="no description" />;
+
 export type FlowStepNode = Node<{ node: DiagramNode }, 'step'>;
 
 const handles = <>
@@ -56,14 +60,15 @@ const handles = <>
  * Cards show words, never code: the code text (`detail`) is on hover and in the inspector. Labels wrap and clamp; the
  * selected card shows them in full. */
 export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<FlowStepNode>) {
-  const n = data.node, sub = n.subtitle;
-  if (n.kind === 'decision' || n.kind === 'loop') return <div className={`flow-diamond ${n.kind}`}>
+  const n = data.node, sub = n.subtitle, todo = undescribed(n) ? Undescribed : null;
+  if (n.kind === 'decision' || n.kind === 'loop') return <div className={`flow-diamond ${n.kind}${todo ? ' undescribed' : ''}`}>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="50,1 99,50 50,99 1,50" vectorEffect="non-scaling-stroke" /></svg>
-    <strong title={n.detail || n.label}>{n.label}</strong>{handles}</div>;
+    <strong title={n.explanation ? explanationTitle(`${n.explanation}\n${n.detail || n.label}`, n.explanationStatus, n.explanationReason) : n.detail || n.label}>
+      {n.explanation && <StaleMark status={n.explanationStatus} />}{chartLabel(n)}{todo}</strong>{handles}</div>;
   if (n.kind === 'start' || n.kind === 'end' || n.kind === 'error') return <div className={`flow-card flow-pill ${n.kind}${n.explanation ? ' explained' : ''}`}>
     <strong title={n.detail || n.label}>{n.label}</strong><Explanation node={n} chart />{handles}</div>;
-  return <div className={`flow-card flow-chart-${n.kind}`}>
-    <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}</strong>
+  return <div className={`flow-card flow-chart-${n.kind}${todo ? ' undescribed' : ''}`}>
+    <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}{todo}</strong>
     {sub && <span className={n.kind === 'call' ? 'flow-call-hint' : undefined} title={sub}>{sub}</span>}
     <Explanation node={n} chart />{handles}</div>;
 });

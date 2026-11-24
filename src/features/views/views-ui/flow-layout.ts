@@ -38,6 +38,12 @@ export function textLines(text: string, width: number, glyph = GLYPH.box): numbe
   }
   return Math.min(lines, MAX_LINES);
 }
+const DIAMONDS = new Set(['decision', 'loop']);
+/** Text a flowchart card is titled with: a decision's or loop's explanation (an `explain:` entry, e.g. keyed by its
+ * condition) replaces the label tidied from the code; other cards keep their label and show the explanation under it. */
+export const chartLabel = (node: DiagramNode) => DIAMONDS.has(node.kind) && node.explanation ? node.explanation : node.label;
+/** Steps a reader cannot follow without the code: decisions, loops, calls and actions without an explanation. */
+export const undescribed = (node: DiagramNode) => !node.explanation && (DIAMONDS.has(node.kind) || node.kind === 'call' || node.kind === 'action');
 /** Flowchart card size from its label: shapes keep their default size while the label fits in 2 lines (1 for pills),
  * else widen to WIDE and grow one LINE per extra line. */
 function chartSize(node: DiagramNode) {
@@ -46,10 +52,11 @@ function chartSize(node: DiagramNode) {
     const width = Math.min(WIDE, Math.max(base.width, Math.ceil(node.label.length * GLYPH.pill) + 28));
     return { width, height: base.height + (textLines(node.label, width - 24, GLYPH.pill) - 1) * 12 };
   }
-  const pad = node.kind === 'decision' || node.kind === 'loop' ? 96 : node.kind === 'call' ? 46 : 28; // diamond insets, chevron
-  const fits = textLines(node.label, base.width - pad) <= 2;
-  const width = fits ? base.width : WIDE, lines = textLines(node.label, width - pad);
-  return { width, height: base.height + Math.max(0, lines - (node.kind === 'decision' || node.kind === 'loop' ? 2 : 1)) * LINE };
+  const diamond = DIAMONDS.has(node.kind), text = chartLabel(node);
+  const pad = diamond ? 96 : node.kind === 'call' ? 46 : 28; // diamond insets, chevron
+  const fits = textLines(text, base.width - pad) <= 2;
+  const width = fits ? base.width : WIDE, lines = textLines(text, width - pad);
+  return { width, height: base.height + Math.max(0, lines - (diamond ? 2 : 1)) * LINE };
 }
 export const flowSize = (node: DiagramNode, flowchart = false) => {
   const base = flowchart ? chartSize(node) : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
