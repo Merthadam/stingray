@@ -85,8 +85,8 @@ explain: { ... }               # as for other views (keys: participant ids, symb
   `else` body, then `except E` (Python) / `catch` (TS/JS); `finally` after the fragment). Calls in an `elif`
   condition sit in that arm. LangGraph conditional edges become `alt` fragments too. Arms without messages or notes
   are dropped, fragments without a message are dropped; children of a dropped fragment move to its parent (`parent`).
-- **Notes** (`kind: 'error'`): a `raise`/`throw` becomes `error: <Type>` (the exception name, `error: re-raise` for a
-  bare `raise`) on the raising function's participant, after the last message drawn so far (`after`, -1 = before the
+- **Notes** (`kind: 'error'`): a `raise`/`throw` becomes `can fail: <type in words>` (`can fail: http exception`,
+  `can fail: re-raise` for a bare `raise`; the raw type in `detail`) on the raising function's participant, after the last message drawn so far (`after`, -1 = before the
   first). Only raises of the entry and of functions whose entering message is drawn (handlers, functions on another
   participant, self calls with `internal: show`): a collapsed helper's guard raise is noise. A note inside a kept
   fragment carries `fragment` (innermost kept fragment id) and `arm` (0 = first arm, i = `branches[i - 1]`); an arm
@@ -142,14 +142,14 @@ User -> frontend: click Sign in
 try
   alt step is 'register'
     frontend -> auth: POST /auth/register
-    note auth: error: HTTPException
+    note auth: can fail: http exception
     auth --> frontend: response
   else step is 'verify_email'
     frontend -> auth: POST /auth/verify-email
         try
           auth -> Cognito: confirm sign up
         else except ClientError
-          note auth: error: HTTPException
+          note auth: can fail: http exception
         end
     auth --> frontend: response
   …

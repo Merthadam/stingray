@@ -305,12 +305,21 @@ sequence:
   is labelled `subject: case`), `opt` (an if, or an alt with one arm left), `loop` ("for each x", "while cond"), `try`
   (arms "try", `except E` in Python, `catch` in TS/JS). Conditions are tidied like flowchart labels. Fragments
   without a message and arms without a message or note are dropped; nesting is kept.
-- **Notes**: `raise`/`throw` in the entry or in a function whose call is drawn becomes `note <participant>: error:
-  <Type>` (`error: re-raise` for a bare `raise`) after the message before it, inside its fragment arm. Raises of
+- **Notes**: `raise`/`throw` in the entry or in a function whose call is drawn becomes `note <participant>: can fail:
+  <type in words>` (`HTTPException` → "can fail: http exception", `can fail: re-raise` for a bare `raise`; the raw type
+  is the note's `detail`, on hover in the app) after the message before it, inside its fragment arm. Raises of
   collapsed same-lifeline helpers are left out; the same note twice in a row is shown once.
-- Explanations: a participant carries the docstring summary of its first function; `explain:` keys are participant ids
-  (`p:file:services/auth/api.py`) or symbol names. View-level `exclude:` drops participants by id or label, with their
-  messages.
+- Explanations: a participant carries the docstring summary of its first function, a message the docstring summary of
+  its callee (`explanation` in `--json`, the message inspector in the app). `explain:` entries reach three kinds of
+  targets: a participant by its id (`p:file:services/auth/api.py`; a symbol name reaches the participant whose first
+  function it is too), the messages into a function by its name (`touch_login`: the entry's text then replaces the call
+  name on every arrow into it), and an `alt`/`opt`/`loop` condition by a snippet of its code, like a flowchart decision
+  (`'account is None': { text: No account for this email? }` replaces the tidied condition; phrase it as the same
+  question). Only a fragment's first condition can be described (not `elif`/`case` arms, not `try`). `check`'s
+  `undescribed steps` lists repo participants, messages into repo functions (not the trigger) and conditions without a
+  description, once per key; the app marks them with a hollow dot, and "Describe…" in the participant, message and
+  condition inspectors (click a condition's text) writes the entry. View-level `exclude:` drops participants by id or
+  label, with their messages.
 
 **Link sets** (`links:`) — hops the code graph's `calls` edges do not have:
 
@@ -368,7 +377,7 @@ literal `@`); the hop is then drawn when that function is entered, before its bo
     unusual names likewise (`externals: { claude_agent_sdk: Claude }`).
   - Many `(unassigned)` or helper lifelines: narrow `sequence.include` (they stay drawn but are not followed) or drop
     them with view-level `exclude:`. Too much noise inside one lifeline: keep `internal: collapse`.
-  - Check notes against the code: an `error:` note marks a raise on that path, not that the step always fails.
+  - Check notes against the code: a `can fail:` note marks a raise on that path, not that the step always fails.
 
 ## Explanations (`explain:`)
 

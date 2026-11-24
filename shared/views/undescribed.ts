@@ -7,9 +7,12 @@ const FLOWCHART_STEPS = new Set(['decision', 'loop', 'call', 'action']);
 const NAMED = new Set(['service', 'module', 'file', 'table']); // layers units and tables
 
 /** Flowchart decisions, loops, calls and actions; graph and flow views' steps backed by a symbol (graph steps, layers
- * symbols, rule nodes with `symbol:`) and every flow step; not start/end pills, cloud resources or tables. */
+ * symbols, rule nodes with `symbol:`) and every flow step; a sequence's repo participants, messages into repo functions
+ * and alt/opt/loop conditions (shared/views/sequence-targets); not start/end pills, the actor, externals, cloud resources
+ * or tables. */
 export function describable(node: DiagramNode, kind: ViewKind): boolean {
   if (kind === 'flowchart') return FLOWCHART_STEPS.has(node.kind);
+  if (kind === 'sequence') return node.kind === 'participant' || node.kind === 'decision' || (node.kind === 'message' && !!node.symbol);
   if (kind !== 'graph' && kind !== 'flow') return false;
   return !node.role && !node.service && !NAMED.has(node.kind) && (kind === 'flow' || !!node.symbol);
 }

@@ -9,6 +9,7 @@ import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../../../../shared/contracts/views';
 import { formatText } from '../../../../shared/views/views-text';
 import { summarizeFlowchart } from '../../../../shared/views/flowchart-summary';
+import { explainable } from '../../../../shared/views/sequence-targets';
 import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS, calleesOf, computeView, explainPair, undescribedSteps, type Evaluate, type FileProvider, type GraphApi, type ViewFileEntry } from '../../../core/views';
 
 type LoadedView = ViewFileEntry;
@@ -207,7 +208,7 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
     for (const w of result.warnings.slice(0, 50)) deps.out(`  ${where(w)}`);
     if (result.warnings.length > 50) deps.out(`  … ${result.warnings.length - 50} more`);
   }
-  const todo = undescribedSteps(result);
+  const todo = undescribedSteps(explainable(result));
   if (todo.length) {
     // The steps a reader cannot follow without the code: write an explain: entry for the unclear ones (the key as printed).
     deps.out(`undescribed steps (${todo.length}; describe unclear ones with explain: <key>: { text: ... }):`);

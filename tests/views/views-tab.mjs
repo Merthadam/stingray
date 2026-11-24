@@ -334,7 +334,37 @@ try {
   check('a participant shows its explanation under its box', (await sequence.locator('.seq-participant-explanation').evaluateAll(els => els.map(e => [...e.querySelectorAll('tspan')].map(t => t.textContent).join(' ')))).join() === 'Look the account up by its email.');
   check('sequence view frames the if/else as an alt with the raise as an error note',
     await sequence.locator('.seq-fragment-kind').allTextContents().then(t => t.join() === 'alt')
-    && await sequence.getByRole('button', { name: 'Note on service.py: error: PermissionError' }).count() === 1);
+    && await sequence.getByRole('button', { name: 'Note on service.py: can fail: permission error' }).count() === 1);
+  check('the error note reads in words and keeps the raw type on hover',
+    (await sequence.getByRole('button', { name: 'Note on service.py: can fail: permission error' }).locator('title').textContent()).includes('PermissionError'));
+  check('participants, messages and conditions without a description are marked; described ones are not',
+    await sequence.locator('.seq-participant.undescribed').count() === 2 && await sequence.locator('.seq-participant.undescribed', { hasText: 'repo.py' }).count() === 0
+    && (await sequence.locator('.seq-message', { has: page.locator('tspan.seq-undescribed') }).allTextContents()).map(t => t.replace(' ◦', '')).join() === 'authenticate,touch login'
+    && await sequence.locator('.seq-condition.undescribed').count() === 1);
+  // Describe… on the alt condition writes an explain: entry keyed by its code; the text replaces the condition.
+  const signInFile = path.join(repo, '.stingray/views/sign-in.yaml'), signInYaml = await readFile(signInFile, 'utf8');
+  await sequence.getByRole('button', { name: 'Condition account is none' }).click();
+  const conditionInspector = sequence.getByRole('complementary', { name: 'Condition account is none' });
+  check('a condition opens its inspector with its code', (await conditionInspector.getByLabel('Code').innerText()).includes('if account is None'));
+  await conditionInspector.getByRole('button', { name: 'Describe…' }).click();
+  await conditionInspector.getByRole('textbox', { name: 'Description' }).fill('No account for this email?');
+  await conditionInspector.getByRole('button', { name: 'Save' }).click();
+  await sequence.getByRole('button', { name: 'Condition No account for this email?' }).waitFor();
+  check('describing a condition replaces its label, unmarked, and writes the entry keyed by its code',
+    await sequence.locator('.seq-condition.undescribed').count() === 0 && /explain:\n {2}'if account is None:[^\n]*':\n {4}text: No account for this email\?\n/.test(await readFile(signInFile, 'utf8')));
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-sequence-describe.png') });
+  await sequence.getByRole('button', { name: 'Condition No account for this email?' }).click();
+  await sequence.getByRole('complementary', { name: 'Condition account is none' }).getByRole('button', { name: 'Edit description' }).click();
+  await sequence.getByRole('complementary', { name: 'Condition account is none' }).getByRole('button', { name: 'Remove' }).click();
+  await sequence.getByRole('button', { name: 'Condition account is none' }).waitFor();
+  check('removing it restores the condition and the view file', await readFile(signInFile, 'utf8') === signInYaml);
+  await page.keyboard.press('Escape');
+  await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: touch login/ }).click();
+  check('a message into a repo function and a repo participant offer Describe…',
+    await sequence.getByRole('complementary', { name: 'Message touch login' }).getByRole('button', { name: 'Describe…' }).isEnabled());
+  await sequence.getByRole('button', { name: 'Participant service.py' }).click();
+  check('and so does a repo participant', await sequence.getByRole('complementary', { name: 'Participant service.py' }).getByRole('button', { name: 'Describe…' }).isEnabled());
+  await page.keyboard.press('Escape');
   await sequence.getByRole('button', { name: 'Participant service.py' }).click();
   check('clicking a participant opens its messages in the inspector',
     (await sequence.getByRole('complementary', { name: 'Participant service.py' }).innerText()).includes('fetch account'));

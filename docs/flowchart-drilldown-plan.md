@@ -139,7 +139,12 @@ One PR each, stacked:
 3. **Sequence readability** — done: text in the sans font, message/fragment/note labels wrap to 2 lines (rows grow; no
    engine cut), file/class lifelines lose their path subtitle, participant explanations under their boxes, returns never
    show code, clicking a message opens a message inspector (callee docstring, code, Open in editor).
-4. **Sequence descriptions.**
+4. **Sequence descriptions** — done: `shared/views/sequence-targets.ts` turns messages (key: the callee's name; not the
+   trigger) and alt/opt/loop conditions (key: a snippet of their code, `detail`) into `explain:` targets next to the
+   participants (key: their id), written back onto the sequence; an entry replaces the arrow or condition text; error
+   notes read "can fail: <type in words>" (raw type in `detail`); undescribed ones are marked and listed by `check` (once
+   per key); Describe… in the participant, message and condition inspectors. Only a fragment's first condition is a
+   target.
 5. **Graph depth slider.**
 
 ## Open

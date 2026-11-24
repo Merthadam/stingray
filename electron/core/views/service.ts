@@ -7,6 +7,7 @@ import type { DbSchemaSource, FileProviderFactory, ViewFiles, ViewsPublisher } f
 import { DATABASE_VIEW, databaseView } from './database';
 import { combineSchemas, computeView, explainFingerprint, linkSymbols, type ComputeDeps } from './compute';
 import { explanationKey } from './explain';
+import { explainable } from '../../../shared/views/sequence-targets';
 import { withExplanation } from './save-explanation';
 import { LAYERS_VIEW, RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
 
@@ -129,7 +130,7 @@ export class ViewService {
   async saveExplanation(workspaceId: string, root: string, viewId: string, input: { target: string; text: string; options?: ViewOptions }): Promise<void> {
     if (viewId === DATABASE_VIEW.id || viewId === LAYERS_VIEW.summary.id) throw new Error('Builtin views have no view file: use Save as view… first.');
     const result = await this.computeView(workspaceId, root, viewId, input.options);
-    const key = explanationKey(result, input.target);
+    const key = explanationKey(explainable(result), input.target);
     if (key === null) throw new Error('That step is no longer in the view; refresh and try again.');
     const w = this.worktree(workspaceId, root), file = `${VIEWS_DIR}/${viewId}.yaml`, text = input.text.trim();
     if (text.length > 500) throw new Error('Use at most 500 characters.');
