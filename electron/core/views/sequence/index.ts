@@ -129,9 +129,10 @@ class Lifelines {
     }
     if (this.granularity === 'class') {
       const cls = this.enclosingClass(s);
-      if (cls) return { id: `p:class:${s.file}#${cls.name}`, label: cls.name, kind: 'participant', subtitle: s.file, ...first };
+      if (cls) return { id: `p:class:${s.file}#${cls.name}`, label: cls.name, kind: 'participant', subtitle: null, ...first };
     }
-    return { id: `p:file:${s.file}`, label: path.basename(s.file), kind: 'participant', subtitle: s.file, ...first };
+    // The file path is in the participant's source (inspector), not on the lifeline.
+    return { id: `p:file:${s.file}`, label: path.basename(s.file), kind: 'participant', subtitle: null, ...first };
   }
 
   /** Innermost class whose lines contain the function. */
@@ -193,7 +194,8 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
         const self = from.id === to.id && e.kind === 'call';
         if (self && step.internal === 'collapse') break;
         drawn.add(e.id);
-        add({ from: from.id, to: to.id, kind: self ? 'self' : e.kind, label: e.label, detail: e.detail, level: e.level, certain: e.certain, link: e.link, source: e.source, symbol: e.symbol });
+        add({ from: from.id, to: to.id, kind: self ? 'self' : e.kind, label: e.label, detail: e.detail, level: e.level, certain: e.certain, link: e.link, source: e.source, symbol: e.symbol,
+          ...(e.explanation ? { explanation: e.explanation } : {}) });
         break;
       }
       case 'ret': {

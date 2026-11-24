@@ -70,8 +70,8 @@ explain: { ... }               # as for other views (keys: participant ids, symb
   - `link` (solid): a hop from a link set or link rule (auth dependency, LangGraph node, event subscriber, …); label
     from the link.
   - `return` (dashed, reversed) when `returns: true`: after a drawn, followable hop/call (not LangGraph `(loop)` hops,
-    not externals), when the callee's participant differs from the caller's; label = `response` for `http`, else the
-    returned value text when every reached return gives the same value of ≤ 24 chars, else empty.
+    not externals), when the callee's participant differs from the caller's; label = `response` for `http`, else empty
+    (never the returned code; phase 6 of flowchart-drilldown-plan.md).
   - `self` (arrow back to the same lifeline): a plain call inside one participant, only with `internal: show`. With
     `collapse` the self-call arrow is not drawn but the callee is still followed (its cross-participant messages are
     kept). `http`/`link` hops inside one participant are always drawn as such.

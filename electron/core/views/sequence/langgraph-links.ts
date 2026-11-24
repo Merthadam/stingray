@@ -11,7 +11,6 @@ import { renderTemplate, templateCaptures } from '../rules/template';
 import { BUILTIN_SETS } from '../sets';
 import { LangGraphRouters } from '../sets/langgraph-routers';
 import { named } from '../flowchart/cfg';
-import { truncate } from '../flowchart/labels';
 import { FUNCTION_KINDS } from '../flowchart';
 import { callMethod, importBase, symbolNamed, type Hop, type HopStep, type LinkContext, type LinkProvider } from './links';
 
@@ -169,7 +168,7 @@ async function graphSteps(g: StateGraph, ctx: LinkContext, certain: boolean): Pr
     if (branches.length) {
       const arms = new Map<string, string[]>(); // target -> path-map keys / conditions
       for (const e of branches) arms.set(e.to, [...arms.get(e.to) ?? [], e.label ?? e.to]);
-      out.push({ alt: [...arms].map(([to, labels]) => ({ label: truncate(labels.join(' / ')), steps: visit(to, onPath) })), source: { file: g.file, line: branches[0].line } });
+      out.push({ alt: [...arms].map(([to, labels]) => ({ label: labels.join(' / '), steps: visit(to, onPath) })), source: { file: g.file, line: branches[0].line } });
     }
     return out;
   };

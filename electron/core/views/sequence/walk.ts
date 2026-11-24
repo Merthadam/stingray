@@ -9,21 +9,20 @@ import type { Call, Code, Construct } from '../flowchart/cfg';
 import { resolveCall, type LoadFunction } from '../flowchart/build';
 import { FUNCTION_KINDS } from '../flowchart';
 import { callLabel, caseLabel, truncate, words } from '../flowchart/labels';
-import { symbolRef } from '../explanation';
+import { explanationOf, symbolRef } from '../explanation';
 import { externalCall } from './externals';
 import type { Hop, HopStep, LinkContext, LinkProvider } from './links';
 
 // `events` bounds the walk, not `messages`: most walked calls are same-lifeline calls folded away afterwards, and which
 // are is only known once the lifeline granularity is (after the walk).
 export const SEQUENCE_LIMITS = { messages: 400, participants: 30, functions: 150, events: 5000 };
-const MAX_RETURN_LABEL = 24;
 
 /** A message end: a reached function (its lifeline is computed later), an external system or the actor. */
 export type End = { symbol: GraphSymbol } | { external: string } | { actor: true };
 
 export type TraceEvent =
   | { t: 'msg'; id: number; from: End; to: End; kind: 'call' | 'http' | 'link'; label: string; detail: string | null; level: number;
-      certain: boolean; link: string | null; source: SourceRef | null; symbol: SymbolRef | null }
+      certain: boolean; link: string | null; source: SourceRef | null; symbol: SymbolRef | null; explanation?: string }
   | { t: 'ret'; call: number; from: End; to: End; label: string; level: number; source: SourceRef | null }
   | { t: 'open'; kind: SequenceFragmentKind; label: string; source: SourceRef }
   | { t: 'branch'; label: string }
@@ -39,14 +38,13 @@ interface Frame {
   stack: string[];            // symbol ids being walked (recursion guard)
   entered: number | null;     // msg id that entered this function; null for the entry
   outgoing: GraphRelation[];  // its `calls` relations
-  returns: (string | null)[]; // values of the returns reached
 }
 
-/** Fragment labels: the condition / loop header as words. */
-const condLabel = (cond: string) => truncate(words(cond.trim()) || cond.trim());
+/** Fragment labels: the condition / loop header as words, uncut (the Views tab wraps them). */
+const condLabel = (cond: string) => words(cond.trim()) || cond.trim();
 function loopLabel(c: Extract<Construct, { type: 'loop' }>) {
-  if (c.over !== null) return truncate(`for each ${words(c.over) || c.over}`);
-  return c.cond ? truncate(`while ${words(c.cond) || c.cond}`) : 'loop';
+  if (c.over !== null) return `for each ${words(c.over) || c.over}`;
+  return c.cond ? `while ${words(c.cond) || c.cond}` : 'loop';
 }
 /** Exception type of a raise value: "HTTPException" for `raise HTTPException(401, ...)` / `throw new HTTPException(...)`. */
 const errorType = (value: string | null) => value ? /^(?:new\s+)?([\w$.]+)/.exec(value.trim())?.[1].split('.').at(-1) ?? truncate(value) : 're-raise';
@@ -111,7 +109,7 @@ export class SequenceWalker {
   private frame(symbol: GraphSymbol, level: number, stack: string[], entered: number | null): Frame {
     let outgoing = this.outgoing.get(symbol.id);
     if (!outgoing) this.outgoing.set(symbol.id, outgoing = this.graph.outgoing([symbol.id], ['calls']));
-    return { symbol, level, stack, entered, outgoing, returns: [] };
+    return { symbol, level, stack, entered, outgoing };
   }
 
   private symbols = (ids: string[]) => {
@@ -160,20 +158,19 @@ export class SequenceWalker {
       case 'switch': {
         await this.calls(c.calls, f, c.code);
         const subject = condLabel(c.subject);
-        const arms = c.cases.map((k, i) => ({ label: i ? caseLabel(k.label) : truncate(`${subject}: ${caseLabel(k.label)}`), body: k.body }));
+        const arms = c.cases.map((k, i) => ({ label: i ? caseLabel(k.label) : `${subject}: ${caseLabel(k.label)}`, body: k.body }));
         await this.arms(arms, f, { kind: 'alt', source: at(c.code) });
         return false;
       }
       case 'try': {
         const python = path.extname(f.symbol.file) === '.py';
         await this.arms([{ label: 'try', body: [...c.body, ...c.else] },
-          ...c.handlers.map(h => ({ label: python ? truncate(`except ${h.label}`) : 'catch', body: h.body }))], f, { kind: 'try', source: at(c.code) });
+          ...c.handlers.map(h => ({ label: python ? `except ${h.label}` : 'catch', body: h.body }))], f, { kind: 'try', source: at(c.code) });
         await this.body(c.finally, f);
         return false;
       }
       case 'return':
         await this.calls(c.calls, f, c.code);
-        f.returns.push(c.value);
         return true;
       case 'raise':
         await this.calls(c.calls, f, c.code);
@@ -223,12 +220,13 @@ export class SequenceWalker {
     return i;
   }
 
-  /** A message to `symbol`, its messages when it is followed (depth, scope, recursion, caps), then the return arrow. */
+  /** A message to `symbol`, its messages when it is followed (depth, scope, recursion, caps), then the return arrow: never
+   * labelled with code (`response` for http, else blank). */
   private async enter(symbol: GraphSymbol, how: How, f: Frame, detail: string, source: SourceRef) {
     const recursive = f.stack.includes(symbol.id), id = this.messages++;
     this.push({ t: 'msg', id, from: { symbol: f.symbol }, to: { symbol }, kind: how.kind,
-      label: recursive ? `${how.label} (recursive)` : how.label, detail, level: f.level, certain: how.certain, link: how.link, source, symbol: symbolRef(symbol) });
-    let returns: (string | null)[] = [];
+      label: recursive ? `${how.label} (recursive)` : how.label, detail, level: f.level, certain: how.certain, link: how.link, source, symbol: symbolRef(symbol),
+      ...explanationOf(symbol) });
     if (!recursive && how.follow !== false && f.level < this.step.depth && FUNCTION_KINDS.has(symbol.kind) && this.followable(symbol.file)) {
       if (!this.parsed.has(symbol.id) && this.parsed.size >= SEQUENCE_LIMITS.functions) this.truncated = true;
       else {
@@ -238,13 +236,10 @@ export class SequenceWalker {
           const callee = this.frame(symbol, f.level + 1, [...f.stack, symbol.id], id);
           await this.before(callee);
           await this.body(loaded.constructs, callee);
-          returns = callee.returns;
         }
       }
     }
     if (!this.step.returns || how.follow === false) return;
-    const values = [...new Set(returns.map(v => v?.trim() ?? ''))];
-    const label = how.kind === 'http' ? 'response' : values.length === 1 && values[0].length <= MAX_RETURN_LABEL ? values[0] : '';
-    this.push({ t: 'ret', call: id, from: { symbol }, to: { symbol: f.symbol }, label, level: f.level, source: null });
+    this.push({ t: 'ret', call: id, from: { symbol }, to: { symbol: f.symbol }, label: how.kind === 'http' ? 'response' : '', level: f.level, source: null });
   }
 }
