@@ -381,11 +381,14 @@ try {
   // Dragging pans from anywhere, also from a full-width message row, without opening the message.
   for (let i = 0; i < 4; i++) await sequence.getByRole('button', { name: 'Zoom in' }).click();
   const canvas = sequence.locator('.seq-canvas'), scrolled = () => canvas.evaluate(el => el.scrollLeft + el.scrollTop);
-  const row = await sequence.getByRole('button', { name: /^Message routes\.py -> service\.py: authenticate/ }).boundingBox();
+  const rowButton = sequence.getByRole('button', { name: /^Message routes\.py -> service\.py: authenticate/ });
+  await rowButton.scrollIntoViewIfNeeded(); // small CI windows show only part of the zoomed diagram
+  const row = await rowButton.boundingBox(), view = await canvas.boundingBox();
+  const rowY = (Math.max(row.y, view.y) + Math.min(row.y + row.height, view.y + view.height)) / 2; // middle of the visible part of the row
   const panFrom = await scrolled();
-  await page.mouse.move(row.x + 60, row.y + row.height / 2);
+  await page.mouse.move(row.x + 60, rowY);
   await page.mouse.down();
-  await page.mouse.move(row.x + 20, row.y + row.height / 2 - 40, { steps: 6 });
+  await page.mouse.move(row.x + 20, rowY - 40, { steps: 6 });
   await page.mouse.up();
   check('dragging a message row pans the diagram and does not open it', await scrolled() > panFrom
     && await page.getByRole('tab', { name: 'Views' }).getAttribute('aria-selected') === 'true');
