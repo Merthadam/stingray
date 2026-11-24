@@ -3,7 +3,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-export type ImportRef = { file: string; line: number; specifier: string; target: string | null; typeOnly: boolean };
+/** names: imported (pre-`as`) binding names; '*' for namespace, `export *`, dynamic and `import x = require()`. */
+export type ImportRef = { file: string; line: number; specifier: string; target: string | null; typeOnly: boolean; names: string[] };
 export type Layer = { kind: 'entry' | 'app' | 'core' | 'driving' | 'driven' | 'shared' | 'renderer-app' | 'renderer-feature' | 'renderer-shared' | 'agents' | 'other'; group?: string };
 
 const ROOTS = ['electron', 'shared', 'src', 'agents'];
@@ -21,12 +22,52 @@ export function sourceFiles(): string[] {
 
 const STATIC = /^[ \t]*(?:import|export)\s+(type\s+)?(\{[^}]*\}|\*(?:\s+as\s+[\w$]+)?|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[\w$]+))?)\s*from\s*['"]([^'"]+)['"]/gm;
 const SIDE_EFFECT = /^[ \t]*import\s*['"]([^'"]+)['"]/gm;
-const DYNAMIC = /(typeof\s+)?\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
-// Comments are blanked (keeping line numbers) so commented-out code and prose are not read as imports.
-const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' ')).replace(/^[ \t]*\/\/.*$/gm, '');
+const DYNAMIC = /(typeof\s+)?\bimport\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
+const IMPORT_REQUIRE = /^[ \t]*(?:export\s+)?import\s+(type\s+)?[\w$]+\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/gm;
+
+/** Blanks comments (keeping line breaks) so commented-out code and prose are not read as code; with
+ * alsoStrings also the contents of strings, templates and regex literals. Quotes and regexes end at a newline. */
+export function blankComments(source: string, alsoStrings = false): string {
+  const out = source.split(''), n = source.length, templates: number[] = []; // open-brace depth per enclosing `${`
+  const hide = (from: number, to: number) => { for (let k = from; k < Math.min(to, n); k++) if (out[k] !== '\n') out[k] = ' '; };
+  // Template text from j up to the closing backtick or the next `${`; returns where code resumes.
+  const template = (j: number) => {
+    let end = j;
+    while (end < n && source[end] !== '`' && !(source[end] === '$' && source[end + 1] === '{')) end += source[end] === '\\' ? 2 : 1;
+    if (alsoStrings) hide(j, end);
+    if (source[end] === '$') { templates.push(0); return end + 2; }
+    return end + 1;
+  };
+  let i = 0, prev = ''; // prev: last non-space code character, to tell a regex from a division
+  while (i < n) {
+    const c = source[i], d = source[i + 1];
+    if (c === '/' && d === '/') { const end = source.indexOf('\n', i), stop = end < 0 ? n : end; hide(i, stop); i = stop; continue; }
+    if (c === '/' && d === '*') { const end = source.indexOf('*/', i + 2); const stop = end < 0 ? n : end + 2; hide(i, stop); i = stop; continue; }
+    if (c === "'" || c === '"' || (c === '/' && (prev === '' || '(,=:[!&|?{};'.includes(prev)))) {
+      let j = i + 1, inClass = false;
+      while (j < n && source[j] !== '\n' && (source[j] !== c || inClass)) {
+        if (c === '/' && (source[j] === '[' || source[j] === ']')) inClass = source[j] === '[';
+        j += source[j] === '\\' ? 2 : 1;
+      }
+      if (alsoStrings) hide(i + 1, j);
+      i = j + 1; prev = c; continue;
+    }
+    if (c === '`') { i = template(i + 1); prev = '`'; continue; }
+    if (templates.length && c === '{') templates[templates.length - 1]++;
+    if (templates.length && c === '}' && templates[templates.length - 1]-- === 0) { templates.pop(); i = template(i + 1); prev = '`'; continue; }
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return out.join('');
+}
 const lineAt = (text: string, index: number) => text.slice(0, index).split('\n').length;
 const allTypeBindings = (bindings: string) => bindings.startsWith('{') &&
   bindings.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).every(s => s.startsWith('type '));
+const bindingNames = (bindings: string) => {
+  const [first, named = ''] = bindings.startsWith('{') ? ['', bindings] : bindings.split(/\s*,\s*(?=[{*])/);
+  const names = named.startsWith('{') ? named.slice(1, -1).split(',').map(s => s.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]).filter(Boolean) : named ? ['*'] : [];
+  return [...(first.startsWith('*') ? ['*'] : first ? ['default'] : []), ...names];
+};
 
 export function resolveImport(from: string, specifier: string): string | null {
   if (!specifier.startsWith('.')) return null; // package or node builtin
@@ -38,11 +79,12 @@ export function resolveImport(from: string, specifier: string): string | null {
 }
 
 export function importsOf(file: string, source = readFileSync(file, 'utf8')): ImportRef[] {
-  const text = stripComments(source), refs: ImportRef[] = [];
-  const add = (index: number, specifier: string, typeOnly: boolean) => refs.push({ file, line: lineAt(text, index), specifier, target: resolveImport(file, specifier), typeOnly });
-  for (const m of text.matchAll(STATIC)) add(m.index!, m[3], Boolean(m[1]) || allTypeBindings(m[2]));
-  for (const m of text.matchAll(SIDE_EFFECT)) add(m.index!, m[1], false);
-  for (const m of text.matchAll(DYNAMIC)) add(m.index!, m[2], Boolean(m[1]));
+  const text = blankComments(source), refs: ImportRef[] = [];
+  const add = (index: number, specifier: string, typeOnly: boolean, names: string[]) => refs.push({ file, line: lineAt(text, index), specifier, target: resolveImport(file, specifier), typeOnly, names });
+  for (const m of text.matchAll(STATIC)) add(m.index!, m[3], Boolean(m[1]) || allTypeBindings(m[2]), bindingNames(m[2]));
+  for (const m of text.matchAll(SIDE_EFFECT)) add(m.index!, m[1], false, []);
+  for (const m of text.matchAll(DYNAMIC)) add(m.index!, m[2], Boolean(m[1]), ['*']);
+  for (const m of text.matchAll(IMPORT_REQUIRE)) add(m.index!, m[2], Boolean(m[1]), ['*']);
   return refs;
 }
 

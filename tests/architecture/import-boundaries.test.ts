@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { importsOf, layerOf, sourceFiles, violation } from './import-scan';
+import { blankComments, importsOf, layerOf, sourceFiles, violation, type ImportRef } from './import-scan';
 
 test('classifier self-check', () => {
   const ok = null;
@@ -50,9 +50,73 @@ test('every import follows the layer rules (no allow-list)', () => {
   assert.deepEqual(failures, [], failures.join('\n'));
 });
 
+test('import extraction self-check', () => {
+  const source = [
+    'import {',
+    '  a,',
+    '  b,',
+    "} from './multi';",
+    "export * from './star';",
+    "import { type A } from './typed';",
+    "type T = typeof import('./typeof');",
+    "// import { gone } from './line-comment';",
+    "/* import('./block-comment') */",
+    "const glob = '**/*';",
+    "const lazy = import('node:fs');",
+    'const tpl = import(`node:os`);',
+    "import cp = require('node:child_process');",
+    "const re = /'/g; const path = import('node:path');",
+    "import { provideHasher as ph } from './ports';",
+    "const s = `${'*/'}`; import('node:url');",
+  ].join('\n');
+  const refs = importsOf('electron/core/x/y.ts', source).sort((p, q) => p.line - q.line).map(r => [r.line, r.specifier, r.typeOnly, r.names]);
+  assert.deepEqual(refs, [
+    [1, './multi', false, ['a', 'b']],
+    [5, './star', false, ['*']],
+    [6, './typed', true, ['A']],
+    [7, './typeof', true, ['*']],
+    [11, 'node:fs', false, ['*']],
+    [12, 'node:os', false, ['*']],
+    [13, 'node:child_process', false, ['*']],
+    [14, 'node:path', false, ['*']],
+    [15, './ports', false, ['provideHasher']],
+    [16, 'node:url', false, ['*']],
+  ]);
+});
+
+// Core runs under any host: no CommonJS require and no Node globals (the bundle is CJS, so these would type-check and run).
+const NODE_GLOBAL = /\brequire\s*\(|(?<![.\w$])process\.|\bBuffer\b|\b__dirname\b|\b__filename\b/;
+const usesNodeGlobal = (source: string) => NODE_GLOBAL.exec(blankComments(source, true))?.[0] ?? null;
+
+test('node global self-check', () => {
+  for (const bad of ["const fs = require('node:fs');", 'const env = process.env.HOME;', "Buffer.from('x')", 'const d = __dirname;', 'f(__filename)', "import fs = require('node:fs');"]) assert.notEqual(usesNodeGlobal(bad), null, bad);
+  for (const ok of ['t.process.pid', "const s = 'process.env';", '// require(x)', '/* Buffer */', 'const s = `__dirname`;', '{ maxBuffer: 1 }']) assert.equal(usesNodeGlobal(ok), null, ok);
+});
+
+test('core uses no require() and no Node globals', () => {
+  const offenders = sourceFiles().filter(file => layerOf(file).kind === 'core')
+    .map(file => [file, usesNodeGlobal(readFileSync(file, 'utf8'))]).filter(([, hit]) => hit).map(([file, hit]) => `${file}: ${hit}`);
+  assert.deepEqual(offenders, []);
+});
+
+const PORT_SLOTS = new Set(['electron/core/shared/ports.ts', 'electron/core/shared/index.ts']);
+/** Binds a provide or reset function of electron/core/shared (or the whole module, which exposes them). */
+const fillsPortSlot = (ref: ImportRef) => !ref.typeOnly && ref.target !== null && PORT_SLOTS.has(ref.target) &&
+  ref.names.some(name => name === '*' || /^(provide|reset)/.test(name));
+
+test('port slot import self-check', () => {
+  const ref = (names: string[], typeOnly = false, target = 'electron/core/shared/ports.ts'): ImportRef => ({ file: 'electron/core/git/git.ts', line: 1, specifier: '../shared/ports', target, typeOnly, names });
+  assert.equal(fillsPortSlot(ref(['provideHasher'])), true);
+  assert.equal(fillsPortSlot(ref(['resetCorePorts'])), true);
+  assert.equal(fillsPortSlot(ref(['*'])), true);
+  assert.equal(fillsPortSlot(ref(['sha256'])), false);
+  assert.equal(fillsPortSlot(ref(['*'], true)), false);
+  assert.equal(fillsPortSlot(ref(['provideHasher'], false, 'electron/core/git/ports.ts')), false);
+  assert.deepEqual(importsOf('electron/core/git/git.ts', "import { provideHasher as ph } from '../shared/ports';").map(fillsPortSlot), [true]);
+});
+
 test('core port slots are filled only by electron/app and tests', () => {
-  const offenders = sourceFiles()
-    .filter(file => !file.startsWith('electron/app/') && file !== 'electron/core/shared/ports.ts')
-    .filter(file => /\b(provideGlobMatcher|provideHasher|provideSyntaxParser|resetCorePorts)\s*\(/.test(readFileSync(file, 'utf8')));
+  const offenders = sourceFiles().filter(file => !file.startsWith('electron/app/'))
+    .flatMap(file => importsOf(file).filter(fillsPortSlot)).map(ref => `${ref.file}:${ref.line}`);
   assert.deepEqual(offenders, []);
 });
