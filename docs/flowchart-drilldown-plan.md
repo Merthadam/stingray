@@ -5,7 +5,8 @@ UI's "edit label" is phase 5's "Describe…" / "Edit description", which writes 
 phase 3's summary lives in `shared/views/flowchart-summary.ts`; phase 4's call paths are callee names without lines,
 `finish>create_session` / `audit#2`, carried as `callPath` on call nodes and groups while node and group ids stay as
 they were, the depth slider stays and resets the session expansions, and an expansion over the node cap stays a call
-node without an "open as its own flowchart" action); phase 6 in progress (see "Phase 6" below). Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
+node without an "open as its own flowchart" action); phase 6 implemented (see "Phase 6" below; per-call sequence expand
+open). Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
 flow, layers and sequence views follow once this works (how sequence diagrams fit is still open).
 
 ## Problem (example: the auth sign-in flowchart)
@@ -145,7 +146,9 @@ One PR each, stacked:
    notes read "can fail: <type in words>" (raw type in `detail`); undescribed ones are marked and listed by `check` (once
    per key); Describe… in the participant, message and condition inspectors. Only a fragment's first condition is a
    target.
-5. **Graph depth slider.**
+5. **Graph depth slider** — done: views with a `graph:` step (and no `layers:`) get a 1-6 depth slider like layers and
+   sequences (`diagnostics.graph.depth` = the effective depth; the service overrides `graph.depth`). Per-call sequence
+   expand is left for later (it needs call-path ids in the sequence walker).
 
 ## Open
 

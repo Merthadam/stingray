@@ -172,7 +172,9 @@ graph:
 Nodes are symbols, edges the followed relations; heuristically resolved edges are dashed. Helpers (reached functions
 with fan-in ≥ 2 and no further edges, or outside `include`) are folded into a "calls: ..." field of their callers
 (`collapse`), dropped (`hide`) or shown. Max 150 nodes. Rule nodes with a `symbol` merge with the matching graph node,
-so a flow can expand each step into its helpers. Without a ready code graph the step is skipped with a diagnostic.
+so a flow can expand each step into its helpers. Without a ready code graph the step is skipped with a diagnostic. In the app
+a depth slider (1-6, session-only) overrides `depth` for views with a graph step and no `layers:`; `diagnostics.graph.depth`
+is the effective depth.
 
 ## Flowcharts
 
