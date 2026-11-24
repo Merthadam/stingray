@@ -655,3 +655,30 @@ def boom(x):
   assert.deepEqual(out.edges.filter(e => e.to === node(out.nodes, 'report').id).map(e => e.label), ['ValueError']);
   assert.ok(out.edges.some(e => e.from === node(out.nodes, 'boom').id && e.to === node(out.nodes, 'save').id));
 });
+
+test('a library call whose result is only stored draws no step; flowchart.hide drops calls (also resolved ones) by name or path', async () => {
+  const files = { 'n.py': `def run(d, k):
+    now = clock()
+    row = d.get(k)
+    x = fast(k) if k else slow(k)
+    log.info("start")
+    save(row, now)
+    helper(k)
+    self_check(k)
+
+
+def helper(k):
+    work(k)
+`, 'n.ts': `export async function go(k: string) {
+  const { a } = await fetchIt(k);
+  let b = parse(a).trim();
+  metrics.count(1);
+  store(a, b);
+}
+` };
+  const py = await run(files, ['run>helper'], { start: { symbol: 'run', file: 'n.py' }, hide: ['info', 'helper', 'self_*'] });
+  assert.deepEqual(py.nodes.filter(n => n.kind === 'action' || n.kind === 'call').map(n => n.label), ['fast', 'slow', 'save']);
+  assert.ok(!py.groups.length, 'a hidden resolved call is not expanded');
+  const ts = await run(files, [], { start: { symbol: 'go', file: 'n.ts' }, hide: ['metrics.*'] });
+  assert.deepEqual(ts.nodes.filter(n => n.kind === 'action').map(n => n.label), ['parse', 'store']);
+});
