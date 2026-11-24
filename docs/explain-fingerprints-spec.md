@@ -1,7 +1,7 @@
 # `explain:` fingerprints with callees — design spec
 
-Status: draft (design agreed, not implemented). Builds on PR #13 (`explain:` entries, fingerprints, `check --restamp`,
-`electron/views/explain.ts`).
+Status: implemented. Builds on PR #13 (`explain:` entries, fingerprints, `check --restamp`,
+`electron/core/views/explain.ts`).
 
 ## Goal
 

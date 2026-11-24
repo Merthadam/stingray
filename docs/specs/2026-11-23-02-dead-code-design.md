@@ -1,6 +1,6 @@
 # Step 2 — Dead code (audit 17)
 
-Status: draft (decisions final) · Commit 2 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: implemented · Commit 2 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 

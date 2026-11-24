@@ -11,21 +11,21 @@ WP2 consumes these lookups.
 
 ## Read first
 
-- `electron/views/rules/types.ts`: `GraphSymbol`, `GraphRelation`, `GraphApi`
-- `electron/views/rules/codegraph-api.ts`: `symbol()` mapper and both adapters (CodeGraph, overlay)
-- `electron/views/graph.ts`: `WorktreeGraph`, `SymbolQuery`
-- `electron/codegraph.ts`: `Graph.findSymbols` (~L66, has its own node→symbol mapping) and the child message switch
+- `electron/core/views/rules/types.ts`: `GraphSymbol`, `GraphRelation`, `GraphApi`
+- `electron/adapters/driven/stinggraph-worker/stinggraph-api.ts`: `symbol()` mapper and both adapters (CodeGraph, overlay)
+- `electron/core/views/graph.ts`: `WorktreeGraph`, `SymbolQuery`
+- `electron/adapters/driven/stinggraph-worker/stinggraph.ts`: `Graph.findSymbols` (~L66, has its own node→symbol mapping) and the child message switch
   (~L346, `case 'findSymbols'`)
-- `electron/codegraph-process.ts`: `Call` / `Reply` unions (~L18) and `ProxyGraph.findSymbols` (~L89)
-- `electron/views/service.ts` `compute()` (~L82) and `electron/views-cli.ts` `check()` (~L130): where `ComputeDeps` is built
-- `tests/view-service.test.ts` `FakeGraph`, `tests/codegraph-process.test.ts`, `tests/codegraph-api.test.ts`
+- `electron/adapters/driven/stinggraph-worker/stinggraph-process.ts`: `Call` / `Reply` unions (~L18) and `ProxyGraph.findSymbols` (~L89)
+- `electron/core/views/service.ts` `compute()` (~L82) and `electron/adapters/driving/cli/views-cli.ts` `check()` (~L130): where `ComputeDeps` is built
+- `tests/views/view-service.test.ts` `FakeGraph`, `tests/stinggraph/stinggraph-process.test.ts`, `tests/views/stinggraph-api.test.ts`
 
 ## Steps
 
 1. **`GraphSymbol.qualifiedName?: string`** (`types.ts`). Fill it from `Node.qualifiedName` everywhere a CodeGraph node
    becomes a `GraphSymbol`: `symbol()` in `codegraph-api.ts` (shared by both adapters) and the inline mapping in
    `Graph.findSymbols` (`codegraph.ts`). Leave it out when empty.
-2. **Shared helper** `electron/views/rules/callees.ts`:
+2. **Shared helper** `electron/core/views/rules/callees.ts`:
    ```ts
    /** Direct `calls` targets per source id (heuristic relations included), de-duplicated, in-repo symbols only. */
    export function calleesOf(graph: GraphApi, ids: string[]): Map<string, GraphSymbol[]>
@@ -46,9 +46,9 @@ WP2 consumes these lookups.
      workspaceId; file }`, with handlers next to `case 'findSymbols'`. A `Map` does not survive IPC, so send
      `[id, GraphSymbol[]][]` and rebuild the Map in `ProxyGraph`. Widen the `Reply.result` union.
    - `ProxyGraph` (`codegraph-process.ts`): ready-gated like `findSymbols`; on a bad reply return empty results.
-   - Update every other `WorktreeGraph` implementation (`FakeGraph` in `tests/view-service.test.ts`, plus any the
+   - Update every other `WorktreeGraph` implementation (`FakeGraph` in `tests/views/view-service.test.ts`, plus any the
      compiler finds).
-4. **`ComputeDeps`** (`electron/views/compute.ts`): add the optional fields from the plan's contracts (`callees`,
+4. **`ComputeDeps`** (`electron/core/views/compute.ts`): add the optional fields from the plan's contracts (`callees`,
    `fileSymbols`). Don't use them in `compute.ts` (WP2 does that). Wire them in:
    - `service.ts` `compute()`: `callees: ids => w.graph.callees(ids)`, `fileSymbols: f => w.graph.fileSymbols(f)`.
      Don't wire them for the database view path (it doesn't call `applyExplain`).
@@ -70,7 +70,7 @@ WP2 consumes these lookups.
 
 ## Rules
 
-- Touch only the files above plus tests. Don't edit `electron/views/explain.ts`, `schema.ts`, `src/views.ts` or UI files
+- Touch only the files above plus tests. Don't edit `electron/core/views/explain.ts`, `schema.ts`, `shared/contracts/views.ts` or UI files
   (other packages own them).
 - Commit in small steps on your branch. Don't push and don't open PRs. Report the commits, what you verified, and
   anything that deviates from this plan.

@@ -1,6 +1,6 @@
 # Step 4 — Hexagonal modules
 
-Status: draft (decisions final) · Commits 4, 5 (× 8), 9 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: implemented · Commits 4, 5 (× 8), 9 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 

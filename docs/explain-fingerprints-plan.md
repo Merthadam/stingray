@@ -1,5 +1,7 @@
 # `explain:` fingerprints with callees — implementation plan
 
+Status: implemented.
+
 Spec: `docs/explain-fingerprints-spec.md`. Base: `origin/main`. One branch per work package, merged into an integration
 branch `feat/explain-callee-fingerprints`, one PR.
 
@@ -9,10 +11,10 @@ Detailed, subagent-ready briefs per package: `docs/explain-fingerprints/wp1-grap
 ## Shared contracts (fix these first; every package codes against them)
 
 ```ts
-// electron/views/rules/types.ts
+// electron/core/views/rules/types.ts
 export interface GraphSymbol { /* existing */ qualifiedName?: string }   // CodeGraph Node.qualifiedName
 
-// electron/views/compute.ts
+// electron/core/views/compute.ts
 export interface ComputeDeps {
   /* existing */
   /** Direct `calls` targets per symbol id (heuristic relations included), in-repo symbols only; [] when unknown. */
@@ -21,7 +23,7 @@ export interface ComputeDeps {
   fileSymbols?: (file: string) => Promise<GraphSymbol[]>;
 }
 
-// src/views.ts
+// shared/contracts/views.ts
 export type ExplanationStatus = 'view' | 'stale' | 'unstamped' | 'legacy';
 // DiagramNode and DiagramGroup gain: explanationReason?: string
 export interface ExplainChanges { changed: string[]; added: string[]; removed: string[] }
@@ -35,19 +37,19 @@ export interface ExplainDiagnostic {
   files: string[];                          // files of all pieces (targets + callees)
 }
 
-// electron/views/rules/schema.ts — ExplainEntry
+// electron/core/views/rules/schema.ts — ExplainEntry
 fingerprint: string | Record<string, string> | null
 ```
 
 ## WP1 — graph plumbing (callees + qualified names)
 
-Files: `electron/views/rules/codegraph-api.ts`, `electron/views/rules/types.ts`, `electron/views/graph.ts`,
-`electron/codegraph.ts`, `electron/codegraph-process.ts`, `electron/views/service.ts`, `electron/views-cli.ts`
+Files: `electron/adapters/driven/stinggraph-worker/stinggraph-api.ts`, `electron/core/views/rules/types.ts`, `electron/core/views/graph.ts`,
+`electron/adapters/driven/stinggraph-worker/stinggraph.ts`, `electron/adapters/driven/stinggraph-worker/stinggraph-process.ts`, `electron/core/views/service.ts`, `electron/adapters/driving/cli/views-cli.ts`
 (deps wiring only), tests.
 
 1. `symbol()` mappers in `codegraph-api.ts` (both the CodeGraph and the overlay adapters) add `qualifiedName`.
 2. A `callees(ids)` helper over `GraphApi`: `outgoing(ids, ['calls'])` → `symbols(targets)`, grouped by source id,
-   de-duplicated. Put it next to the adapters (e.g. `electron/views/rules/callees.ts`) so the CLI and the child share
+   de-duplicated. Put it next to the adapters (e.g. `electron/core/views/rules/callees.ts`) so the CLI and the child share
    it. Library calls are naturally absent because they are not graph nodes. Overlay dangling edges are already dropped.
 3. App path: mirror `findSymbols` end-to-end, i.e. a new IPC message `callees` / `fileSymbols` in `codegraph.ts` (child
    handler around line 346, parent method around line 66), `codegraph-process.ts` (Call union around line 18, method
@@ -59,10 +61,10 @@ Files: `electron/views/rules/codegraph-api.ts`, `electron/views/rules/types.ts`,
 
 Acceptance: `npm run build`, `npm test` green. No behaviour change yet.
 
-## WP2 — fingerprint engine (`electron/views/explain.ts`, schema, types)
+## WP2 — fingerprint engine (`electron/core/views/explain.ts`, schema, types)
 
-Files: `electron/views/explain.ts`, `electron/views/rules/schema.ts`, `src/views.ts`, `electron/views/compute.ts`
-(pass the new deps through), `tests/explain.test.ts`.
+Files: `electron/core/views/explain.ts`, `electron/core/views/rules/schema.ts`, `shared/contracts/views.ts`, `electron/core/views/compute.ts`
+(pass the new deps through), `tests/views/explain.test.ts`.
 
 1. Schema: `fingerprint` = 12-hex string **or** map (keys 1–500 chars, values 12 hex, ≤ 200 keys); keep the quoting
    error message for all-digit values. `ExplainEntry.fingerprint` type as in the contracts.
@@ -83,9 +85,9 @@ Files: `electron/views/explain.ts`, `electron/views/rules/schema.ts`, `src/views
 
 Acceptance: build + `npm test` green, and the existing explain tests updated to the map format.
 
-## WP3 — CLI (`electron/views-cli.ts`, text output, docs)
+## WP3 — CLI (`electron/adapters/driving/cli/views-cli.ts`, text output, docs)
 
-Depends on WP2 (diagnostics shape). Files: `electron/views-cli.ts`, `src/views-text.ts`,
+Depends on WP2 (diagnostics shape). Files: `electron/adapters/driving/cli/views-cli.ts`, `shared/views/views-text.ts`,
 `agents/skills/stingray-views/SKILL.md`, CLI tests.
 
 1. `--restamp` writes `pieces` as a YAML map (replace string/old map; keep comments). Use `files` from the diagnostic
@@ -99,7 +101,7 @@ Depends on WP2 (diagnostics shape). Files: `electron/views-cli.ts`, `src/views-t
 
 ## WP4 — UI (reason in tooltip / Inspector, `legacy` status)
 
-Files: `src/views-ui/` (`StaleMark`, `explanationTitle`, `Inspector.tsx`, `FlowDiagram.tsx`, `FlowNode.tsx`,
+Files: `src/features/views/views-ui/` (`StaleMark`, `explanationTitle`, `Inspector.tsx`, `FlowDiagram.tsx`, `FlowNode.tsx`,
 `TableNode.tsx`), CSS, UI tests if present. It only depends on the contract types.
 
 1. `StaleMark`: `legacy` renders like stale but muted, labelled "old fingerprint".

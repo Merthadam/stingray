@@ -1,5 +1,7 @@
 # Sequence views — spec
 
+Status: implemented.
+
 A `kind: sequence` view draws **what happens behind the scenes** when something starts: a button click, an HTTP
 request, a login, an agent run, a queue message. It shows participants (lifelines) as columns and the calls between
 them as ordered arrows, with `alt`/`loop`/`opt`/`try` fragments from the code's control flow. It is computed statically
@@ -118,7 +120,7 @@ lines.
 
 ## Output
 
-`ViewResult.sequence: SequenceData | null` (see `src/views.ts`) carries participants, messages, fragments and notes
+`ViewResult.sequence: SequenceData | null` (see `shared/contracts/views.ts`) carries participants, messages, fragments and notes
 (`SequenceNote.fragment`/`arm` place a note in a fragment arm). `nodes` mirror the participants (kind
 `participant`/`actor`/`external`, `order` = column, `symbol`/`source`/explanation of the first function) so explain,
 exclude and diagnostics keep working; `explain:` texts reach participants through their nodes. `edges` are empty (a
@@ -154,7 +156,7 @@ try
 end
 ```
 
-Reading order (shared with the SVG layout, `src/sequence-events.ts`): indent = call level plus enclosing fragments
+Reading order (shared with the SVG layout, `shared/views/sequence-events.ts`): indent = call level plus enclosing fragments
 (a fragment sits at the lowest call level among its rows); `-->` = return; fragments open with `alt|opt|loop|try
 <label>`, later arms with `else <label>`, close with `end`; notes print inside their arm. `[link <set>]` after link
 messages, `(uncertain)` after heuristic ones. Labels shared by several participants get the id appended. Max 400
@@ -162,7 +164,7 @@ lines. `--depth 0-6` overrides `sequence.depth`; `--json` has the full result.
 
 ## UI
 
-A dedicated SVG renderer (no ELK; geometry in `src/views-ui/sequence-layout.ts`): sticky participant headers, dashed
+A dedicated SVG renderer (no ELK; geometry in `src/features/views/views-ui/sequence-layout.ts`): sticky participant headers, dashed
 lifelines, activation bars, arrows with labels, fragment frames with a kind tab and branch separators, notes; zoom
 (buttons, Ctrl/⌘ + scroll, fit width). Click a message or note → open its source line; click a participant →
 inspector (source, explanation, its messages). "Fold into caller" in the inspector (offered when another participant

@@ -12,21 +12,21 @@ status `view | stale | unstamped | legacy`, the changed/added/removed pieces, an
 
 ## Read first
 
-- `electron/views/explain.ts` (the whole file; you're extending it)
-- `electron/views/rules/schema.ts` ~L90–230: `explainSchema`, `FINGERPRINT`, `ExplainEntry`, `explainPair`
-- `electron/views/compute.ts` ~L20–65: `ComputeDeps`, the `applyExplain` call
-- `src/views.ts` ~L20–75 and ~L184–200: `SymbolRef`, `ExplanationStatus`, `DiagramNode`/`DiagramGroup` explanation
+- `electron/core/views/explain.ts` (the whole file; you're extending it)
+- `electron/core/views/rules/schema.ts` ~L90–230: `explainSchema`, `FINGERPRINT`, `ExplainEntry`, `explainPair`
+- `electron/core/views/compute.ts` ~L20–65: `ComputeDeps`, the `applyExplain` call
+- `shared/contracts/views.ts` ~L20–75 and ~L184–200: `SymbolRef`, `ExplanationStatus`, `DiagramNode`/`DiagramGroup` explanation
   fields, `ExplainDiagnostic`
-- `electron/views/explanation.ts` `symbolRef()`: how `GraphSymbol` becomes `SymbolRef`
-- `tests/explain.test.ts` (existing tests; update them to the new format)
+- `electron/core/views/explanation.ts` `symbolRef()`: how `GraphSymbol` becomes `SymbolRef`
+- `tests/views/explain.test.ts` (existing tests; update them to the new format)
 
 ## Contract additions you own
 
-- `src/views.ts`: `ExplanationStatus` += `'legacy'`; `explanationReason?: string` on `DiagramNode` and `DiagramGroup`;
+- `shared/contracts/views.ts`: `ExplanationStatus` += `'legacy'`; `explanationReason?: string` on `DiagramNode` and `DiagramGroup`;
   `ExplainChanges`; the new `ExplainDiagnostic` fields (`pieces`, `skipped`, `status`, `changes`). Use the exact shapes
   in the plan's contracts.
 - `SymbolRef.qualifiedName?: string`, filled in `symbolRef()` from `GraphSymbol.qualifiedName`. Add that optional field
-  to `GraphSymbol` in `electron/views/rules/types.ts` yourself (one line; WP1 adds the same line, and git will reconcile
+  to `GraphSymbol` in `electron/core/views/rules/types.ts` yourself (one line; WP1 adds the same line, and git will reconcile
   identical edits).
 - `ComputeDeps.callees?` / `ComputeDeps.fileSymbols?`, exactly as in the contracts (WP1 adds the same, so keep it
   identical).
@@ -69,7 +69,7 @@ status `view | stale | unstamped | legacy`, the changed/added/removed pieces, an
      plus `pieces`, `skipped`, `status` (null when unresolved), `changes` (empty arrays unless stale), and `files`.
 6. **`compute.ts`**: pass `deps.callees` and `deps.fileSymbols` through to `applyExplain`.
 
-## Tests (`tests/explain.test.ts`, `npm test`)
+## Tests (`tests/views/explain.test.ts`, `npm test`)
 
 Use a fake `readSource` (an in-memory file map) and fake `callees` / `fileSymbols`:
 - pieces: own body plus callees; a callee in a file the view excludes is kept; a library call is absent (the fake
@@ -90,7 +90,7 @@ Use a fake `readSource` (an in-memory file map) and fake `callees` / `fileSymbol
 
 ## Rules
 
-- Touch only `electron/views/explain.ts`, `electron/views/explanation.ts`, `electron/views/rules/schema.ts`,
-  `electron/views/rules/types.ts` (the one field), `electron/views/compute.ts`, `src/views.ts`, and tests. The CLI
+- Touch only `electron/core/views/explain.ts`, `electron/core/views/explanation.ts`, `electron/core/views/rules/schema.ts`,
+  `electron/core/views/rules/types.ts` (the one field), `electron/core/views/compute.ts`, `shared/contracts/views.ts`, and tests. The CLI
   (`views-cli.ts`, `views-text.ts`) belongs to WP3, the UI to WP4, the graph adapters to WP1.
 - Commit in small steps. Don't push and don't open PRs. Report the commits, verification, and deviations.

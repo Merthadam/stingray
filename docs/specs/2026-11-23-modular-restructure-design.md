@@ -1,6 +1,6 @@
 # Modular restructure — umbrella design
 
-Status: draft (decisions final)
+Status: implemented
 
 Step specs:
 

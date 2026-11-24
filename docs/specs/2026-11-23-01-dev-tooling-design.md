@@ -1,6 +1,6 @@
 # Step 1 — Dev tooling (audit 1, 2, 8)
 
-Status: draft (decisions final) · Commit 1 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: implemented · Commit 1 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 

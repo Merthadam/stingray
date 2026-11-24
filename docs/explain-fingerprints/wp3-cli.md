@@ -10,13 +10,13 @@ for explanations that need review. Text output and the skill doc are updated to 
 
 ## Read first
 
-- `electron/views-cli.ts`: usage text (~L40), argument parsing (~L70–85), `check()` (~L110–195), `restampFile()`
+- `electron/adapters/driving/cli/views-cli.ts`: usage text (~L40), argument parsing (~L70–85), `check()` (~L110–195), `restampFile()`
   (~L198), `laggingFiles()`
-- `src/views-text.ts` `explained()` (~L62)
-- `src/views.ts` `ExplainDiagnostic` (now with `pieces`, `skipped`, `status`, `changes`), `ExplanationStatus` incl.
+- `shared/views/views-text.ts` `explained()` (~L62)
+- `shared/contracts/views.ts` `ExplainDiagnostic` (now with `pieces`, `skipped`, `status`, `changes`), `ExplanationStatus` incl.
   `legacy`
-- `electron/views/explain.ts` (as merged from WP2)
-- `tests/views-cli.test.ts`
+- `electron/core/views/explain.ts` (as merged from WP2)
+- `tests/views/views-cli.test.ts`
 - `agents/skills/stingray-views/SKILL.md`: the `explain:` section (`dist-electron/skills/...` is a build output, don't edit it)
 
 ## Steps
@@ -44,7 +44,7 @@ for explanations that need review. Text output and the skill doc are updated to 
    - the four statuses and their warnings, and that old string stamps show as legacy until restamped;
    - `--strict` for CI.
 
-## Tests (`tests/views-cli.test.ts`, `npm test`)
+## Tests (`tests/views/views-cli.test.ts`, `npm test`)
 
 - restamp writes a map, replaces an old string, keeps comments, and is a no-op when it's current. The output lines name
   the piece count. A skipped callee is mentioned.
@@ -61,7 +61,7 @@ for explanations that need review. Text output and the skill doc are updated to 
 
 ## Rules
 
-- Touch only `electron/views-cli.ts`, `src/views-text.ts`, `agents/skills/stingray-views/SKILL.md`, and tests. If the
+- Touch only `electron/adapters/driving/cli/views-cli.ts`, `shared/views/views-text.ts`, `agents/skills/stingray-views/SKILL.md`, and tests. If the
   engine (WP2) needs a fix, describe it in your report rather than changing `explain.ts`, unless it's a one-line bug fix
   that you call out explicitly.
 - Never commit into the Travella repo. Commit in small steps; don't push or open PRs. Report the commits, verification

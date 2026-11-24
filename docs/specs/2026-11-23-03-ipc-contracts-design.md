@@ -1,6 +1,6 @@
 # Step 3 — IPC contracts (audit 7, 19)
 
-Status: draft (decisions final) · Commit 3 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: implemented · Commit 3 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 

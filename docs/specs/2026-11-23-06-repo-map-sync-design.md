@@ -1,6 +1,6 @@
 # Step 6 — Repo map sync (audit 12)
 
-Status: draft (decisions final) · Commit 7 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
+Status: implemented · Commit 7 · Umbrella: [modular restructure](2026-11-23-modular-restructure-design.md)
 
 ## Goal
 
