@@ -34,7 +34,8 @@ export interface CliDeps {
 }
 
 export const USAGE = `Usage:
-  stingray-views check <file.yaml> [--json] [--depth N] [--all-steps] [--restamp | --strict]
+  stingray-views check <file.yaml> [--json] [--depth N] [--expand P,..] [--collapse P,..] [--all-steps]
+                                              [--restamp | --strict]
                                               validate a view and print diagnostics + a text diagram
                                               (a flowchart is summarized like in the app: undescribed
                                                library steps hidden, guards folded into "can fail";
@@ -42,6 +43,10 @@ export const USAGE = `Usage:
                                                --depth 0-4: flowchart call levels, overrides flowchart.depth;
                                                1-4: layers level, overrides layers.depth;
                                                0-6: sequence call levels, overrides sequence.depth;
+                                               --expand: flowchart calls to open, call paths or callee
+                                               names (a call line shows its path as "expand: <path>"),
+                                               added to flowchart.expand; --collapse: call paths to
+                                               draw closed even within the depth;
                                                --restamp: after reviewing explain: texts, write the current
                                                fingerprints into the file;
                                                --strict: exit 1 when an explain: entry is outdated,
@@ -73,8 +78,16 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
         if (!/^[0-6]$/.test(args[at + 1] ?? '')) { deps.err('--depth needs a number from 0 to 6'); return 2; }
         depth = Number(args.splice(at, 2)[1]);
       }
+      const paths: Record<'--expand' | '--collapse', string[] | null> = { '--expand': null, '--collapse': null };
+      for (const flag of ['--expand', '--collapse'] as const) {
+        const i = args.indexOf(flag);
+        if (i < 0) continue;
+        const list = (args[i + 1] ?? '').split(',').map(p => p.trim()).filter(Boolean);
+        if (!list.length || args[i + 1].startsWith('-') || list.some(p => p.length > 300)) { deps.err(`${flag} needs comma-separated call paths, e.g. ${flag} finish,login>audit#2`); return 2; }
+        paths[flag] = list; args.splice(i, 2);
+      }
       if (args.length !== 1 || args[0].startsWith('-')) return usage();
-      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp, strict, allSteps);
+      return check(path.resolve(deps.cwd, args[0]), json, deps, depth, restamp, strict, allSteps, { expand: paths['--expand'], collapse: paths['--collapse'] });
     }
     case 'list': return rest.length ? usage() : list(deps);
     case 'sets': {
@@ -102,7 +115,8 @@ async function list(deps: CliDeps): Promise<number> {
   return views.some(v => v.summary.error) ? 1 : 0;
 }
 
-async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false, allSteps = false): Promise<number> {
+async function check(input: string, json: boolean, deps: CliDeps, depth: number | null = null, restamp = false, strict = false, allSteps = false,
+  calls: { expand: string[] | null; collapse: string[] | null } = { expand: null, collapse: null }): Promise<number> {
   let file: string;
   try { file = await realpath(input); } catch { deps.err(`File not found: ${input}`); return 1; }
   const root = await deps.worktreeRoot(path.dirname(file));
@@ -126,6 +140,11 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
       loaded.view = { ...loaded.view, flowchart: { ...loaded.view.flowchart, depth } };
     } else if (loaded.view.sequence) loaded.view = { ...loaded.view, sequence: { ...loaded.view.sequence, depth } };
     else { deps.err('--depth only applies to kind: flowchart and kind: sequence views and views with layers:'); return 2; }
+  }
+  if (calls.expand || calls.collapse) {
+    if (!loaded.view.flowchart) { deps.err('--expand and --collapse only apply to kind: flowchart views'); return 2; }
+    const f = loaded.view.flowchart;
+    loaded.view = { ...loaded.view, flowchart: { ...f, expand: [...new Set([...f.expand ?? [], ...calls.expand ?? []])], collapse: calls.collapse ?? [] } };
   }
   const graph = await deps.openGraph(root), api = graph.api;
   let result, lagging = new Set<string>();

@@ -105,7 +105,7 @@ test('python: if/elif/else, early return, raise, loop with continue/break, calls
     '        (error) ValueError: no name · L6',
     '      Yes:',
     '        → db get',
-    '    [call] db get — +1 steps (increase depth) · L7',
+    '    [call] db get — +1 steps (increase depth) · L7 (expand: load_user>db_get)',
     '  <?> has user? · L17',
     '    No:',
     '      (end) done · L18',
@@ -193,8 +193,8 @@ test('docstring summaries explain the start node, expanded-call groups and call 
   assert.ok(!('explanation' in out.groups.find(g => g.label === 'audit')!));
   assert.ok(out.nodes.filter(n => n.kind !== 'start' && n.kind !== 'call').every(n => !('explanation' in n)));
   assert.deepEqual(out.text.slice(0, 3), ['  (start) login · L15 — Sign a user in.', '  » load_user — Find the user by name.', '    <?> name? · L5']);
-  assert.ok(out.text.includes('    [call] db get — +1 steps (increase depth) · L7 — Read one row.'), out.text.join('\n'));
-  assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) .*$/, '')));
+  assert.ok(out.text.includes('    [call] db get — +1 steps (increase depth) · L7 — Read one row. (expand: load_user>db_get)'), out.text.join('\n'));
+  assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) [^.]*\./, '')));
 });
 
 test('python: try/except/else/finally, match, with, await, ternary', async () => {
@@ -319,7 +319,7 @@ test('typescript: throw, for-of, switch with fallthrough labels and break, terna
     '      → has s?',
     '    case other:',
     '      » fallback',
-    '        [call] helper — +2 steps (increase depth) · L25',
+    '        [call] helper — +2 steps (increase depth) · L25 (expand: fallback>helper)',
     '      (end) fallback mode · L14',
     '  » helper',
     '    <?> has s? · L2',
