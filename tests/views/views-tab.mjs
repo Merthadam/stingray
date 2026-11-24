@@ -50,7 +50,7 @@ await put('.stingray/views/login.yaml', 'version: 1\nname: Login chart\nkind: fl
 await put('app/routes.py', 'from app.service import authenticate\n\n\ndef sign_in_route(request):\n    return authenticate(request.email, request.password)\n');
 await put('app/service.py', 'from app.repo import fetch_account, touch_login\n\n\ndef authenticate(email, password):\n    account = fetch_account(email)\n'
   + '    if account is None:\n        raise PermissionError("unknown account")\n    else:\n        touch_login(account)\n    return account\n');
-await put('app/repo.py', 'def fetch_account(email):\n    return {"email": email}\n\n\ndef touch_login(account):\n    return account\n');
+await put('app/repo.py', 'def fetch_account(email):\n    """Look the account up by its email."""\n    return {"email": email}\n\n\ndef touch_login(account):\n    return account\n');
 await put('.stingray/views/sign-in.yaml', 'version: 1\nname: Sign in sequence\nkind: sequence\nsequence:\n  start: { symbol: sign_in_route }\n  trigger: POST /sign-in\n  participants: file\n');
 await put('.stinggraph/layers.yaml', 'version: 1\nservices:\n  - id: app\n    label: App service\n    include: ["app/**"]\n  - id: agent\n    label: Agent service\n    include: ["agent/**"]\n');
 await put('infra/main.tf', 'resource "aws_s3_bucket" "uploads" {}\nresource "aws_lambda_function" "api" {\n  environment { variables = { BUCKET = aws_s3_bucket.uploads.id } }\n}\n');
@@ -325,16 +325,20 @@ try {
   const sequence = page.getByTestId('sequence-diagram');
   await sequence.getByRole('button', { name: /^Message routes\.py -> service\.py: authenticate/ }).waitFor({ timeout: 60000 });
   check('sequence view draws the actor and one lifeline per file', await sequence.getByRole('button', { name: /^Participant / }).evaluateAll(els => els.map(e => e.getAttribute('aria-label'))).then(l =>
-    l.join('|') === 'Participant User|Participant routes.py (app/routes.py)|Participant service.py (app/service.py)|Participant repo.py (app/repo.py)'));
+    l.join('|') === 'Participant User|Participant routes.py|Participant service.py|Participant repo.py'));
   check('sequence view draws calls with labels and dashed returns', await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: fetch account/ }).count() === 1
     && await sequence.locator('.seq-message.return').count() >= 2);
+  check('return arrows carry no code, and message text is set in the text font', (await sequence.locator('.seq-message.return text').allTextContents()).every(t => t === '')
+    && !/mono/i.test(await sequence.locator('.seq-message text').first().evaluate(el => getComputedStyle(el).fontFamily)));
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-sequence-open.png') });
+  check('a participant shows its explanation under its box', (await sequence.locator('.seq-participant-explanation').evaluateAll(els => els.map(e => [...e.querySelectorAll('tspan')].map(t => t.textContent).join(' ')))).join() === 'Look the account up by its email.');
   check('sequence view frames the if/else as an alt with the raise as an error note',
     await sequence.locator('.seq-fragment-kind').allTextContents().then(t => t.join() === 'alt')
     && await sequence.getByRole('button', { name: 'Note on service.py: error: PermissionError' }).count() === 1);
-  await sequence.getByRole('button', { name: 'Participant service.py (app/service.py)' }).click();
+  await sequence.getByRole('button', { name: 'Participant service.py' }).click();
   check('clicking a participant opens its messages in the inspector',
     (await sequence.getByRole('complementary', { name: 'Participant service.py' }).innerText()).includes('fetch account'));
-  await sequence.getByRole('button', { name: 'Participant repo.py (app/repo.py)' }).click();
+  await sequence.getByRole('button', { name: 'Participant repo.py' }).click();
   await sequence.getByRole('button', { name: 'Fold into caller' }).click();
   check('folding a participant draws its part on the caller lifeline', await sequence.getByRole('button', { name: /^Participant / }).count() === 3
     && await sequence.getByRole('button', { name: /fetch account/ }).count() === 0);
@@ -357,8 +361,14 @@ try {
     && await page.getByRole('tab', { name: 'Views' }).getAttribute('aria-selected') === 'true');
   await sequence.getByRole('button', { name: 'Reset zoom' }).click();
   await sequence.getByRole('button', { name: /^Message service\.py -> repo\.py: fetch account/ }).click();
+  const messageInspector = sequence.getByRole('complementary', { name: 'Message fetch account' });
+  check('clicking a message opens its inspector with the callee docstring and the call code',
+    (await messageInspector.innerText()).includes('Look the account up by its email.')
+    && (await messageInspector.getByLabel('Code').innerText()).includes('fetch_account(email)'));
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-sequence.png') });
+  await messageInspector.getByRole('button', { name: 'Open call site in editor' }).click();
   await page.getByRole('tab', { name: /Repo Map/ }).and(page.locator('[aria-selected=true]')).waitFor();
-  check('clicking a message opens its call site', true);
+  check('and its Open in editor opens the call site', true);
   await page.getByRole('tab', { name: 'Views' }).click();
 
   await list.getByRole('button', { name: 'Database' }).click();

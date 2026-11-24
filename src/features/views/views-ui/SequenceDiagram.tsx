@@ -6,7 +6,7 @@ import './er-diagram.css';
 import './sequence-diagram.css';
 import type { ErDiagramProps } from './types';
 import type { SequenceMessage, SequenceParticipant } from '../../../../shared/contracts/views';
-import { SEQ, UNCERTAIN, clip, collapseParticipants, collapsible, sequenceLayout, tabWidth, type LaidMessage, type LaidParticipant } from './sequence-layout';
+import { SEQ, UNCERTAIN, collapseParticipants, collapsible, sequenceLayout, tabWidth, type LaidMessage, type LaidParticipant } from './sequence-layout';
 import { StaleMark } from './FlowNode';
 
 const MIN_ZOOM = 0.3, MAX_ZOOM = 2;
@@ -16,6 +16,9 @@ const arrow = (m: SequenceMessage) => m.kind === 'return' ? '-->' : '->';
 const describe = (m: SequenceMessage, name: (id: string) => string) =>
   `${name(m.from)} ${arrow(m)} ${name(m.to)}${m.label ? `: ${m.label}` : ''}${m.certain ? '' : UNCERTAIN}`;
 const activate = (run: () => void) => (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); run(); } };
+/** Wrapped label lines as tspans, the first at the parent text's y, each next one SEQ.line lower. */
+const Lines = ({ lines, x }: { lines: string[]; x: number }) => <>{lines.map((l, i) => <tspan key={i} x={x} dy={i ? SEQ.line : 0}>{l}</tspan>)}</>;
+type Selection = { kind: 'participant' | 'message'; id: string } | null;
 
 export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagramProps) {
   const full = result.sequence!;
@@ -27,7 +30,9 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
   const name = (id: string) => names.get(id) ?? id;
   const [zoom, setZoom] = useState(1);
   const [hover, setHover] = useState<number | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const selected = selection?.kind === 'participant' ? selection.id : null;
+  const setSelected = (id: string | null) => setSelection(id === null ? null : { kind: 'participant', id });
   const scroller = useRef<HTMLDivElement>(null);
   const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
   const dragged = useRef(false); // the last press panned: swallow its click
@@ -61,10 +66,13 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
   const onClickCapture = (e: MouseEvent) => { if (dragged.current) { dragged.current = false; e.stopPropagation(); e.preventDefault(); } };
   const fit = () => { const el = scroller.current; if (el) setZoom(clampZoom(Math.min(1, (el.clientWidth - 24) / layout.width))); };
 
-  const open = useCallback((m: SequenceMessage) => { if (m.source) onOpenSource(m.source.file, m.source.line); }, [onOpenSource]);
+  // Clicking a message opens its inspector (callee docstring, code, Open in editor).
+  const select = useCallback((m: SequenceMessage) => setSelection(s => s?.kind === 'message' && s.id === m.id ? null : { kind: 'message', id: m.id }), []);
   const W = layout.width, H = layout.height, Z = zoom;
   const participant = selected ? data.participants.find(p => p.id === selected) : undefined;
   const node = participant ? result.nodes.find(n => n.id === participant.id) : undefined;
+  const message = selection?.kind === 'message' ? data.messages.find(m => m.id === selection.id) : undefined;
+  const header = layout.headerHeight;
   return <div className="er-diagram seq-diagram" data-testid="sequence-diagram" onKeyDown={e => { if (e.key === 'Escape') setSelected(null); }}>
     <div className="er-toolbar" role="toolbar" aria-label="Diagram">
       <span className="er-count">{data.participants.length} participants · {data.messages.length} messages{result.diagnostics?.sequence?.truncated || result.truncated ? ' · truncated: lower the depth or exclude files' : ''}</span>
@@ -79,10 +87,10 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
       <div className="seq-canvas" ref={scroller} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onClickCapture={onClickCapture}
         onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
         <div className="seq-sheet" style={{ width: W * Z }}>
-          <div className="seq-header" style={{ height: SEQ.headerHeight * Z }}>
-            <svg width={W * Z} height={SEQ.headerHeight * Z} viewBox={`0 0 ${W} ${SEQ.headerHeight}`} aria-label="Participants">
+          <div className="seq-header" style={{ height: header * Z }}>
+            <svg width={W * Z} height={header * Z} viewBox={`0 0 ${W} ${header}`} aria-label="Participants">
               {layout.participants.map(p => <Participant key={p.participant.id} laid={p} selected={p.participant.id === selected}
-                onSelect={() => setSelected(s => s === p.participant.id ? null : p.participant.id)} />)}
+                onSelect={() => setSelected(selected === p.participant.id ? null : p.participant.id)} />)}
             </svg>
           </div>
           {!data.messages.length && <p className="er-status seq-status">No calls found from the start symbol at this depth.</p>}
@@ -95,30 +103,33 @@ export function SequenceDiagram({ result, onOpenSource, toolbarExtra }: ErDiagra
               <marker id={`${marker}-hot`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
                 <path d="M0 0 L10 5 L0 10 z" className="seq-head hot" /></marker>
             </defs>
-            {layout.messages.map(lm => <MessageRow key={lm.message.id} laid={lm} width={W} hot={hover === lm.row} names={names} onHover={setHover} onOpen={open} />)}
+            {layout.messages.map(lm => <MessageRow key={lm.message.id} laid={lm} width={W} hot={hover === lm.row} selected={lm.message.id === message?.id}
+              names={names} onHover={setHover} onSelect={select} />)}
             {layout.fragments.map(f => <rect key={f.fragment.id} className={`seq-fragment ${f.fragment.kind}`} x={f.x} y={f.y} width={f.width} height={f.height} rx={4} />)}
             {layout.participants.map(p => <line key={p.participant.id} className={'seq-lifeline' + (p.participant.id === selected ? ' selected' : '')}
               x1={p.x} x2={p.x} y1={0} y2={H} />)}
             {layout.activations.map((a, i) => <rect key={i} className={'seq-bar' + (a.participant === selected ? ' selected' : '')} x={a.x} y={a.y} width={SEQ.barWidth} height={a.height} />)}
-            {layout.messages.map(lm => <Message key={lm.message.id} laid={lm} hot={hover === lm.row} marker={marker} />)}
+            {layout.messages.map(lm => <Message key={lm.message.id} laid={lm} hot={hover === lm.row || lm.message.id === message?.id} marker={marker} />)}
             {layout.fragments.map(f => <g key={f.fragment.id} className={`seq-fragment-head ${f.fragment.kind}`}>
               <path className="seq-fragment-tab" d={`M${f.x} ${f.y + 4} q0 -4 4 -4 H${f.x + tabWidth(f.fragment.kind)} v12 l-6 7 H${f.x} z`} />
               <text className="seq-fragment-kind" x={f.x + 7} y={f.y + 14}>{f.fragment.kind}</text>
-              {f.fragment.label && f.fragment.label !== f.fragment.kind && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>[{clip(f.fragment.label, SEQ.maxLabel)}]<title>{f.fragment.label}</title></text>}
+              {f.lines.length > 0 && <text className="seq-fragment-label" x={f.x + tabWidth(f.fragment.kind) + 8} y={f.y + 14}>
+                <Lines lines={f.lines} x={f.x + tabWidth(f.fragment.kind) + 8} /><title>{f.fragment.label}</title></text>}
               {f.branches.map((b, i) => <g key={i}>
                 <line className="seq-branch" x1={f.x} x2={f.x + f.width} y1={b.y} y2={b.y} />
-                <text className="seq-fragment-label" x={f.x + 8} y={b.y + 16}>[{clip(b.label, SEQ.maxLabel)}]<title>{b.label}</title></text></g>)}
+                <text className="seq-fragment-label" x={f.x + 8} y={b.y + 16}><Lines lines={b.lines} x={f.x + 8} /><title>{b.label}</title></text></g>)}
             </g>)}
             {layout.notes.map(n => <g key={n.note.id} className={`seq-note ${n.note.kind}`} role={n.note.source ? 'button' : undefined} tabIndex={n.note.source ? 0 : undefined}
               aria-label={`Note on ${name(n.note.participant)}: ${n.note.text}`} onClick={() => n.note.source && onOpenSource(n.note.source.file, n.note.source.line)}
               onKeyDown={activate(() => n.note.source && onOpenSource(n.note.source.file, n.note.source.line))}>
               <title>{n.note.text}{n.note.source ? `\n${n.note.source.file}:${n.note.source.line}` : ''}</title>
               <rect x={n.x} y={n.y} width={n.width} height={n.height} rx={4} />
-              <text x={n.x + n.width / 2} y={n.y + n.height / 2 + 4}>{n.text}</text>
+              <text x={n.x + n.width / 2} y={n.y + n.height / 2 + 4 - (n.lines.length - 1) * SEQ.line / 2}><Lines lines={n.lines} x={n.x + n.width / 2} /></text>
             </g>)}
           </svg>
         </div>
       </div>
+      {message && <MessageInspector message={message} name={name} onClose={() => setSelection(null)} onOpenSource={onOpenSource} />}
       {participant && <ParticipantInspector participant={participant} explanationStatus={node?.explanationStatus} messages={data.messages} name={name}
         onClose={() => setSelected(null)} onOpenSource={onOpenSource}
         onFold={collapsible(full, participant.id) ? () => { setFolded(f => new Set([...f, participant.id])); setSelected(null); } : undefined} />}
@@ -130,7 +141,7 @@ function Participant({ laid, selected, onSelect }: { laid: LaidParticipant; sele
   const { participant: p, x, width } = laid;
   return <g className={`seq-participant ${p.kind}${selected ? ' selected' : ''}`} role="button" tabIndex={0} aria-pressed={selected}
     aria-label={`Participant ${p.label}${p.subtitle ? ` (${p.subtitle})` : ''}`} onClick={onSelect} onKeyDown={activate(onSelect)}>
-    <title>{p.label}{p.subtitle ? ` — ${p.subtitle}` : ''}</title>
+    <title>{[p.label + (p.subtitle ? ` — ${p.subtitle}` : ''), p.source?.file, p.explanation].filter(Boolean).join('\n')}</title>
     {p.kind === 'actor' ? <g className="seq-actor">
       <rect x={x - width / 2} y={6} width={width} height={56} rx={6} className="seq-actor-hit" />
       <circle cx={x} cy={14} r={6} /><path d={`M${x} 20 v13 M${x - 10} 25 h20 M${x} 33 l-8 10 M${x} 33 l8 10`} />
@@ -140,18 +151,19 @@ function Participant({ laid, selected, onSelect }: { laid: LaidParticipant; sele
       <text className="seq-participant-label" x={x} y={p.subtitle ? 30 : 37}>{laid.label}</text>
       {laid.subtitle && <text className="seq-participant-subtitle" x={x} y={45}>{laid.subtitle}</text>}
     </>}
+    {laid.explanation.length > 0 && <text className="seq-participant-explanation" x={x} y={SEQ.headerHeight + 6}><Lines lines={laid.explanation} x={x} /></text>}
   </g>;
 }
 
 /** The full-width hit row of a message (hover, click, keyboard); memoized so hovering re-renders two rows, not all. */
-const MessageRow = memo(function MessageRow({ laid: lm, width, hot, names, onHover, onOpen }: { laid: LaidMessage; width: number; hot: boolean;
-  names: Map<string, string>; onHover: Dispatch<SetStateAction<number | null>>; onOpen(m: SequenceMessage): void }) {
+const MessageRow = memo(function MessageRow({ laid: lm, width, hot, selected, names, onHover, onSelect }: { laid: LaidMessage; width: number; hot: boolean;
+  selected: boolean; names: Map<string, string>; onHover: Dispatch<SetStateAction<number | null>>; onSelect(m: SequenceMessage): void }) {
   const m = lm.message, text = describe(m, id => names.get(id) ?? id);
-  return <rect className={'seq-row' + (hot ? ' hover' : '')} x={0} y={lm.top} width={width} height={lm.bottom - lm.top}
-    role="button" tabIndex={0} aria-label={`Message ${text}${m.source ? '' : ' (no source)'}`}
+  return <rect className={'seq-row' + (hot ? ' hover' : '') + (selected ? ' selected' : '')} x={0} y={lm.top} width={width} height={lm.bottom - lm.top}
+    role="button" tabIndex={0} aria-pressed={selected} aria-label={`Message ${text}`}
     onMouseEnter={() => onHover(lm.row)} onMouseLeave={() => onHover(h => h === lm.row ? null : h)} onFocus={() => onHover(lm.row)}
-    onClick={() => onOpen(m)} onKeyDown={activate(() => onOpen(m))}>
-    <title>{[text, m.detail, m.link && `link: ${m.link}`, m.source && `${m.source.file}:${m.source.line} — click to open`].filter(Boolean).join('\n')}</title></rect>;
+    onClick={() => onSelect(m)} onKeyDown={activate(() => onSelect(m))}>
+    <title>{[text, m.explanation, m.link && `link: ${m.link}`, 'click for details'].filter(Boolean).join('\n')}</title></rect>;
 });
 
 const Message = memo(function Message({ laid: lm, hot, marker }: { laid: LaidMessage; hot: boolean; marker: string }) {
@@ -161,10 +173,26 @@ const Message = memo(function Message({ laid: lm, hot, marker }: { laid: LaidMes
   return <g className={className}>
     {self ? <path d={`M${lm.x1} ${lm.y} H${lm.x1 + SEQ.selfWidth} V${lm.y + SEQ.selfDrop} H${lm.x2}`} markerEnd={head} />
       : <line x1={lm.x1} x2={lm.x2} y1={lm.y} y2={lm.y} markerEnd={head} />}
-    <text x={lm.labelX} y={self ? lm.y + SEQ.selfDrop / 2 + 4 : lm.y - 7} textAnchor={self ? 'start' : 'middle'}>
-      {lm.label}{!m.certain && <tspan className="seq-uncertain">{UNCERTAIN}</tspan>}</text>
+    <text x={lm.labelX} y={self ? lm.y + SEQ.selfDrop / 2 + 4 - (lm.lines.length - 1) * SEQ.line / 2 : lm.y - 7 - (lm.lines.length - 1) * SEQ.line}
+      textAnchor={self ? 'start' : 'middle'}>
+      <Lines lines={lm.lines} x={lm.labelX} />{!m.certain && <tspan className="seq-uncertain">{UNCERTAIN}</tspan>}</text>
   </g>;
 });
+
+/** A message's details: the callee's docstring summary, the call's code and its call site. */
+function MessageInspector({ message: m, name, onClose, onOpenSource }: {
+  message: SequenceMessage; name(id: string): string; onClose(): void; onOpenSource: ErDiagramProps['onOpenSource'];
+}) {
+  return <aside className="er-inspector" aria-label={`Message ${m.label || m.kind}`}>
+    <header><div><strong>{m.label || (m.kind === 'return' ? 'return' : m.kind)}</strong>
+      <span>{name(m.from)} {arrow(m)} {name(m.to)} · {m.kind}{m.link && m.link !== m.kind ? ` · ${m.link}` : ''}{!m.certain && ' · uncertain'}</span></div>
+      <button className="icon" aria-label="Close inspector" onClick={onClose}><X size={14} /></button></header>
+    {m.source && <div className="er-inspector-source"><code title={`${m.source.file}:${m.source.line}`}>{m.source.file}:{m.source.line}</code>
+      <button aria-label="Open call site in editor" onClick={() => onOpenSource(m.source!.file, m.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
+    {m.explanation && <p className="flow-inspector-explanation">{m.explanation}</p>}
+    {m.detail && <><h4>Code</h4><p className="flow-inspector-detail" aria-label="Code">{m.detail}</p></>}
+  </aside>;
+}
 
 function ParticipantInspector({ participant: p, explanationStatus, messages, name, onClose, onOpenSource, onFold }: {
   participant: SequenceParticipant; explanationStatus?: Parameters<typeof StaleMark>[0]['status']; messages: SequenceMessage[];

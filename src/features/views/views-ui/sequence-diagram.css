@@ -6,7 +6,7 @@
 .seq-sheet{margin:0 auto;min-height:100%}
 .seq-header{position:sticky;top:0;z-index:1;background:#141210;border-bottom:1px solid #2c241f}
 .seq-header svg,.seq-body{display:block;overflow:visible}
-.seq-diagram svg text{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#d9c3b1}
+.seq-diagram svg text{font:11px system-ui,-apple-system,sans-serif;fill:#d9c3b1}
 .seq-status{height:auto;padding:30px 0}
 .seq-participant{cursor:pointer;outline:none}
 .seq-participant>rect{fill:#2b231d;stroke:#594333;stroke-width:1}
@@ -25,6 +25,7 @@
 .seq-bar.selected{stroke:var(--accent)}
 .seq-row{fill:transparent;cursor:pointer;outline:none}
 .seq-row.hover{fill:#ffffff09}
+.seq-row.selected{fill:#e078500f}
 .seq-row:focus-visible{fill:#e0785014;stroke:var(--accent);stroke-width:1}
 .seq-message{pointer-events:none}
 .seq-message text{paint-order:stroke;stroke:#141210;stroke-width:4px;stroke-linejoin:round}
@@ -59,3 +60,4 @@
 .seq-note.error rect{fill:#3d2224;stroke:#9a4a4f}
 .seq-note.error text{fill:#f0b9bb}
 .seq-note:hover rect,.seq-note:focus-visible rect{stroke:var(--accent)}
+.seq-participant text.seq-participant-explanation{font-size:10px;fill:#cbb9aa;text-anchor:middle}

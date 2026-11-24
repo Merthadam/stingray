@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SequenceData, SequenceMessage, SequenceParticipant } from '../../shared/contracts/views';
-import { SEQ, collapseParticipants, collapsible, sequenceLayout } from '../../src/features/views/views-ui/sequence-layout';
+import { SEQ, collapseParticipants, collapsible, sequenceLayout, wrapLines } from '../../src/features/views/views-ui/sequence-layout';
 import { sequenceEvents } from '../../shared/views/sequence-events';
 import { formatText, type TextDiagramInput } from '../../shared/views/views-text';
 
@@ -83,7 +83,7 @@ test('sequenceLayout places lifelines left to right, wide enough for the labels 
   assert.ok(xs.every((x, i) => i === 0 || x > xs[i - 1]), 'columns increase');
   for (const lm of layout.messages) {
     const span = Math.abs(lm.x2 - lm.x1);
-    if (lm.x1 !== lm.x2 && lm.message.kind !== 'self' && lm.message.from !== lm.message.to) assert.ok(span >= lm.label.length * SEQ.charWidth, `${lm.label} fits its arrow`);
+    if (lm.x1 !== lm.x2 && lm.message.kind !== 'self' && lm.message.from !== lm.message.to) assert.ok(span >= lm.lines[0].length * SEQ.charWidth, `${lm.lines[0]} fits its arrow`);
   }
   // A long label between web and auth pushes auth (and everything right of it) further out.
   const long = login();
@@ -100,7 +100,7 @@ test('sequenceLayout gives each message its own row, arrows point toward the cal
   const [click, submit, post, , call, ret] = layout.messages;
   assert.ok(click.x2 > click.x1 && post.x2 > post.x1 && call.x2 > call.x1, 'calls point right here');
   assert.ok(ret.x2 < ret.x1, 'return points back');
-  assert.equal(submit.label, 'submit');
+  assert.deepEqual(submit.lines, ['submit']);
   assert.ok(submit.labelX > submit.x1 + SEQ.selfWidth, 'self message label sits right of its loop');
   assert.ok(submit.bottom - submit.top === SEQ.selfRow && click.bottom - click.top === SEQ.row);
 });
@@ -145,8 +145,34 @@ test('sequenceLayout pads nested fragments inside their parent and widens the fr
   const outer = layout.fragments.find(f => f.fragment.id === 'outer')!, inner = layout.fragments.find(f => f.fragment.id === 'inner')!;
   assert.ok(outer.x < inner.x && outer.y < inner.y && outer.y + outer.height > inner.y + inner.height, 'inner inside outer');
   assert.equal(inner.depth, 1);
-  assert.ok(outer.width >= data.fragments[0].label.length * SEQ.charWidth, 'label fits');
+  assert.equal(outer.lines.length, 2, 'a long condition wraps to two lines');
+  assert.ok(outer.width >= Math.max(...outer.lines.map(l => l.length)) * SEQ.charWidth, 'label fits');
   assert.ok(layout.width >= outer.x + outer.width && outer.x >= 0);
+});
+
+test('wrapLines wraps words at a width, breaks long words and ends a cut last line in …', () => {
+  assert.deepEqual(wrapLines('', 10), []);
+  assert.deepEqual(wrapLines('get user', 10), ['get user']);
+  assert.deepEqual(wrapLines('verify the password of the user', 12), ['verify the', 'password of…']);
+  assert.deepEqual(wrapLines('abcdefghijklmno', 6, 3), ['abcdef', 'ghijkl', 'mno']);
+});
+
+test('sequenceLayout wraps long labels instead of cutting them: rows, notes and the header grow', () => {
+  row = 0;
+  const long = 'check whether the account may sign in from this device and region right now';
+  const data: SequenceData = { participants: [{ ...p('a', 'a', 0), explanation: 'Routes the sign-in request to the service.' }, p('b', 'b', 1)],
+    messages: [m('a', 'b', 'call', 'x', 0), m('a', 'b', 'call', long, 0)], fragments: [],
+    notes: [{ id: 'n0', participant: 'b', after: 1, text: `can fail: ${long}`, kind: 'error', source: null }] };
+  const layout = sequenceLayout(data);
+  const [short, wrapped] = layout.messages, [note] = layout.notes;
+  assert.equal(wrapped.lines.length, 2);
+  assert.equal(wrapped.lines.join(' '), long, 'nothing is cut');
+  assert.equal(wrapped.bottom - wrapped.top, short.bottom - short.top + SEQ.line, 'the row grows by a line');
+  assert.equal(note.lines.length, 2);
+  assert.equal(note.height, SEQ.noteHeight + SEQ.line);
+  assert.equal(layout.headerHeight, SEQ.headerHeight + SEQ.explanationHeight);
+  assert.ok(layout.participants[0].explanation.length > 0 && layout.participants[1].explanation.length === 0);
+  assert.equal(sequenceLayout({ ...data, participants: [p('a', 'a', 0), p('b', 'b', 1)] }).headerHeight, SEQ.headerHeight, 'no explanations: no room');
 });
 
 test('sequenceLayout copes with no messages and unknown participants', () => {
