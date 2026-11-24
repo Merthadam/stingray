@@ -13,6 +13,8 @@ export interface ViewFiles {
   mkdir(root: string, relDir: string): Promise<void>;
   /** Exclusive create (O_EXCL | O_NOFOLLOW, 0644) and write; a partial file is removed; rejects with code EEXIST when present. */
   createExclusive(root: string, rel: string, text: string): Promise<void>;
+  /** Replace an existing regular file's text (a temp file renamed over it, so a failed write never truncates it). */
+  replace(root: string, rel: string, text: string): Promise<void>;
   /** `relFile` resolved against `root`, as a POSIX path relative to `root` ('..'-prefixed or absolute when outside). */
   relative(root: string, relFile: string): string;
 }

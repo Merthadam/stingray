@@ -13,6 +13,7 @@ export function memoryViewFiles(files: Record<string, string>): ViewFiles {
     readBounded: async (_root, rel) => { if (!(rel in files)) throw missing(); return { text: files[rel] }; },
     list: async (_root, dir) => { if (!isDir(dir)) throw missing(); return [...new Set(Object.keys(files).filter(f => f.startsWith(dir + '/')).map(f => f.slice(dir.length + 1).split('/')[0]))].map(name => ({ name, directory: isDir(`${dir}/${name}`) })); },
     mkdir: async () => {}, createExclusive: async (_root, rel, text) => { files[rel] = text; },
+    replace: async (_root, rel, text) => { if (!(rel in files)) throw missing(); files[rel] = text; },
     relative: (_root, rel) => rel,
   };
 }

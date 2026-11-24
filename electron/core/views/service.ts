@@ -5,7 +5,9 @@ import type { ViewResult, ViewSummary } from '../../../shared/contracts/views';
 import { unavailableGraph, type GraphChange, type GraphHost, type WorktreeGraph } from './graph';
 import type { DbSchemaSource, FileProviderFactory, ViewFiles, ViewsPublisher } from './ports';
 import { DATABASE_VIEW, databaseView } from './database';
-import { combineSchemas, computeView, linkSymbols } from './compute';
+import { combineSchemas, computeView, explainFingerprint, linkSymbols, type ComputeDeps } from './compute';
+import { explanationKey } from './explain';
+import { withExplanation } from './save-explanation';
 import { LAYERS_VIEW, RULES_DIR, VIEWS_DIR, VIEW_SLUG, inScope, listViewFiles, readViewFile, type ViewFileEntry } from './view-file';
 
 interface Worktree {
@@ -97,8 +99,7 @@ export class ViewService {
 
   private async compute(workspaceId: string, root: string, viewId: string, { depth, expanded = [], collapsed = [] }: ViewOptions): Promise<ViewResult> {
     const w = this.worktree(workspaceId, root);
-    const findSymbols = w.graph.findSymbols.bind(w.graph);
-    if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), findSymbols);
+    if (viewId === DATABASE_VIEW.id) return linkSymbols(databaseView(combineSchemas(await Promise.all([this.schema(w, workspaceId), this.sqlSchema(w, workspaceId)])), w.graph.status()), w.graph.findSymbols.bind(w.graph));
     const file = viewId === LAYERS_VIEW.summary.id ? LAYERS_VIEW : await readViewFile(this.viewFiles, root, viewId);
     if (!file) throw new Error(`Unknown view: ${viewId}`);
     let { view } = file;
@@ -112,10 +113,33 @@ export class ViewService {
     }
     if (depth !== undefined && view.layers && depth !== view.layers.depth) { view = { ...view, layers: { ...view.layers, depth: Math.min(4, Math.max(1, depth)) } }; layout = null; }
     if (depth !== undefined && view.sequence && depth !== view.sequence.depth) { view = { ...view, sequence: { ...view.sequence, depth } }; layout = null; }
-    return computeView({ ...file, view, layout }, {
-      workspaceId, graph: w.graph.status(), findSymbols, callees: ids => w.graph.callees(ids), fileSymbols: f => w.graph.fileSymbols(f), readSource: this.fileProvider(root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
+    return computeView({ ...file, view, layout }, this.deps(w, workspaceId, viewId));
+  }
+
+  private deps(w: Worktree, workspaceId: string, viewId: string): ComputeDeps {
+    return {
+      workspaceId, graph: w.graph.status(), findSymbols: w.graph.findSymbols.bind(w.graph), callees: ids => w.graph.callees(ids), fileSymbols: f => w.graph.fileSymbols(f),
+      readSource: this.fileProvider(w.root).read, sqlalchemy: () => this.schema(w, workspaceId), sql: () => this.sqlSchema(w, workspaceId),
       evaluate: v => w.graph.evaluateView(v).catch((error: Error) => { throw new Error(`View ${viewId} could not be computed: ${error.message}`); }),
-    });
+    };
+  }
+
+  /** "Describe…": set (or, with empty text, remove) the `explain:` entry of node or group `target` of a repo view as computed
+   * with `options`, with its current fingerprint (none without the code graph: unstamped). The key is explanationKey's. */
+  async saveExplanation(workspaceId: string, root: string, viewId: string, input: { target: string; text: string; options?: ViewOptions }): Promise<void> {
+    if (viewId === DATABASE_VIEW.id || viewId === LAYERS_VIEW.summary.id) throw new Error('Builtin views have no view file: use Save as view… first.');
+    const result = await this.computeView(workspaceId, root, viewId, input.options);
+    const key = explanationKey(result, input.target);
+    if (key === null) throw new Error('That step is no longer in the view; refresh and try again.');
+    const w = this.worktree(workspaceId, root), file = `${VIEWS_DIR}/${viewId}.yaml`, text = input.text.trim();
+    if (text.length > 500) throw new Error('Use at most 500 characters.');
+    const read = await this.viewFiles.readBounded(root, file, 'View file');
+    if ('error' in read) throw new Error(`${file}: ${read.error}`);
+    const entry = text ? { text, fingerprint: await explainFingerprint(result, key, this.deps(w, workspaceId, viewId)) } : null;
+    const next = withExplanation(read.text, file, key, entry);
+    if (next === read.text) return;
+    await this.viewFiles.replace(root, file, next);
+    this.queue(workspaceId, w, [viewId], false); // recompute now, without waiting for the file watcher
   }
 
   // Rule 2: a failing schema source gives the Database view a warning instead of failing it (cache logic unchanged).

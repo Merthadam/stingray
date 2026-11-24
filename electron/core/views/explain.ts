@@ -112,13 +112,34 @@ export async function collectPieces(targets: Target[], nodes: DiagramNode[], gro
 
 const NO_CHANGES: ExplainChanges = { changed: [], added: [], removed: [] };
 
+/** The `explain:` key that names a node or group: its function name when it has a symbol (a call, the start node, an
+ * expanded call's group), else its code (one line, at most 80 characters: a prefix still matches). Pure. */
+export function suggestedKey(t: Target): string {
+  return t.symbol ? t.symbol.name : squash((t as Partial<DiagramNode>).detail || t.label).slice(0, 80).trimEnd();
+}
+
 /** Flowchart steps the reader cannot understand without the code: decisions and loops, calls and actions with no
- * explanation (docstring or `explain:`). `key` is an `explain:` key that names the step: the function name for a call,
- * else its code (one line, at most 80 characters: a prefix still matches). Pure. */
+ * explanation (docstring or `explain:`), each with the key that names it (suggestedKey). Pure. */
 export function undescribedSteps(result: Pick<ViewResult, 'kind' | 'nodes'>): { node: DiagramNode; key: string }[] {
   if (result.kind !== 'flowchart') return [];
   return result.nodes.filter(n => !n.explanation && (n.kind === 'decision' || n.kind === 'loop' || n.kind === 'action' || n.kind === 'call'))
-    .map(n => ({ node: n, key: n.kind === 'call' && n.symbol ? n.symbol.name : squash(n.detail || n.label).slice(0, 80).trimEnd() }));
+    .map(n => ({ node: n, key: suggestedKey(n) }));
+}
+
+/** The `explain:` key to write for a node or group of a computed view ("Describe…" in the Views tab), null when the id is
+ * not in it: the key of the view entry that explains it now (the last one, which wins), else suggestedKey when that
+ * names only this target (or nodes and groups of the same function), else the target's id. Pure. */
+export function explanationKey(result: Pick<ViewResult, 'nodes' | 'groups' | 'diagnostics'>, id: string): string | null {
+  const { nodes, groups } = result;
+  const target: Target | undefined = nodes.find(n => n.id === id) ?? groups.find(g => g.id === id);
+  if (!target) return null;
+  if (target.explanationStatus) {
+    const own = [...result.diagnostics?.explain ?? []].reverse().find(e => explainTargets(e.key, nodes, groups).some(t => t.id === id));
+    if (own) return own.key;
+  }
+  const key = suggestedKey(target), found = explainTargets(key, nodes, groups);
+  const same = (t: Target) => t === target || (!!target.symbol && t.symbol?.id === target.symbol.id);
+  return found.includes(target) && found.every(same) ? key : target.id;
 }
 
 /** Status of a stored fingerprint against the current pieces: none → unstamped, a string → legacy (old format, own body
