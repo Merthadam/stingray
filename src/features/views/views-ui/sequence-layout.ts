@@ -69,7 +69,11 @@ export function wrapLines(text: string, max: number, maxLines = 2): string[] {
   return kept;
 }
 const widest = (lines: string[], char = SEQ.charWidth) => Math.max(0, ...lines.map(l => textWidth(l, char)));
-const messageLines = (m: SequenceMessage) => wrapLines(m.label, SEQ.maxLabel);
+/** Arrow text: the view's `explain:` entry for the callee replaces the call name (a docstring does not: inspector only). */
+export const messageText = (m: SequenceMessage) => m.explanationStatus && m.explanation ? m.explanation : m.label;
+/** Fragment text: the view's `explain:` entry for its condition replaces the tidied condition. */
+export const fragmentText = (f: SequenceFragment) => f.explanation || f.label;
+const messageLines = (m: SequenceMessage) => wrapLines(messageText(m), SEQ.maxLabel);
 const labelWidth = (m: SequenceMessage) => {
   const lines = messageLines(m);
   return m.certain ? widest(lines) : Math.max(widest(lines.slice(0, -1)), textWidth((lines.at(-1) ?? '') + UNCERTAIN));
@@ -136,7 +140,7 @@ export function sequenceLayout(data: SequenceData): SequenceLayout {
 
   for (const e of events) {
     if (e.type === 'open') {
-      const lines = e.fragment.label && e.fragment.label !== e.fragment.kind ? fragmentLines(e.fragment.label) : [];
+      const lines = e.fragment.label && e.fragment.label !== e.fragment.kind ? fragmentLines(fragmentText(e.fragment)) : [];
       open.push({ fragment: e.fragment, y, depth: e.depth, min: Infinity, max: -Infinity, lines, branches: [] });
       y += S.fragmentHead + extra(lines);
     } else if (e.type === 'branch') {
@@ -237,7 +241,8 @@ export function collapseParticipants(data: SequenceData, collapsed: ReadonlySet<
       actual[L + 1] = m.to; shown[L + 1] = to = folding.has(m.to) ? from : m.to;
     }
     // A call or return between a folded participant and its caller vanishes.
-    if (from !== to || (from === m.from && to === m.to)) messages.push({ ...m, id: `m${messages.length}`, from, to, kind: from === to && m.kind !== 'return' ? 'self' : m.kind });
+    // Messages keep their ids (their `explain:` target, msg:<id>, names the computed message).
+    if (from !== to || (from === m.from && to === m.to)) messages.push({ ...m, from, to, kind: from === to && m.kind !== 'return' ? 'self' : m.kind });
     place(row);
   });
   before[data.messages.length] = messages.length;

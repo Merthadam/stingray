@@ -2,12 +2,12 @@
 // (api.saveExplanation); the view recomputes through its views-changed event.
 import { useState } from 'react';
 import { Pencil } from 'lucide-react';
-import type { DiagramGroup, DiagramNode } from '../../../../shared/contracts/views';
+import type { DiagramNode } from '../../../../shared/contracts/views';
 
 const MAX_TEXT = 500;
 
 export function DescribeEditor({ target, decision, onSave, disabled }: {
-  target: DiagramNode | DiagramGroup; decision: boolean;
+  target: Pick<DiagramNode, 'explanation' | 'explanationStatus'>; decision: boolean;
   onSave?(text: string): Promise<void>; disabled?: string;
 }) {
   const [text, setText] = useState<string | null>(null); // null: closed

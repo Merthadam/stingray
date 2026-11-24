@@ -61,3 +61,9 @@
 .seq-note.error text{fill:#f0b9bb}
 .seq-note:hover rect,.seq-note:focus-visible rect{stroke:var(--accent)}
 .seq-participant text.seq-participant-explanation{font-size:10px;fill:#cbb9aa;text-anchor:middle}
+.seq-fragment-head text.seq-condition{pointer-events:all;cursor:pointer;outline:none}
+.seq-fragment-head text.seq-condition:hover,.seq-fragment-head text.seq-condition:focus-visible{fill:#e4dcff;text-decoration:underline}
+/* No description yet (docstring or explain: entry): a hollow dot, as on flow cards. */
+.seq-diagram svg tspan.seq-undescribed{fill:#b9a28f}
+.seq-fragment-head text.seq-condition.undescribed{fill:#a59fbd}
+.seq-undescribed-dot{fill:none;stroke:#b9a28f;stroke-width:1}
