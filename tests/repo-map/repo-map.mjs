@@ -41,9 +41,9 @@ function check(name, value) { assert.ok(value, name); checks.push(name); console
 try {
   app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
   const page = await app.firstWindow();
-  // Desktop pointer events must not race the CDP-driven test inputs. This
-  // applies only to this test-owned window, not an existing/production app.
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setIgnoreMouseEvents(true));
+  // Desktop pointer and keyboard events (e.g. Cmd+W) must not race the CDP-driven test inputs.
+  // This applies only to this test-owned window, not an existing/production app.
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setIgnoreMouseEvents(true); w.setFocusable(false); w.blur(); });
   page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });

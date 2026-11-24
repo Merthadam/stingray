@@ -67,6 +67,8 @@ try {
   app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env, timeout: 30000 });
   app.process().on('exit', (code, signal) => console.log('Test Electron exit:', {code,signal}));
   page = await app.firstWindow(); page.setDefaultTimeout(20000);
+  // Desktop pointer and keyboard events (e.g. Cmd+W) must not race the CDP-driven test inputs.
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setIgnoreMouseEvents(true); w.setFocusable(false); w.blur(); });
   page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('button', { name: 'Add project', exact: true }).click();
   await page.getByLabel('Repository path', { exact: true }).fill(repo);
