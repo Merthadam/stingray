@@ -1,6 +1,7 @@
 # Flowchart views: readable summaries with drill-down (plan)
 
-Status: decisions agreed in discussion, not implemented. Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
+Status: phases 1-3 implemented (phase 2 extends the existing `explain:` entries instead of a new `labels:` key;
+phase 3's summary lives in `shared/views/flowchart-summary.ts`); phases 4-6 open. Builds on `flowchart-view-spec.md`. Flowcharts first; graph,
 flow, layers and sequence views follow once this works (how sequence diagrams fit is still open).
 
 ## Problem (example: the auth sign-in flowchart)
