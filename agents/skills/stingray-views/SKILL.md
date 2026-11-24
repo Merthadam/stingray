@@ -193,6 +193,12 @@ flowchart:
   appends it as ` — <explanation>` (e.g. `» identity — Accept a Cognito access token …`); `--json` has the field on
   nodes and groups. Writing a one-line intent docstring is how to explain a step. Tables linked to their model class
   get the class docstring summary the same way (shown under the table card header).
+- Readers are not expected to know the code: cards show words, never code (the code is in the inspector). A decision
+  whose tidied label still reads like code (`result get 'ChallengeName' is…`) needs an `explain:` entry keyed by a
+  snippet of its condition; its text then titles the diamond. Phrase it as the same question as the label: Yes/No
+  follow the label (`if user is None` is labelled "has user?", so write "Account found for this email?", not "No
+  account?"). `check` ends with `undescribed steps`: every decision, loop, call and action without a docstring or
+  `explain:` text, with the key that names it — describe the unclear ones (skip self-explanatory ones like "has user?").
 - `stingray-views check <file> --depth N` overrides `depth` for one run. The text diagram is an indented tree:
   decisions list their branches until they merge, `→ x` = the branch continues at x, `↻ x` = back to x (loops),
   `» name` = an expanded call. The effective depth is in the result's `diagnostics.flowchart.depth`.
@@ -340,8 +346,11 @@ explain:
       drawn:sql:db/schema.sql#users: 5be0c4a19d02     # no symbol: the node as drawn
 ```
 
-- A key is matched in that order: node id, group id, alias, then every node and group linked to that symbol (e.g. a
-  flowchart's `call` node and the expanded `» identity` group). The first kind that matches wins. A key matching nothing
+- A key is matched in that order: node id, group id, alias, every node and group linked to that symbol (e.g. a
+  flowchart's `call` node and the expanded `» identity` group), then a snippet of a flowchart step's code (every
+  decision, loop, call, action, end or error whose code contains it, whitespace-insensitive, at least 3 characters;
+  quote it in YAML: `'result.get("ChallengeName")': { text: Cognito asks for a challenge? }`). The first kind that
+  matches wins. A snippet key is fingerprinted as drawn (`drawn:<id>`), so it turns stale when the condition changes. A key matching nothing
   is listed under "unresolved links" as `explain: "<key>"` (a warning, not an error).
 - The fingerprint is a map with one hash per piece of code the text was written for. For a symbol: its own body plus
   every function it calls directly that the code graph resolves to this repo — including functions in files the view
