@@ -39,7 +39,8 @@ await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: tim
 await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    user.refresh()\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
   + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    audit_login(email)\n    check_password(user, password)\n    return user\n');
 await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a value."""\n    return value.strip().lower()\n\n\n'
-  + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(name)\n\n\n'
+  + 'def fetch(name):\n    """Read the raw record."""\n    return name\n\n\n'
+  + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(fetch(name))\n\n\n'
   + 'def handle(request):\n    """Handle a request end to end."""\n    record = load(request)\n    return clean(record)\n');
 await put('.stingray/views/handlers.yaml', 'version: 1\nname: Handler calls\nkind: graph\ngraph:\n  start: [{ symbol: handle }]\n  follow: [calls]\n'
   + 'explain:\n  handle: { text: Serve one request, fingerprint: "000000000000" }\n');
@@ -285,6 +286,15 @@ try {
     await calls.getByRole('button', { name: 'Open handle in editor' }).isVisible()
     && await calls.getByRole('button', { name: 'Open handle.clean in editor' }).isVisible());
   await page.screenshot({ path: process.env.VIEWS_SCREENSHOT ?? path.join(root, 'graph-view.png') });
+  const graphDepth = page.getByRole('slider', { name: 'Graph depth' });
+  check('a graph view has a depth slider at the file depth', await graphDepth.inputValue() === '3');
+  check('the graph view follows calls to the file depth', await calls.getByRole('group', { name: 'Step fetch' }).count() === 1);
+  await graphDepth.fill('1');
+  await calls.getByRole('group', { name: 'Step fetch' }).waitFor({ state: 'detached' });
+  check('lowering the graph depth recomputes with fewer call levels', await calls.getByRole('group', { name: 'Step load' }).count() === 1);
+  if (process.env.VIEWS_SCREENSHOT) await page.screenshot({ path: process.env.VIEWS_SCREENSHOT.replace(/\.png$/, '-graph-depth.png') });
+  await graphDepth.fill('3');
+  await calls.getByRole('group', { name: 'Step fetch' }).waitFor();
   await page.getByRole('button', { name: 'Show as text' }).click();
   const graphText = page.getByLabel('Text diagram');
   await graphText.waitFor();

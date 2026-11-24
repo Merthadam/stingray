@@ -9,16 +9,19 @@ export function diagnosticCount(result: ViewResult): number {
 
 export const LAYER_NAMES = ['', 'services', 'modules', 'files', 'symbols'];
 
-/** Depth slider of a flowchart (call levels 0-4), sequence (call levels 0-6) or layers view (1 services … 4 symbols): the
- * session override, else the effective depth it was computed with; null for other views (no slider). */
+/** Depth slider of a flowchart (call levels 0-4), sequence (call levels 0-6), layers view (1 services … 4 symbols) or
+ * `graph:` step (relation levels 1-6; not with layers): the session override, else the effective depth it was computed
+ * with; null for other views (no slider). */
 export function viewDepth(result: ViewResult | null, override: number | undefined): { value: number; min: number; max: number; layers: boolean } | null {
   const d = result?.diagnostics, layers = !!d?.layers;
-  const computed = result?.kind === 'flowchart' ? d?.flowchart?.depth : result?.kind === 'sequence' ? d?.sequence?.depth : d?.layers?.depth;
-  return computed === undefined ? null : { value: override ?? computed, min: layers ? 1 : 0, max: result?.kind === 'sequence' ? 6 : 4, layers };
+  const computed = result?.kind === 'flowchart' ? d?.flowchart?.depth : result?.kind === 'sequence' ? d?.sequence?.depth : d?.layers?.depth ?? d?.graph?.depth;
+  const graph = !layers && result?.kind !== 'flowchart' && result?.kind !== 'sequence';
+  return computed === undefined ? null : { value: override ?? computed, min: layers || graph ? 1 : 0, max: result?.kind === 'sequence' || graph ? 6 : 4, layers };
 }
 
-/** The effective depth a result was computed with (flowchart, sequence or layers), e.g. to remount its diagram when it changes. */
-export const computedDepth = (result: ViewResult) => result.diagnostics?.flowchart?.depth ?? result.diagnostics?.sequence?.depth ?? result.diagnostics?.layers?.depth;
+/** The effective depth a result was computed with (flowchart, sequence, layers or graph step), e.g. to remount its diagram when it changes. */
+export const computedDepth = (result: ViewResult) => result.diagnostics?.flowchart?.depth ?? result.diagnostics?.sequence?.depth ?? result.diagnostics?.layers?.depth
+  ?? result.diagnostics?.graph?.depth;
 
 /** Sequence views with a computed sequence draw as a sequence diagram; without one (an error) they show as text. */
 export const isSequenceDiagram = (result: ViewResult) => result.kind === 'sequence' && !!result.sequence;

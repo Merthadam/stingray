@@ -24,7 +24,7 @@ test('diagnosticCount sums warnings, rule errors/warnings and the graph step err
   assert.equal(diagnosticCount(result({ warnings: [w] })), 1);
   assert.equal(diagnosticCount(result({ warnings: [w], diagnostics: {
     rules: [{ rule: 'view#a', language: 'python', filesScanned: 1, matches: 0, emitted: 0, skipped: 0, errors: [w], warnings: [w, w], ms: 1 }],
-    graph: { started: 0, reached: 0, helpers: 0, truncated: false, error: 'not ready' }, unresolved: [], limits: { filesScanned: 1, matches: 0, truncated: false }, ms: 1,
+    graph: { depth: 3, started: 0, reached: 0, helpers: 0, truncated: false, error: 'not ready' }, unresolved: [], limits: { filesScanned: 1, matches: 0, truncated: false }, ms: 1,
   } })), 5);
 });
 
@@ -36,7 +36,7 @@ test('diagnosticCount counts a flowchart error', () => {
   assert.equal(diagnosticCount(result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) })), 0);
 });
 
-test('viewDepth prefers the session override, else the computed depth; layers start at 1; null without a depth', () => {
+test('viewDepth prefers the session override, else the computed depth; layers and graph steps start at 1; null without a depth', () => {
   const chart = result({ kind: 'flowchart', diagnostics: chartDiagnostics(null) });
   assert.deepEqual(viewDepth(chart, undefined), { value: 2, min: 0, max: 4, layers: false });
   assert.deepEqual(viewDepth(chart, 0), { value: 0, min: 0, max: 4, layers: false });
@@ -44,6 +44,12 @@ test('viewDepth prefers the session override, else the computed depth; layers st
     layers: { config: null, depth: 1, services: 2, files: 3, nodes: 2, error: null } } });
   assert.deepEqual(viewDepth(layers, undefined), { value: 1, min: 1, max: 4, layers: true });
   assert.deepEqual(viewDepth(layers, 3), { value: 3, min: 1, max: 4, layers: true });
+  const graph = result({ kind: 'graph', diagnostics: { ...chartDiagnostics(null), flowchart: null,
+    graph: { depth: 3, started: 1, reached: 4, helpers: 1, truncated: false, error: null } } });
+  assert.deepEqual(viewDepth(graph, undefined), { value: 3, min: 1, max: 6, layers: false }, 'a graph step: relation levels 1-6');
+  assert.equal(computedDepth(graph), 3);
+  assert.deepEqual(viewDepth({ ...layers, diagnostics: { ...layers.diagnostics!, graph: graph.diagnostics!.graph } }, undefined),
+    { value: 1, min: 1, max: 4, layers: true }, 'layers own the slider');
   assert.equal(viewDepth(result(), 3), null);
   assert.equal(viewDepth(null, 3), null);
   assert.ok(isFlowDiagram(layers) && isFlowDiagram(chart) && isFlowDiagram(result({ kind: 'graph' })) && isFlowDiagram(result({ kind: 'flow' })));
