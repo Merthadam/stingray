@@ -11,6 +11,7 @@ import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } f
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
 import { applyExplain, collectPieces, explainTargets, type ReadSource } from './explain';
+import { explainable, withSequenceExplanations } from '../../../shared/views/sequence-targets';
 import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 import { explanationOf, symbolRef } from './explanation';
@@ -62,13 +63,11 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   };
   const linked = await linkSymbols(result, deps.findSymbols);
   if (!entry.explain?.length) return linked;
-  const explained = await applyExplain(linked, entry.explain, { verify: canVerify(deps), readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
-  // Participants mirror their nodes: `explain:` entries reach them through the nodes.
-  const sequence = explained.sequence && { ...explained.sequence, participants: explained.sequence.participants.map(p => {
-    const n = explained.nodes.find(x => x.id === p.id);
-    return n?.explanation ? { ...p, explanation: n.explanation } : p;
-  }) };
-  return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS), ...(sequence ? { sequence } : {}) };
+  // A sequence's messages and conditions are explained as extra targets; participants mirror their nodes.
+  const explained = await applyExplain(explainable(linked), entry.explain, { verify: canVerify(deps), readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
+  const nodes = explained.nodes.slice(0, linked.nodes.length);
+  const sequence = explained.sequence && withSequenceExplanations(explained.sequence, nodes, explained.nodes.slice(linked.nodes.length));
+  return { ...explained, nodes, warnings: explained.warnings.slice(0, MAX_WARNINGS), ...(sequence ? { sequence } : {}) };
 }
 
 // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
@@ -76,8 +75,8 @@ const canVerify = (deps: ComputeDeps) => !!deps.readSource && (deps.graph.state 
 
 /** The fingerprint of an `explain:` key in a view computed with these deps, as computeView checks it and `--restamp`
  * writes it; null when it cannot be computed (no code graph, unreadable source, nothing matches). */
-export async function explainFingerprint(result: ViewResult, key: string, deps: ComputeDeps): Promise<Record<string, string> | null> {
-  const targets = explainTargets(key, result.nodes, result.groups);
+export async function explainFingerprint(view: ViewResult, key: string, deps: ComputeDeps): Promise<Record<string, string> | null> {
+  const result = explainable(view), targets = explainTargets(key, result.nodes, result.groups);
   if (!canVerify(deps) || !targets.length) return null;
   return (await collectPieces(targets, result.nodes, result.groups, { read: deps.readSource!, callees: deps.callees, fileSymbols: deps.fileSymbols })).pieces;
 }

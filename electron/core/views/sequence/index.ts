@@ -143,7 +143,7 @@ class Lifelines {
   }
 }
 
-interface OpenFragment { kind: SequenceFragment['kind']; source: SequenceFragment['source']; order: number; parent: number | null;
+interface OpenFragment { kind: SequenceFragment['kind']; source: SequenceFragment['source']; detail: string | null; order: number; parent: number | null;
   arms: { label: string; first: number; notes: number }[] }
 /** A kept fragment's id and the index of each kept arm by its index in the walk (-1: arm dropped). */
 interface KeptFragment { id: string; arms: number[] }
@@ -181,8 +181,10 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
     let label = arms[0].label;
     if (label === 'else' && f.arms[0] !== arms[0]) label = `not ${f.arms[0].label}`;
     const kind = f.kind === 'alt' && arms.length === 1 ? 'opt' : f.kind;
+    // The condition's code names the first arm only: with it dropped, the label is another arm's (or its negation).
+    const detail = f.detail && arms[0] === f.arms[0] ? { detail: f.detail } : {};
     fragments.push({ id: '', kind, label, first: arms[0].first, last, branches: arms.slice(1).map(a => ({ label: a.label, first: a.first })),
-      parent: null, source: f.source, order: f.order, parentOrder: f.parent });
+      parent: null, source: f.source, ...detail, order: f.order, parentOrder: f.parent });
   };
 
   for (const e of events) {
@@ -211,13 +213,13 @@ function finalize(events: TraceEvent[], lifelines: Lifelines, step: SequenceStep
         if (e.entered !== null && !drawn.has(e.entered)) break;
         const p = lifeline(e.at);
         if (!p) break;
-        notes.push({ id: `n${notes.length}`, participant: p.id, after: messages.length - 1, text: e.text, kind: 'error', source: e.source });
+        notes.push({ id: `n${notes.length}`, participant: p.id, after: messages.length - 1, text: e.text, kind: 'error', source: e.source, detail: e.detail });
         within.push(scope());
         break;
       }
       case 'open':
         parentOf.set(opened, open.at(-1)?.order ?? null);
-        open.push({ kind: e.kind, source: e.source, order: opened++, parent: open.at(-1)?.order ?? null, arms: [{ label: e.label, first: messages.length, notes: notes.length }] });
+        open.push({ kind: e.kind, source: e.source, detail: e.detail, order: opened++, parent: open.at(-1)?.order ?? null, arms: [{ label: e.label, first: messages.length, notes: notes.length }] });
         break;
       case 'branch':
         open.at(-1)!.arms.push({ label: e.label, first: messages.length, notes: notes.length });

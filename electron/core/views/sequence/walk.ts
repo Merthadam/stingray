@@ -8,7 +8,7 @@ import type { FileProvider, GraphApi, GraphRelation, GraphSymbol, SequenceStep }
 import type { Call, Code, Construct } from '../flowchart/cfg';
 import { resolveCall, type LoadFunction } from '../flowchart/build';
 import { FUNCTION_KINDS } from '../flowchart';
-import { callLabel, caseLabel, truncate, words } from '../flowchart/labels';
+import { callLabel, caseLabel, splitWords, truncate, words } from '../flowchart/labels';
 import { explanationOf, symbolRef } from '../explanation';
 import { externalCall } from './externals';
 import type { Hop, HopStep, LinkContext, LinkProvider } from './links';
@@ -24,10 +24,10 @@ export type TraceEvent =
   | { t: 'msg'; id: number; from: End; to: End; kind: 'call' | 'http' | 'link'; label: string; detail: string | null; level: number;
       certain: boolean; link: string | null; source: SourceRef | null; symbol: SymbolRef | null; explanation?: string }
   | { t: 'ret'; call: number; from: End; to: End; label: string; level: number; source: SourceRef | null }
-  | { t: 'open'; kind: SequenceFragmentKind; label: string; source: SourceRef }
+  | { t: 'open'; kind: SequenceFragmentKind; label: string; source: SourceRef; detail: string | null } // detail: the condition's code
   | { t: 'branch'; label: string }
   | { t: 'close' }
-  | { t: 'note'; at: End; text: string; source: SourceRef; entered: number | null }; // entered: the msg that entered its function (null: entry)
+  | { t: 'note'; at: End; text: string; detail: string; source: SourceRef; entered: number | null }; // entered: the msg that entered its function (null: entry)
 
 type Arm = { label: string; body: Construct[]; calls?: { calls: Call[]; code: Code } };
 type How = Pick<Hop, 'label' | 'certain' | 'follow'> & { kind: 'call' | Hop['kind']; link: string | null };
@@ -48,6 +48,8 @@ function loopLabel(c: Extract<Construct, { type: 'loop' }>) {
 }
 /** Exception type of a raise value: "HTTPException" for `raise HTTPException(401, ...)` / `throw new HTTPException(...)`. */
 const errorType = (value: string | null) => value ? /^(?:new\s+)?([\w$.]+)/.exec(value.trim())?.[1].split('.').at(-1) ?? truncate(value) : 're-raise';
+/** Error note text: the type in words ("can fail: permission error"); the raw type goes into the note's detail. */
+const failText = (type: string) => `can fail: ${/^[\w$]+$/.test(type) ? splitWords(type) || type : type}`;
 
 export class SequenceWalker {
   readonly events: TraceEvent[] = [];
@@ -97,7 +99,7 @@ export class SequenceWalker {
     for (const s of steps) {
       if (this.stopped) { this.truncated = true; return; }
       if (!('alt' in s)) { await this.enter(s.to, s, f, detail ?? s.label, source); continue; }
-      this.push({ t: 'open', kind: 'alt', label: s.alt[0].label, source: s.source });
+      this.push({ t: 'open', kind: 'alt', label: s.alt[0].label, source: s.source, detail: null });
       for (const [i, arm] of s.alt.entries()) {
         if (i) this.push({ t: 'branch', label: arm.label });
         await this.steps(arm.steps, f, detail, source);
@@ -146,12 +148,12 @@ export class SequenceWalker {
           rest = elif.else;
         }
         if (rest.length) arms.push({ label: 'else', body: rest });
-        await this.arms(arms, f, { kind: arms.length > 1 ? 'alt' : 'opt', source: at(c.code) });
+        await this.arms(arms, f, { kind: arms.length > 1 ? 'alt' : 'opt', source: at(c.code), detail: c.code.text });
         return false;
       }
       case 'loop': {
         await this.calls(c.calls, f, c.code);
-        await this.arms([{ label: loopLabel(c), body: c.body }], f, { kind: 'loop', source: at(c.code) });
+        await this.arms([{ label: loopLabel(c), body: c.body }], f, { kind: 'loop', source: at(c.code), detail: c.code.text });
         await this.body(c.else, f);
         return false;
       }
@@ -159,13 +161,13 @@ export class SequenceWalker {
         await this.calls(c.calls, f, c.code);
         const subject = condLabel(c.subject);
         const arms = c.cases.map((k, i) => ({ label: i ? caseLabel(k.label) : `${subject}: ${caseLabel(k.label)}`, body: k.body }));
-        await this.arms(arms, f, { kind: 'alt', source: at(c.code) });
+        await this.arms(arms, f, { kind: 'alt', source: at(c.code), detail: c.code.text });
         return false;
       }
       case 'try': {
         const python = path.extname(f.symbol.file) === '.py';
         await this.arms([{ label: 'try', body: [...c.body, ...c.else] },
-          ...c.handlers.map(h => ({ label: python ? `except ${h.label}` : 'catch', body: h.body }))], f, { kind: 'try', source: at(c.code) });
+          ...c.handlers.map(h => ({ label: python ? `except ${h.label}` : 'catch', body: h.body }))], f, { kind: 'try', source: at(c.code), detail: null });
         await this.body(c.finally, f);
         return false;
       }
@@ -174,15 +176,15 @@ export class SequenceWalker {
         return true;
       case 'raise':
         await this.calls(c.calls, f, c.code);
-        this.push({ t: 'note', at: { symbol: f.symbol }, text: `error: ${errorType(c.value)}`, source: at(c.code), entered: f.entered });
+        { const type = errorType(c.value); this.push({ t: 'note', at: { symbol: f.symbol }, text: failText(type), detail: type, source: at(c.code), entered: f.entered }); }
         return true;
       case 'break': case 'continue': return true;
     }
   }
 
   /** A fragment with one arm per entry (the first arm's label is the fragment's). */
-  private async arms(arms: Arm[], f: Frame, open: { kind: SequenceFragmentKind; source: SourceRef }) {
-    this.push({ t: 'open', kind: open.kind, label: arms[0].label, source: open.source });
+  private async arms(arms: Arm[], f: Frame, open: { kind: SequenceFragmentKind; source: SourceRef; detail: string | null }) {
+    this.push({ t: 'open', kind: open.kind, label: arms[0].label, source: open.source, detail: open.detail });
     for (const [i, arm] of arms.entries()) {
       if (i) this.push({ t: 'branch', label: arm.label });
       if (arm.calls) await this.calls(arm.calls.calls, f, arm.calls.code);

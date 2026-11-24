@@ -2,6 +2,8 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import type { DiagramGroup, DiagramNode, ViewResult } from '../../shared/contracts/views';
+import { explainable } from '../../shared/views/sequence-targets';
+import { step } from './sequence-helpers';
 import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, explanationKey, undescribedSteps, withExplanation, computeView } from '../../electron/app/wiring/views';
 import type { GraphSymbol } from '../../electron/core/views/rules/types';
 import { formatText } from '../../shared/views/views-text';
@@ -208,6 +210,43 @@ test('computeView applies explain: after symbols are linked and verifies only wi
   const plain = await computeView({ ...entry, explain: undefined }, deps('ready'));
   assert.equal(plain.nodes[0].explanation, undefined);
   assert.equal(plain.diagnostics!.explain, undefined);
+});
+
+test('sequence views: explain: reaches participants (by id), messages (by callee name) and conditions (by snippet); the rest is to-do', async () => {
+  const fetch = sym('fetch_account'), touch = sym('touch_login', 5, 6);
+  const participant = (id: string, symbol: typeof fetch | null) => ({ id, label: id, kind: 'participant' as const, subtitle: null, column: 0, source: null, symbol });
+  const message = (id: string, symbol: typeof fetch | null, explanation?: string) => ({ id, from: 'p:a', to: 'p:b', kind: 'call' as const, label: symbol?.name ?? 'x', detail: `${symbol?.name}(e)`,
+    level: 0, certain: true, link: null, source: null, symbol, ...(explanation ? { explanation } : {}) });
+  const sequence = {
+    participants: [participant('p:a', null), participant('p:b', fetch), { ...participant('actor', null), kind: 'actor' as const }],
+    messages: [message('m0', fetch, 'Look the account up.'), message('m1', touch), message('m2', touch), { ...message('m3', fetch), kind: 'return' as const }],
+    fragments: [{ id: 'f0', kind: 'alt' as const, label: 'account is none', first: 0, last: 1, branches: [], parent: null, source: null, detail: 'if account is None: raise' },
+      { id: 'f1', kind: 'loop' as const, label: 'for each x', first: 2, last: 2, branches: [], parent: null, source: null, detail: 'for x in xs:' },
+      { id: 'f2', kind: 'try' as const, label: 'try', first: 0, last: 0, branches: [], parent: null, source: null }],
+    notes: [],
+  };
+  const nodes = sequence.participants.map(p => node(p.id, { kind: p.kind, symbol: p.symbol }));
+  const entry = {
+    summary: { id: 'v', name: 'V', kind: 'sequence' as const, description: '', builtin: false, file: F, error: null }, ruleFiles: [], errors: [],
+    view: { id: 'v', kind: 'sequence' as const, scope: { include: ['**/*'], exclude: [] }, rules: [], graph: null, flowchart: null, builtins: [], include: [], exclude: [],
+      sequence: step({ start: { symbol: 'x' } }) },
+    explain: [{ key: 'p:a', text: 'The routes', fingerprint: null, line: 6 }, { key: 'touch_login', text: 'Remember the sign-in', fingerprint: null, line: 7 },
+      { key: 'account is None', text: 'No account for this email?', fingerprint: null, line: 8 }],
+  };
+  const out = await computeView(entry, { graph: { state: 'unavailable', message: null }, findSymbols: async () => [],
+    evaluate: async () => { const r = { ...result(nodes), kind: 'sequence' as const, sequence }; return { ...r, diagnostics: r.diagnostics! }; } });
+  const seq = out.sequence!;
+  assert.deepEqual(out.nodes.map(n => n.id), ['p:a', 'p:b', 'actor'], 'messages and conditions are no nodes');
+  assert.equal(seq.participants[0].explanation, 'The routes');
+  assert.deepEqual(seq.messages.map(m => [m.explanation ?? null, m.explanationStatus ?? null]),
+    [['Look the account up.', null], ['Remember the sign-in', 'unstamped'], ['Remember the sign-in', 'unstamped'], [null, null]]);
+  assert.deepEqual(seq.fragments.map(f => f.explanation ?? null), ['No account for this email?', null, null]);
+  assert.deepEqual(out.diagnostics!.unresolved, [], 'every key matched');
+  // to-do: p:b (no explanation), the loop; once per key; never the actor, a return or a try
+  assert.deepEqual(undescribedSteps(explainable(out)).map(({ node: n, key }) => [n.id, key]), [['p:b', 'p:b'], ['cond:f1', 'for x in xs:']]);
+  assert.equal(explanationKey(explainable(out), 'msg:m1'), 'touch_login');
+  assert.equal(explanationKey(explainable(out), 'p:b'), 'p:b', 'a participant is keyed by its id, not its first function');
+  assert.equal(explanationKey(explainable(out), 'cond:f0'), 'account is None', 'the entry that explains it now');
 });
 
 test('applyExplain fingerprints every target of a key: editing either of two same-named functions turns it stale', async () => {

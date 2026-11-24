@@ -117,16 +117,20 @@ const NO_CHANGES: ExplainChanges = { changed: [], added: [], removed: [] };
  * expanded call's group, a graph step), else a flowchart step's code (one line, at most 80 characters: a prefix still
  * matches), else its id (a rule node or group). Pure. */
 export function suggestedKey(t: Target): string {
-  if (t.symbol) return t.symbol.name;
   const n = t as Partial<DiagramNode>;
+  if (n.kind === 'participant') return t.id; // a sequence lifeline, not its first function
+  if (t.symbol) return t.symbol.name;
   return n.kind && CODE_STEPS.has(n.kind) ? squash(n.detail || t.label).slice(0, 80).trimEnd() : t.id;
 }
 
 /** Nodes the reader cannot understand without the code (shared/views/undescribed: flowchart decisions, loops, calls and
- * actions; graph and flow views' symbol steps and flow steps) with no explanation (docstring or `explain:`), each with the
- * key that names it (suggestedKey). Pure. */
+ * actions; graph and flow views' symbol steps and flow steps; sequence participants, messages and conditions: pass
+ * `explainable(result)`) with no explanation (docstring or `explain:`), each with the key that names it (suggestedKey),
+ * once per key. Pure. */
 export function undescribedSteps(result: Pick<ViewResult, 'kind' | 'nodes'>): { node: DiagramNode; key: string }[] {
-  return result.nodes.filter(n => undescribed(n, result.kind)).map(n => ({ node: n, key: suggestedKey(n) }));
+  const seen = new Set<string>();
+  return result.nodes.filter(n => undescribed(n, result.kind)).map(n => ({ node: n, key: suggestedKey(n) }))
+    .filter(({ key }) => !seen.has(key) && !!seen.add(key));
 }
 
 /** The `explain:` key to write for a node or group of a computed view ("Describe…" in the Views tab), null when the id is

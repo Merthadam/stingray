@@ -165,7 +165,10 @@ export interface SequenceMessage {
   link: string | null;         // link set or rule that produced it ("http", "auth", "langgraph", "events", "rule:<id>")
   source: SourceRef | null;    // call site
   symbol: SymbolRef | null;    // callee, when known
-  explanation?: string | null; // the callee's docstring summary (message inspector); absent = none
+  explanation?: string | null; // the callee's docstring summary (message inspector), or the view's `explain:` entry for the
+                               // callee (it then replaces the label on the arrow); absent = none
+  explanationStatus?: ExplanationStatus; // set when an `explain:` entry gave the explanation
+  explanationReason?: string;  // as on DiagramNode
 }
 
 export type SequenceFragmentKind = 'alt' | 'opt' | 'loop' | 'try';
@@ -180,14 +183,19 @@ export interface SequenceFragment {
   branches: { label: string; first: number }[]; // later arms (alt: elif/else/case; try: except ...), each starts at a row
   parent: string | null;       // enclosing fragment id
   source: SourceRef | null;
+  detail?: string | null;      // alt/opt/loop: the code of its (first) condition, for `explain:` snippet keys; absent = none
+  explanation?: string | null; // the view's `explain:` entry for the condition: replaces the label; absent = none
+  explanationStatus?: ExplanationStatus;
+  explanationReason?: string;
 }
 
-/** A note on a lifeline after row `after` (-1 = before the first message), e.g. "error: HTTPException". `fragment`/`arm`
+/** A note on a lifeline after row `after` (-1 = before the first message), e.g. "can fail: http exception" (`detail`: the
+ * raw type, "HTTPException", or "re-raise"). `fragment`/`arm`
  * place it inside a fragment: the innermost SequenceFragment.id containing it and the arm (0 = the fragment's first arm,
  * i = branches[i - 1]); absent/null = outside every fragment. An arm holding only notes has `first = fragment.last + 1`. */
 export interface SequenceNote {
   id: string; participant: string; after: number; text: string; kind: 'error' | 'info'; source: SourceRef | null;
-  fragment?: string | null; arm?: number;
+  detail?: string | null; fragment?: string | null; arm?: number;
 }
 
 export interface SequenceData {

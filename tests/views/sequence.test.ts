@@ -58,9 +58,9 @@ test('sequence python: call order, collapsed internal calls, externals by import
     'participants: api.py, store.py, Database (external), JWT (external)',
     '  api.py -> Database: execute',
     'alt user is none',
-    '  note api.py: error: HTTPException',
+    '  note api.py: can fail: http exception',
     'else not check user password',
-    '  note api.py: error: HTTPException',
+    '  note api.py: can fail: http exception',
     'else',
     '  api.py -> JWT: encode',
     'end',
@@ -80,6 +80,8 @@ test('sequence python: call order, collapsed internal calls, externals by import
   assert.deepEqual(fragments.map(f => [f.id, f.kind, f.first, f.last, f.branches.map(b => b.first), f.parent]),
     [['f0', 'alt', 1, 1, [1, 1], null], ['f1', 'loop', 2, 3, [], null], ['f2', 'try', 4, 5, [], null]]); // the except arm drew nothing
   assert.deepEqual(notes.map(n => [n.after, n.fragment, n.arm]), [[0, 'f0', 0], [0, 'f0', 1]]);
+  assert.deepEqual(notes.map(n => n.detail), ['HTTPException', 'HTTPException'], 'the raw type is the note detail');
+  assert.deepEqual(fragments.map(f => f.detail?.slice(0, 23) ?? null), ['if user is None: raise ', 'for s in user.sessions:', null], 'alt/opt/loop carry their code (like flowchart decisions)');
   // Nodes mirror the participants; no edges.
   assert.deepEqual(out.nodes.map(n => [n.id, n.kind, n.order]), participants.map(p => [p.id, p.kind, p.column]));
   assert.deepEqual(participants.map(p => p.id), ['p:file:services/auth/api.py', 'p:file:services/auth/store.py', 'ext:Database', 'ext:JWT']);
@@ -179,7 +181,7 @@ test('sequence tsx: http hop to the route handler, service participants, actor t
     'User -> web: click Sign in',
     'try',
     '  web -> auth: POST /auth/login',
-    '  note auth: error: HTTPException',
+    '  note auth: can fail: http exception',
     '  auth --> web: response',
     '    opt result ok',
     '      web -> External HTTP: post',
@@ -343,8 +345,8 @@ test('sequence externals: file imports (python, ts, require), relative imports s
 test('sequence notes: raises of the entry (also outside fragments) and of functions whose call is drawn; not of collapsed helpers', async () => {
   const files = { 'e.py': 'def run():\n    helper()\n    raise ValueError("x")\n\n\ndef helper():\n    raise KeyError()\n' };
   const out = await run(files, fakeGraph(files, ['run>helper']), { start: { symbol: 'run' } });
-  assert.deepEqual(out.seq.notes.map(n => [n.text, n.after, n.fragment ?? null]), [['error: ValueError', -1, null]]);
-  assert.deepEqual(out.text, ['participants: e.py', 'note e.py: error: ValueError']);
+  assert.deepEqual(out.seq.notes.map(n => [n.text, n.after, n.fragment ?? null]), [['can fail: value error', -1, null]]);
+  assert.deepEqual(out.text, ['participants: e.py', 'note e.py: can fail: value error']);
   const shown = await run(files, fakeGraph(files, ['run>helper']), { start: { symbol: 'run' }, internal: 'show' });
-  assert.deepEqual(shown.seq.notes.map(n => n.text), ['error: KeyError', 'error: ValueError']);
+  assert.deepEqual(shown.seq.notes.map(n => n.text), ['can fail: key error', 'can fail: value error']);
 });
