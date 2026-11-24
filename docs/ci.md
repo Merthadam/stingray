@@ -13,7 +13,7 @@ One pipeline, `.github/workflows/ci.yml`, runs on every PR, on pushes to `main`,
 \* On Linux, `terminal-links` (screenshot waits for fonts forever under Xvfb) and `workspace-status`
 (port scanning relies on macOS `ps`/`lsof` behaviour) fail today. They still run, in a separate
 non-blocking step, so a fix shows up immediately; once they pass, move them into the required step.
-`pi-activity` (native Pi activity UI over zsh PTYs, runner-sensitive like the other PTY tests) runs non-blocking on macOS and Linux; moving it to required is a later change.
+`pi-activity` (native Pi activity UI over zsh PTYs, runner-sensitive like the other PTY tests; its fixture env passes `DISPLAY` through for Xvfb) runs non-blocking on macOS and Linux; moving it to required is a later change.
 All suites except `pi-activity` are required on macOS.
 
 Linux unit tests run in the Docker image rather than directly on the runner: the zsh PTY tests

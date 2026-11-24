@@ -13,7 +13,8 @@ const home = path.join(root, 'home'), repo = path.join(root, 'activity-fixture')
 const evidence = path.resolve(process.env.STINGRAY_TEST_EVIDENCE || 'artifacts/testing/agent-activity/pi-implementation/native');
 await Promise.all([mkdir(home), mkdir(repo), mkdir(bin), mkdir(evidence, { recursive: true })]);
 const env = { HOME: home, PATH: `${bin}:${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`, ZDOTDIR: home,
-  STINGRAY_DATA_DIR: path.join(root, 'data'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', LANG: 'en_US.UTF-8' };
+  STINGRAY_DATA_DIR: path.join(root, 'data'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', LANG: 'en_US.UTF-8',
+  ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}) }; // Linux/Xvfb needs the X display
 await writeFile(path.join(home, '.zshrc'), `export PATH=${JSON.stringify(env.PATH)}\nPROMPT='fixture % '\n`);
 for (const cmd of ['gh', 'docker']) await writeFile(path.join(bin, cmd), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
 const git = (...args) => execFileSync('/usr/bin/git', ['-c','core.hooksPath=/dev/null',...args], { cwd: repo, env, stdio: 'pipe' });
