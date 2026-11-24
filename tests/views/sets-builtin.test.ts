@@ -46,7 +46,7 @@ test('alembic: migration chain with merge, root role and upgrade() operations on
 
 test('langgraph: steps with handlers, START/END roles, labelled conditional branches', async () => {
   const { out, edges } = await run('langgraph');
-  assert.deepEqual(out.groups.map(g => g.label), ['builder (agent/graph/builder.py)']);
+  assert.deepEqual(out.groups.map(g => g.label), ['builder']);
   assert.deepEqual(out.nodes.map(n => [n.label, n.role, n.subtitle, n.detail]), [
     ['chat', null, 'ConversationNode', 'ConversationNode(adapter)'], ['plan', null, 'plan_node', 'plan_node'],
     ['summarize', null, 'summarize', null], ['START', 'start', null, null], ['END', 'end', null, null]]);

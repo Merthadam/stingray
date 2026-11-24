@@ -15,7 +15,7 @@ rules:
     query: |
       (assignment left: (_) @graph
         right: (call function: [(identifier) @c (attribute attribute: (identifier) @c)] (#any-of? @c "StateGraph" "MessageGraph")))
-    emit: { group: { id: "@file:@graph", label: "@graph (@file)" } }
+    emit: { group: { id: "@file:@graph", label: "@graph" } }
   # add_node("name", handler) where handler is a function, an attribute or a call like ConversationNode(adapter).
   - id: step-handler
     language: python
