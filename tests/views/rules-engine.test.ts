@@ -182,7 +182,7 @@ test('graph steps merge with rule nodes by symbol; without a graph the step repo
     return {
       nodes: [node('s1', 'plan_step'), node('s3', 'fetch')],
       edges: [{ id: 'calls:s1->s3', from: 's1', to: 's3', fromField: null, toField: null, kind: 'calls', style: 'dashed', certain: false, label: null, source: null }],
-      diagnostic: { started: 1, reached: 2, helpers: 1, truncated: false, error: null }, truncated: false,
+      diagnostic: { depth: 2, started: 1, reached: 2, helpers: 1, truncated: false, error: null }, truncated: false,
     };
   };
   const view = viewOf(langgraphRules().slice(0, 1), { graph: step, scope: { include: ['**/*.py'], exclude: [] } });
@@ -192,7 +192,7 @@ test('graph steps merge with rule nodes by symbol; without a graph the step repo
     ['plan', 'plan', 'step', 's1', ['calls']], ['act', 'act', 'step', null, []], ['s3', 'fetch', 'function', 's3', []],
   ]);
   assert.deepEqual(out.edges.map(e => [e.id, e.from, e.to, e.style]), [['calls:plan->s3', 'plan', 's3', 'dashed']]);
-  assert.deepEqual(out.diagnostics.graph, { started: 1, reached: 2, helpers: 1, truncated: false, error: null });
+  assert.deepEqual(out.diagnostics.graph, { depth: 2, started: 1, reached: 2, helpers: 1, truncated: false, error: null });
   assert.equal(scoped!('a/b.py'), true);
   assert.equal(scoped!('a/b.ts'), false);
 

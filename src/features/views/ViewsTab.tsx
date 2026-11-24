@@ -42,7 +42,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
   const [diagnostics, setDiagnostics] = useState(false);
   const [saveAs, setSaveAs] = useState<ViewLocalState | null>(null);
   const [actionError, setActionError] = useState('');
-  // Flowchart, sequence and layers depth overrides by view id: session-only, never written back to the view file.
+  // Flowchart, sequence, layers and graph step depth overrides by view id: session-only, never written back to the view file.
   const [depths, setDepths] = useState<Record<string, number>>({});
   const [asText, setAsText] = useState<Record<string, boolean>>({}); // graph views the user switched to text, by view id
   const depthsRef = useRef(depths); depthsRef.current = depths;
@@ -176,9 +176,10 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     }}>
       {showText ? <><Network size={13} /> Show as diagram</> : <><FileText size={13} /> Show as text</>}</button>}
     {depth !== null && <label className="views-depth" title={depth.layers ? 'Drill down: 1 services, 2 modules, 3 files, 4 symbols (this session only)'
-      : result?.kind === 'sequence' ? 'Call levels followed (this session only)' : 'Call levels expanded inline (this session only)'}>Depth
+      : result?.kind === 'sequence' ? 'Call levels followed (this session only)' : result?.kind === 'flowchart' ? 'Call levels expanded inline (this session only)'
+      : 'Relation levels followed from the start symbols (this session only)'}>Depth
       <input type="range" min={depth.min} max={depth.max} step={1} value={depth.value}
-        aria-label={depth.layers ? 'Layers depth' : result?.kind === 'sequence' ? 'Sequence depth' : 'Flowchart depth'}
+        aria-label={depth.layers ? 'Layers depth' : result?.kind === 'sequence' ? 'Sequence depth' : result?.kind === 'flowchart' ? 'Flowchart depth' : 'Graph depth'}
         aria-valuetext={depth.layers ? LAYER_NAMES[depth.value] : undefined} onChange={e => changeDepth(Number(e.target.value))} />
       <span aria-hidden="true">{depth.layers ? LAYER_NAMES[depth.value] : depth.value}</span></label>}
     <button className={'views-tool ' + (diagnostics ? 'toggled' : '')} aria-pressed={diagnostics} disabled={!result} onClick={() => setDiagnostics(v => !v)}>

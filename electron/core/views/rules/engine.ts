@@ -282,7 +282,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
     let graphDiag: GraphStepDiagnostic | null = null;
     const graphEdges: DiagramEdge[] = [];
     if (view.graph) {
-      if (!graph) graphDiag = { started: 0, reached: 0, helpers: 0, truncated: false, error: `code graph not ready (${input.graphStatus.state})` };
+      if (!graph) graphDiag = { depth: view.graph.depth, started: 0, reached: 0, helpers: 0, truncated: false, error: `code graph not ready (${input.graphStatus.state})` };
       else try {
         const out = deps.runGraphStep(view.graph, graph, f => inScope(f, view.scope));
         graphDiag = out.diagnostic;
@@ -302,7 +302,7 @@ export function createEvaluate(deps: { runGraphStep: RunGraphStep }): Evaluate {
         }
         for (const e of out.edges) graphEdges.push({ ...e, from: ids.get(e.from) ?? e.from, to: ids.get(e.to) ?? e.to });
       } catch (e) {
-        graphDiag = { started: 0, reached: 0, helpers: 0, truncated: false, error: (e as Error).message };
+        graphDiag = { depth: view.graph.depth, started: 0, reached: 0, helpers: 0, truncated: false, error: (e as Error).message };
       }
     }
     // ---- flowchart ----
