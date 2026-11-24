@@ -88,7 +88,7 @@ Pick the view `kind` listed for the set; narrow with `scope`, add inline `rules`
 
 `terraform` and `cdk` nodes are drawn like AWS/Azure architecture diagrams: each resource/data source (Terraform, by
 type: `aws_*`, `azurerm_*`/`azuread_*`, `google_*`) and construct/stack (CDK, by class and module) carries its cloud
-`service` (official icon, name, category, short description, docs link; catalog in `src/infra/catalog.ts`), and file or
+`service` (official icon, name, category, short description, docs link; catalog in `shared/views/infra/catalog.ts`), and file or
 stack groups whose resources are all of one cloud become that cloud's group box. Unknown types of those providers get a
 generic service, unknown CDK classes a "CDK construct"; modules, outputs and other providers stay plain cards. `explain:`
 entries still add their own text next to the service description.

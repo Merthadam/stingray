@@ -21,7 +21,11 @@
   "include": [
     "src",
     "electron",
-    "tests/*.ts",
+    "shared",
+    "tests/**/*.ts",
     "vite.config.ts"
+  ],
+  "exclude": [
+    "tests/fixtures"
   ]
 }

@@ -14,9 +14,9 @@ Do not infer activity from terminal output, silence, process existence, or termi
 
 ## Baseline and scope
 
-- `electron/terminals.ts` owns PTYs; new terminals launch the user's login shell with temporary Pi attachment for zsh only.
-- `src/shared.ts` defines terminal snapshots/events and the narrow activity API; preload exposes validated main-process IPC.
-- `src/WorkspaceStatus.tsx` shows the independent Running terminal dot and `WorkspaceActivity` status. Shell liveness is never agent activity.
+- `electron/core/terminals/terminals.ts` owns PTYs; new terminals launch the user's login shell with temporary Pi attachment for zsh only.
+- `shared/contracts/` (`terminals.ts`, `activity.ts`) defines terminal snapshots/events and the narrow activity API; preload exposes validated main-process IPC.
+- `src/features/git/WorkspaceStatus.tsx` shows the independent Running terminal dot and `WorkspaceActivity` status. Shell liveness is never agent activity.
 - Existing card selection and discovered-port-only work is complete in source and must be preserved.
 - Historical tests are documented in `artifacts/testing/clickable-workspace-cards/verification.md`; they are not fresh verification of this plan.
 - PR diagnosis is separate and awaits a repository or PR URL. Stale/age UI is excluded.
@@ -27,7 +27,7 @@ Implementation and review were performed inline. The worker breakdown below is a
 
 The user explicitly rejected launch buttons: “no need for buttons we have the terminal”. Type `pi` in a newly created Stingray zsh terminal; there is no agent launch button or automatic agent launch.
 
-`electron/activity-shell.ts` generates private, temporary zsh startup proxies and a PATH wrapper. The proxies source the user's startup files in order and preserve ZDOTDIR changes; the wrapper resolves the real Pi executable at invocation time, adds the bundled `--extension`, and forwards quoted arguments. Existing extension arguments are retained. No persistent startup files or global hooks are written. Existing sessions are not retrofitted.
+`electron/adapters/driven/fs/activity-shell.ts` generates private, temporary zsh startup proxies and a PATH wrapper. The proxies source the user's startup files in order and preserve ZDOTDIR changes; the wrapper resolves the real Pi executable at invocation time, adds the bundled `--extension`, and forwards quoted arguments. Existing extension arguments are retained. No persistent startup files or global hooks are written. Existing sessions are not retrofitted.
 
 Other shells are untouched. Aliases/functions, absolute executable paths, later PATH overrides, nested-shell startup behavior, disabled startup files, `--no-extensions`, maintenance/help commands and noninteractive modes can bypass attachment. These are not proof of idle. The terminal footer distinguishes not attached from tracking unavailable. No automatic installation or provider invocation.
 
@@ -47,7 +47,7 @@ Codex local-only discovery/composition now passes for the installed version; act
 
 ## Multi-harness architecture
 
-- `electron/harnesses.ts` defines a `HarnessAdapter` per CLI (`pi`, `claude`, `codex`): display name and a generated PATH wrapper. All wrappers share the invocation-time resolver from the Pi wrapper (skip Stingray's bin dir, loop guard, non-TTY pass-through) plus per-CLI pass-through subcommands/flags. `ActivityShell.prepare` writes all three wrappers into the app-owned bin dir and the Claude settings file into the app-owned activity directory (0700/0600). Nothing is written to `~/.claude`, `~/.codex` or user shell directories.
+- `electron/core/activity/harnesses.ts` defines a `HarnessAdapter` per CLI (`pi`, `claude`, `codex`): display name and a generated PATH wrapper. All wrappers share the invocation-time resolver from the Pi wrapper (skip Stingray's bin dir, loop guard, non-TTY pass-through) plus per-CLI pass-through subcommands/flags. `ActivityShell.prepare` writes all three wrappers into the app-owned bin dir and the Claude settings file into the app-owned activity directory (0700/0600). Nothing is written to `~/.claude`, `~/.codex` or user shell directories.
 - How each reports:
   - **Pi**: the bundled extension streams `hello` + `state` over a long-lived socket (unchanged). `hello` is now v2 with `harness: 'pi'`; v1 is still accepted as Pi.
   - **Claude Code**: the wrapper adds `--settings <app-owned json>` (CLI flag for loading additional settings, layered over the user's; user hooks remain). Hooks run `agents/hook-client.ts` (bundled to `dist-electron/hook-client.cjs`) once per event.
@@ -59,9 +59,9 @@ Codex local-only discovery/composition now passes for the installed version; act
 
 ## Implemented Pi architecture
 
-Source ownership: `electron/activity.ts` (transport/service), `electron/activity-shell.ts` (attachment), `agents/pi-extension.ts` and `agents/pi-observer.ts` (version-gated lifecycle observation), `src/activity.ts` (labels/aggregation), `src/useActivity.ts` (revisioned snapshots/acknowledgement), `src/WorkspaceActivity.tsx` and `src/workspace-activity.css` (sidebar), with main/preload/PTY and `App`/`TerminalPane` integration.
+Source ownership: `electron/core/activity/activity.ts` (transport/service), `electron/adapters/driven/fs/activity-shell.ts` (attachment), `agents/pi-extension.ts` and `agents/pi-observer.ts` (version-gated lifecycle observation), `src/features/activity/activity.ts` (labels/aggregation), `src/features/activity/useActivity.ts` (revisioned snapshots/acknowledgement), `src/features/activity/WorkspaceActivity.tsx` and `src/features/activity/workspace-activity.css` (sidebar), with main/preload/PTY and `App`/`TerminalPane` integration.
 
-1. A main-process activity service owns terminal bindings, frame validation and per-run state. Renderer-safe helpers in `src/activity.ts` derive labels and workspace aggregation. Activity remains independent of terminal output buffers.
+1. A main-process activity service owns terminal bindings, frame validation and per-run state. Renderer-safe helpers in `src/features/activity/activity.ts` derive labels and workspace aggregation. Activity remains independent of terminal output buffers.
 2. A private Unix-domain socket connects per-invocation observers: directory mode 0700, socket mode 0600, random terminal-bound capability, no TCP listener. Limits are 64 sockets, 8 retained runs per terminal, 64 retired runtimes per run, 1 KiB frames, 8 KiB receive buffer and 100 frames/second/socket. Authentication expires after 2 seconds; only valid frames renew the 20-second lease. The observer sends full-state heartbeats every 5 seconds and bounds its write queue. Same-user hostile code or an agent already holding the capability is not isolated by this design.
 3. Strict allowlisted metadata only: protocol version, capability, opaque run/runtime identity and supported-version flag on authentication; sequence, phase and monotonic completion count thereafter. No prompts, model output, tool arguments/results, environment dumps, provider credentials, repository contents, or raw hook payloads enter activity frames or logs. Authentication material stays out of renderer snapshots and logs.
 4. Server-side bindings associate events with a terminal/workspace; observers cannot select arbitrary workspaces. Unknown/revoked bindings, malformed/oversized frames, duplicate/stale sequence values and retired runtimes are rejected. Reconnection uses full snapshots and a completion counter; runtime replacement retains unseen review without creating a duplicate run.
@@ -78,7 +78,7 @@ Source ownership: `electron/activity.ts` (transport/service), `electron/activity
 - Workspace priority: Waiting for you > Working > Needs review > Failed > Interrupted > Disconnected > Tracking unavailable > Idle. Per-run metadata and counts remain available; tooltips retain connection and last-observed phase even when unseen review takes priority.
 - Acknowledgement uses a view/focus/user interaction, an initialized rendered terminal at the live buffer bottom with no pending tracked writes, a visible terminal in the focused app, and the exact captured review revision. Output or activity snapshots alone do not acknowledge completion. Hidden panes, scrollback, Changes view and another terminal's interaction do not clear it.
 - Connection loss invalidates confidence without manufacturing completion. Unseen review survives disconnect and runtime reload. Terminal closure revokes its binding and removes activity. Cancellable compaction/tree boundaries can remain unknown if no resolving event arrives.
-- Persistence across restart (`electron/activity-history.ts`, `agent_activity` table, created with `IF NOT EXISTS` without bumping `user_version`, so older builds still open the database): only renderer-safe metadata (id, harness, terminal/workspace ids, last phase, needs-review flag, started/last-event/completed times) — never tokens, socket paths, prompts or output. Writes replace the table in one SQLite transaction at most once per second after a change (the timer is not reset; invalid records are skipped), and are flushed on `will-quit` before terminals close (closing a terminal still drops its entry). Load skips invalid rows and an unreadable database yields no history. Retention: 20 per workspace (Needs review first, then most recent), nothing older than 14 days. Not available on Windows, where the activity service does not start. Rows cascade with their workspace; worktree removal also drops in-memory entries.
+- Persistence across restart (`electron/adapters/driven/sqlite/activity-history-repository.ts`, `agent_activity` table, created with `IF NOT EXISTS` without bumping `user_version`, so older builds still open the database): only renderer-safe metadata (id, harness, terminal/workspace ids, last phase, needs-review flag, started/last-event/completed times) — never tokens, socket paths, prompts or output. Writes replace the table in one SQLite transaction at most once per second after a change (the timer is not reset; invalid records are skipped), and are flushed on `will-quit` before terminals close (closing a terminal still drops its entry). Load skips invalid rows and an unreadable database yields no history. Retention: 20 per workspace (Needs review first, then most recent), nothing older than 14 days. Not available on Windows, where the activity service does not start. Rows cascade with their workspace; worktree removal also drops in-memory entries.
 - Restored entries are shown separately as "previous session" with relative time, keeping Needs review or the last outcome (Failed/Interrupted/Idle; a run cut off mid-turn shows Disconnected). Their terminals no longer exist, so they are never acknowledged by viewing; the sidebar dismiss button clears a workspace's restored entries.
 
 These are implemented guards with bounded test coverage, not a proof of every render/event interleaving or real-provider lifecycle. No production defect was established in the final read-only review; no production code was changed during the documentation pass.
@@ -91,10 +91,10 @@ All initial workers are READ-ONLY design/research workers. They return findings 
 
 | Task | Dependencies | Bounded assignment | Required result |
 | --- | --- | --- | --- |
-| A: Core contract | None | Inspect `electron/terminals.ts`, `electron/main.ts`, `electron/preload.ts`, `src/shared.ts`; design transport, reducer, validation and cleanup | Typed protocol proposal, transition table, threat/failure cases, proposed file ownership |
+| A: Core contract | None | Inspect `electron/core/terminals/terminals.ts`, `electron/main.ts`, `electron/adapters/driving/ipc/preload.ts`, `shared/contracts/`; design transport, reducer, validation and cleanup | Typed protocol proposal, transition table, threat/failure cases, proposed file ownership |
 | B: Pi adapter | None | Read current Pi extension docs and relevant examples; inspect existing local research and Superset's global-extension design | Event/capability matrix, per-invocation alternative preserving global extensions, reload/queued-turn semantics, no-provider smoke plan |
 | C: Claude/Codex adapters | None | Review hook references and Superset findings; verify current official/version-specific behavior where read-only access permits | Separate capability matrices; prove safe local-only registration or return blocker; preserve hook trust; no copying Superset's trust bypass/project-trust changes |
-| D: UI and verification | None | Inspect `src/App.tsx`, `src/WorkspaceStatus.tsx`, `src/TerminalPane.tsx`, demo adapter and existing tests | Compact accessible UI proposal, aggregation/acknowledgement rules, test matrix and regression risks |
+| D: UI and verification | None | Inspect `src/app/App.tsx`, `src/features/git/WorkspaceStatus.tsx`, `src/features/terminals/TerminalPane.tsx`, demo adapter and existing tests | Compact accessible UI proposal, aggregation/acknowledgement rules, test matrix and regression risks |
 | E: Consolidate | A–D | Coordinator reconciles evidence and conflicts | One approved protocol, selected attachment strategy, exact ownership and executable verification plan |
 
 Worker completion envelope:
@@ -113,7 +113,7 @@ Blocked workers return `TASK_BLOCKED <task-id>` with the missing capability/deci
 The original proposal below was superseded by inline Pi-only implementation; Claude/Codex waves were not executed:
 
 1. Core owner adds protocol/reducer/service with unit tests. Coordinator alone owns shared API and main/preload/terminal integration to avoid cross-worker conflicts.
-2. Adapter workers implement disjoint Pi, Claude, and Codex adapter files/tests against the frozen contract. UI worker owns new activity UI/hook files and focused tests. Coordinator owns changes to existing `src/App.tsx`, `src/WorkspaceStatus.tsx`, and shared demo interfaces.
+2. Adapter workers implement disjoint Pi, Claude, and Codex adapter files/tests against the frozen contract. UI worker owns new activity UI/hook files and focused tests. Coordinator owns changes to existing `src/app/App.tsx`, `src/features/git/WorkspaceStatus.tsx`, and shared demo interfaces.
 3. Coordinator integrates and independently reviews security, lifecycle and acknowledgement behavior, then runs isolated verification.
 
 Prefer separate worktrees for editing workers, but provision only after approval and preserve the existing dirty baseline explicitly: a new worktree at HEAD alone would omit completed card/port refinements. No automatic commit, stash, reset, cherry-pick, or copying of unreviewed artifacts to establish the baseline. Never merge worker changes over unrelated edits.

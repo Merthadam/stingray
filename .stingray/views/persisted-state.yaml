@@ -2,5 +2,5 @@ version: 1
 name: App database (stingray.db)
 description: Persisted app state, read statically from the SQLite schema.
 kind: tables
-scope: { include: ["electron/database.ts"] }
+scope: { include: ["electron/adapters/driven/sqlite/database.ts"] }
 use: [sql]

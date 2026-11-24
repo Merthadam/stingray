@@ -1,6 +1,8 @@
 # Sequence views — implementation plan
 
-Spec: `docs/sequence-view-spec.md`. Contract: `SequenceData`, `SequenceDiagnostic` in `src/views.ts` (fixed; change
+Status: implemented.
+
+Spec: `docs/sequence-view-spec.md`. Contract: `SequenceData`, `SequenceDiagnostic` in `shared/contracts/views.ts` (fixed; change
 only with a note in the PR). Branch: `feature/sequencediagram`.
 
 ## Facts from probing stinggraph (v1.6.2-sting.2) on travella
@@ -9,7 +11,7 @@ only with a note in the PR). Branch: `feature/sequencediagram`.
 - Frontend → backend: `calls` edge from a client function to the `route` node, `provenance: heuristic`,
   `metadata: { synthesizedBy: "http-client", channel: "http", method, href, registeredAt, tier: "client→server" }`.
 - Route → handler: `references` edge from the route to the handler function (`metadata.refName`).
-- `GraphRelation` (electron/views/rules/types.ts) drops `metadata`; add `meta?: Record<string, unknown>` and fill it in
+- `GraphRelation` (electron/core/views/rules/types.ts) drops `metadata`; add `meta?: Record<string, unknown>` and fill it in
   both adapters of `codegraph-api.ts`.
 - A ready index of travella for probing: `/tmp/seq-probe` (`CodeGraph.open('/tmp/seq-probe', { readOnly: true })`).
 
@@ -28,7 +30,7 @@ implementation as built. Remaining gaps:
 - Validation views on travella live only in `/tmp/seq-probe/.stingray/views` (login, sign-in-route, auth-route,
   agent-run); none are committed to a repo.
 
-## Phase 1 — engine + CLI (`electron/views/sequence/`) — done
+## Phase 1 — engine + CLI (`electron/core/views/sequence/`) — done
 
 1. Types/schema: `SequenceStep` in `rules/types.ts` (`ResolvedView.sequence`), schema in `rules/schema.ts`
    (`KINDS` += sequence; strict keys; depth 0-6 default 3; participants enum; links subset; externals map; start =
@@ -42,8 +44,8 @@ implementation as built. Remaining gaps:
    `(fn: GraphSymbol, call?) => Hop[]`).
 5. Engine: `evaluate()` runs it when `view.sequence` (like flowchart); `ViewService.computeView` depth override
    (cache key) generalised to sequence; nodes mirror participants; `diagnostics.sequence`.
-6. CLI: `--depth` for sequence; text printer in `src/views-text.ts` per the spec.
-7. Tests `tests/sequence*.test.ts` with fake `GraphApi` + fixture sources (Python + TSX): ordering, depth, collapse vs
+6. CLI: `--depth` for sequence; text printer in `shared/views/views-text.ts` per the spec.
+7. Tests `tests/views/sequence*.test.ts` with fake `GraphApi` + fixture sources (Python + TSX): ordering, depth, collapse vs
    show, returns, alt/opt/loop/try fragments, http hop, externals, recursion, caps, schema errors, text output.
 
 ## Phase 2 — link sets — done
@@ -54,7 +56,7 @@ reuse `sets/langgraph*.ts` extraction), `events` (emit/publish/send_task/delay �
 
 ## Phase 3 — UI — done (plus "Fold into caller" per participant, zoom)
 
-`src/views-ui/SequenceDiagram.tsx` (+ pure `sequence-layout.ts`, unit-tested): SVG, sticky headers, lifelines,
+`src/features/views/views-ui/SequenceDiagram.tsx` (+ pure `sequence-layout.ts`, unit-tested): SVG, sticky headers, lifelines,
 activation bars from `level`, arrows/labels, fragments, notes, click → `onOpenSource`, participant → Inspector,
 depth slider (reuse the flowchart's in `views-tab-model.ts`), text fallback. Route `kind: sequence` in `ViewsTab.tsx`.
 `npm run test:views-tab` fixture.

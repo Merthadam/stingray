@@ -10,7 +10,7 @@ the tooltip and the Inspector. Old-format stamps (`legacy`) get a muted mark lab
 
 ## Contract (WP2 implements it; you code against it)
 
-In `src/views.ts`, add these yourself. WP2 adds identical lines, and the merge reconciles them.
+In `shared/contracts/views.ts`, add these yourself. WP2 adds identical lines, and the merge reconciles them.
 - `export type ExplanationStatus = 'view' | 'stale' | 'unstamped' | 'legacy';`
 - `explanationReason?: string;` on `DiagramNode` and `DiagramGroup` (right after `explanationStatus`). It's set for
   `stale` (e.g. `may be outdated: SessionStore.get_user changed; new call audit.log`) and for `legacy` (`old fingerprint
@@ -18,13 +18,13 @@ In `src/views.ts`, add these yourself. WP2 adds identical lines, and the merge r
 
 ## Read first
 
-- `src/views-ui/FlowNode.tsx`: `StaleMark`, `explanationTitle`, `STALE` (~L10–30), `FlowGroup`, the node explanation
-- `src/views-ui/FlowDiagram.tsx` ~L60–70 (group data) and ~L145–155 (group Inspector)
-- `src/views-ui/Inspector.tsx` ~L30–40
-- `src/views-ui/TableNode.tsx` ~L33
+- `src/features/views/views-ui/FlowNode.tsx`: `StaleMark`, `explanationTitle`, `STALE` (~L10–30), `FlowGroup`, the node explanation
+- `src/features/views/views-ui/FlowDiagram.tsx` ~L60–70 (group data) and ~L145–155 (group Inspector)
+- `src/features/views/views-ui/Inspector.tsx` ~L30–40
+- `src/features/views/views-ui/TableNode.tsx` ~L33
 - The CSS for `.flow-explanation`, `.er-card-explanation`, `.flow-inspector-explanation` and the stale mark (find it
-  with `rg -n "stale" src/*.css src/views-ui`)
-- `tests/views-tab.mjs` and `.agents/skills/run-local/SKILL.md` (disposable env + CDP)
+  with `rg -n "stale" src/features/views/views-ui/*.css src/features/views/views-ui`)
+- `tests/views/views-tab.mjs` and `.agents/skills/run-local/SKILL.md` (disposable env + CDP)
 
 ## Steps
 
@@ -56,7 +56,7 @@ In `src/views.ts`, add these yourself. WP2 adds identical lines, and the merge r
 
 ## Rules
 
-- Touch only `src/views-ui/*`, the related CSS, the two `src/views.ts` lines above, and tests. Don't touch the engine,
+- Touch only `src/features/views/views-ui/*`, the related CSS, the two `shared/contracts/views.ts` lines above, and tests. Don't touch the engine,
   CLI, or graph code.
 - Don't build or replace the installed app. Commit in small steps; don't push or open PRs. Report the commits,
   verification (with the screenshot path), and deviations.

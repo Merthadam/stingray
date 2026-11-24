@@ -1,6 +1,6 @@
 # Flowchart views — design spec
 
-Status: draft (design agreed, not implemented). Branch: `feature/workflow-diagram`.
+Status: implemented. Branch: `feature/workflow-diagram`.
 
 ## Goal
 
@@ -89,7 +89,7 @@ above (`if_statement`, `elif_clause`, `for_statement`, `try_statement`, `return_
 - Action/call: callee name split into words ("send_reset_email" → "send reset email"), receiver dropped.
 - Code text is always kept in `detail` and the source link, so tidying never hides what the code says.
 
-## UI (`src/ViewsTab.tsx`)
+## UI (`src/features/views/ViewsTab.tsx`)
 
 - Node renderers for `decision`/`loop` (diamond), `start`/`end`/`error` (pill), `call` (box with expand chevron).
 - Edge labels Yes/No/case.
@@ -99,16 +99,16 @@ above (`if_statement`, `elif_clause`, `for_statement`, `try_statement`, `return_
 
 ## Engine / CLI touch points
 
-- `src/views.ts`: add `'flowchart'` to `ViewKind`.
-- `electron/views/rules/schema.ts` + `view-file.ts`: parse/validate `flowchart:`.
-- New `electron/views/flowchart/` (`walk.ts` per-language adapters, `build.ts` CFG → diagram, `labels.ts`).
-- `electron/views/compute.ts`: dispatch `flowchart` views; accept a `depth` override.
+- `shared/contracts/views.ts`: add `'flowchart'` to `ViewKind`.
+- `electron/core/views/rules/schema.ts` + `view-file.ts`: parse/validate `flowchart:`.
+- New `electron/core/views/flowchart/` (`walk.ts` per-language adapters, `build.ts` CFG → diagram, `labels.ts`).
+- `electron/core/views/compute.ts`: dispatch `flowchart` views; accept a `depth` override.
 - `stingray-views check` prints the flowchart as indented text (decisions with Yes/No branches) and `--depth N`.
 - Skill doc (`stingray-views` SKILL.md): document the kind.
 
 ## Testing
 
-- Unit tests (`tests/*.test.ts`) on small Python and TS fixtures: if/else, elif chains, loops, try/except, early
+- Unit tests (`tests/views/*.test.ts`) on small Python and TS fixtures: if/else, elif chains, loops, try/except, early
   return, raise, nested calls at depth 0/1/2, recursion guard, node cap.
 - Travella: clone `Merthadam/travella`, add `.stingray/views/auth-login.yaml`, run `stingray-views check`, compare
   with the code by hand; then the agent nodes with depth 2.

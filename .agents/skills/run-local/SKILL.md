@@ -15,9 +15,9 @@ npm ci && npm run setup     # deps + Electron binary / PTY helper
 
 ## Run the app
 
-- **Native (macOS, fastest loop):** `npm run dev` — builds Electron main, serves the renderer with Vite
-  hot reload and opens the app. Uses your real app data unless you set `STINGRAY_DATA_DIR=/tmp/somewhere`
-  (do that when testing, so your own projects/worktrees are untouched).
+- **Native (macOS, fastest loop):** `npm run dev` — serves the renderer with Vite hot reload, rebuilds the main
+  process on save and restarts Electron. Uses its own data dir (`~/Library/Application Support/Stingray-dev`, printed
+  at start), so your real projects/worktrees are untouched; set `STINGRAY_DATA_DIR=/tmp/somewhere` for a throwaway one.
 - **Disposable Docker env (isolated, inspectable by agents):**
 
 ```bash
