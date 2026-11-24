@@ -457,6 +457,18 @@ test('100k treemap stays within DOM budget, preserves exact coverage and termina
   console.log(`100k treemap model + validation: ${(performance.now() - start).toFixed(1)}ms; ${tiles.length} nodes; ${steps} drill steps`);
 });
 
+test('maxDepth limits nesting below the focused folder; deeper folders stay terminal with exact coverage', () => {
+  const files = ['a/b/c/one.ts', 'a/b/two.ts', 'a/three.ts', 'd/e/four.ts', 'top.ts'].map(path => ({ path, status: '' }));
+  const root = buildRepoTree(files);
+  for (const [maxDepth, deepest] of [[1, 0], [2, 1], [Infinity, 3]] as const) {
+    const tiles = treemap(root.children, 1200, 700, '', 2000, maxDepth);
+    validateGeometry(tiles, 1200, 700);
+    assert.equal(Math.max(...tiles.map(t => t.depth)), deepest);
+    assert.equal(aggregate(tiles.filter(t => t.terminal).map(t => t.totals)).total, files.length);
+  }
+  assert.deepEqual(treemap(root.children, 1200, 700, '', 2000, 1).map(t => [t.name, t.terminal]), [['a', true], ['d', true], ['top.ts', true]]);
+});
+
 test('deep trees and empty/unknown weights stay finite without recursive stack growth', () => {
   const path = 'x/'.repeat(1500) + 'file';
   const root = buildRepoTree([{ path, status: '' }, { path: 'empty', status: '', size: { state: 'known', textLines: 0, source: 'working tree' } }]);

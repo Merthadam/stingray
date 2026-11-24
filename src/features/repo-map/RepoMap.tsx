@@ -14,6 +14,11 @@ import './repo-map.css';
 const scopeKey = 'stingray-repo-map-scope-v1';
 const scopeLabels: Record<RepoMapScope, string> = { branch: 'Branch', uncommitted: 'Uncommitted' };
 const scopeTitles: Record<RepoMapScope, string> = { branch: 'Changes on this branch: working tree vs the merge-base with origin/main, like the sidebar and a PR diff', uncommitted: 'Uncommitted changes: working tree vs HEAD' };
+// Nested folder levels drawn at once; deeper levels open with a click (a whole repo nested at once is overwhelming).
+const layersKey = 'stingray-repo-map-layers-v1';
+const layerOptions = [{ value: 1, label: '1', title: 'Top layer only: folders and files of the focused folder' }, { value: 2, label: '2', title: 'Two layers: each folder shows its contents' },
+  { value: Infinity, label: 'All', title: 'All layers that fit' }] as const;
+const readLayers = () => { try { const v = localStorage.getItem(layersKey); return v === 'all' ? Infinity : v === '2' ? 2 : 1; } catch { return 1; } };
 const untrackedNote = 'untracked files are shown on the map but not counted.';
 type Props = { workspace: Workspace; reveal: { path: string; line: number | null; nonce: number } | null };
 export function RepoMap({ workspace, reveal }: Props) {
@@ -23,6 +28,8 @@ export function RepoMap({ workspace, reveal }: Props) {
   const [busy, setBusy] = useState(false);
   const [changedOnly, setChangedOnly] = useState(false);
   const [scope, setScope] = useState<RepoMapScope>(() => localStorage.getItem(scopeKey) === 'uncommitted' ? 'uncommitted' : 'branch');
+  const [layers, setLayers] = useState<number>(readLayers);
+  const changeLayers = (next: number) => { setLayers(next); try { localStorage.setItem(layersKey, next === Infinity ? 'all' : String(next)); } catch { /* Optional preference. */ } };
   const [selected, setSelected] = useState('');
   const [panel, setPanel] = useState<'file' | null>(null);
   const [mode, setMode] = useState<'diff' | 'file'>('diff');
@@ -166,13 +173,15 @@ export function RepoMap({ workspace, reveal }: Props) {
         : <LineCounts added={0} removed={0} unknown={1} notice={headerLines.message} />)}{snapshot && scope === 'branch' && !branchBase && <small className="map-scope-fallback">vs HEAD · no origin/main</small>}</span></h2></div>
       <div className="map-scope" role="radiogroup" aria-label="Compare the map against">{(['branch', 'uncommitted'] as const).map(value =>
         <button key={value} role="radio" aria-checked={scope === value} title={scopeTitles[value]} onClick={() => changeScope(value)}>{scopeLabels[value]}</button>)}</div>
+      <div className="map-scope map-layers" role="radiogroup" aria-label="Map layers"><span aria-hidden="true">Layers</span>{layerOptions.map(option =>
+        <button key={option.label} role="radio" aria-checked={layers === option.value} aria-label={`${option.label === 'All' ? 'All' : option.label} ${option.value === 1 ? 'layer' : 'layers'}`} title={option.title} onClick={() => changeLayers(option.value)}>{option.label}</button>)}</div>
       <label className="map-filter"><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Only changes</label>
       <button className="icon" aria-label="Refresh repository map" title="Refresh repository map" disabled={busy} onClick={() => void refresh(true)}><RefreshCw size={15} className={busy ? 'spin' : ''} /></button>
     </div>
     {error && <div role="alert" className="inline-error">{error}{snapshot && ' · Showing the last successful map.'}</div>}
     {revealError && <div role="alert" className="inline-error">{revealError}</div>}
     <div ref={body} className={'repo-map-body ' + (expandedReader ? 'reader-expanded' : '')}>
-      <RepoMapCanvas snapshot={snapshot} scope={scope} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={showAll} backRef={navigateBack} revealRef={revealFile} query={query} onQueryChange={setQuery} />
+      <RepoMapCanvas snapshot={snapshot} scope={scope} layers={layers} busy={busy} changedOnly={changedOnly} onFile={openFile} viewportRef={viewport} onShowAll={showAll} backRef={navigateBack} revealRef={revealFile} query={query} onQueryChange={setQuery} />
       {panel && !expandedReader && <div className="inspector-divider" role="separator" tabIndex={0} aria-label="Resize inspector" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={Math.max(210, bodyWidth - 180)} aria-valuenow={Math.round(inspectorWidth)}
         onPointerDown={event => { event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId) && body.current) setPreferredWidth(clampWidth(body.current.getBoundingClientRect().right - event.clientX)); }}

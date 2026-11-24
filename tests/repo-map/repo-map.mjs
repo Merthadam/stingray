@@ -113,6 +113,12 @@ try {
   check('inspector starts closed with no reserved panel space', await page.locator('.map-inspector').count() === 0);
   await framed('dense nested overview fits on one screen');
   check('no pan/zoom controls, pictograms or pagination', await page.locator('.map-controls,.map-pagination,.map-tile.file svg').count() === 0);
+  check('default shows only the top layer', await page.getByRole('radio', { name: '1 layer' }).getAttribute('aria-checked') === 'true' &&
+    await page.locator('.map-tile[data-depth="1"]').count() === 0 && await page.locator('.folder-frame').count() === 0 && await page.locator('.map-tile.folder.terminal-tile').count() > 0);
+  await page.getByRole('radio', { name: '2 layers' }).click();
+  check('two layers nest one level only', await page.locator('.map-tile[data-depth="1"]').count() > 0 && await page.locator('.map-tile[data-depth="2"]').count() === 0);
+  await page.getByRole('radio', { name: 'All layers' }).click();
+  check('layer choice persists', await page.evaluate(() => localStorage.getItem('stingray-repo-map-layers-v1')) === 'all');
   check('folder frames contain nested descendants', await page.locator('.map-tile[data-depth="1"]').count() > 0 && await page.locator('.folder-frame').count() > 0);
   check('default all-files view includes unchanged entries', await page.locator('.map-tile.file.clean').count() > 0);
   const snapshot = await page.evaluate(id => window.stingray.repoSnapshot(id), id);

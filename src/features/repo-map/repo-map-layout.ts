@@ -33,7 +33,9 @@ export function squarify(weights: number[], bounds: Rect): Rect[] {
   }
   return result;
 }
-export function treemap(nodes: MapNode[], width: number, height: number, folder = '', budget = 2000): LayoutTile[] {
+// maxDepth: nested levels drawn below the focused folder (1 = its direct children only); deeper folders stay
+// terminal summary tiles that the user opens with a click.
+export function treemap(nodes: MapNode[], width: number, height: number, folder = '', budget = 2000, maxDepth = Infinity): LayoutTile[] {
   if (width <= 0 || height <= 0 || !nodes.length) return [];
   const result: LayoutTile[] = [];
   const stack = [{ nodes, bounds: { x: 3, y: 3, width: Math.max(0, width - 6), height: Math.max(0, height - 6) }, folder, parent: '', depth: 0, budget: Math.max(2, Math.min(2000, budget)) }];
@@ -53,7 +55,7 @@ export function treemap(nodes: MapNode[], width: number, height: number, folder 
       if (tile.node && !tile.node.file) {
         const allowance = Math.floor(remaining * tile.node.total / Math.max(1, descendants));
         descendants -= tile.node.total;
-        if (allowance >= 2 && bounds.width > 44 && bounds.height > 48) {
+        if (task.depth + 1 < maxDepth && allowance >= 2 && bounds.width > 44 && bounds.height > 48) {
           remaining -= allowance; item.terminal = false;
           stack.push({ nodes: tile.node.children, bounds: { x: bounds.x + 3, y: bounds.y + 21, width: bounds.width - 6, height: bounds.height - 24 }, folder: tile.node.path, parent: tile.id, depth: task.depth + 1, budget: allowance });
         }
