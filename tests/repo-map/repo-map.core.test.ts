@@ -95,3 +95,47 @@ test('a snapshot that finishes after forget is not cached for the forgotten work
   await service.inspectFile('w', 'a.ts');
   assert.equal(statusCalls, 2, 'inspectFile falls back to a fresh status read instead of the forgotten snapshot');
 });
+
+const branchStatus = (changes: GitStatus['changes']): GitStatus => ({ ...status(changes), base: 'origin/main' });
+const sha = 'b'.repeat(40);
+
+test('branch scope: committed-only files from name-status, numstat against the merge-base', async () => {
+  const { inventory, calls } = scriptedInventory({ lsFiles: 'a.ts\0new.ts\0c.ts\0', mergeBase: sha + '\n',
+    nameStatus: 'M\0a.ts\0D\0gone.ts\0R090\0old.ts\0c.ts\0', numstat: '2\t1\ta.ts\x000\t4\tgone.ts\x001\t1\t\0old.ts\0c.ts\0', grep: 'a.ts\x002\nnew.ts\x003\nc.ts\x001\n' });
+  const map = await repoSnapshot('/repo', branchStatus([{ path: 'new.ts', status: '??' }]), true, { inventory, files: memoryFiles({ 'a.ts': 'x', 'new.ts': 'y', 'c.ts': 'z' }) });
+  assert.equal(map.baseCommit, sha); assert.equal(map.scope, 'branch');
+  const file = (name: string) => map.files.find(f => f.path === name)!;
+  assert.deepEqual([file('a.ts').status, file('a.ts').committed, file('a.ts').lines], ['M ', true, { added: 2, removed: 1 }]);
+  assert.deepEqual([file('gone.ts').status, file('gone.ts').lines, file('gone.ts').size], ['D ', { added: 0, removed: 4 }, { state: 'known', source: 'origin/main', textLines: 4 }]);
+  assert.deepEqual([file('c.ts').status, file('c.ts').originalPath, file('c.ts').lines], ['R ', 'old.ts', { added: 1, removed: 1 }]);
+  assert.deepEqual([file('new.ts').committed, file('new.ts').lines], [undefined, { added: 3, removed: 0 }]);
+  assert.ok(calls.some(c => c[0] === 'diff' && c[1] === sha), 'numstat compares with the merge-base');
+});
+
+test('branch scope falls back to HEAD when the merge-base fails; uncommitted scope never asks for it', async () => {
+  for (const [scope, answers] of [['branch', { mergeBase: new Error('unrelated') }], ['branch', { mergeBase: 'not-a-sha' }], ['uncommitted', { mergeBase: sha }]] as const) {
+    const { inventory, calls } = scriptedInventory({ lsFiles: 'a.ts\0', numstat: '1\t0\ta.ts\0', grep: 'a.ts\x001\n', ...answers });
+    const map = await repoSnapshot('/repo', branchStatus([{ path: 'a.ts', status: ' M' }]), true, { inventory, files: memoryFiles({ 'a.ts': 'x' }) }, scope);
+    assert.equal(map.baseCommit, undefined); assert.equal(map.scope, scope);
+    assert.ok(!calls.some(c => c[1] === '--name-status'));
+    assert.ok(calls.some(c => c[0] === 'diff' && c[1] === 'HEAD'));
+    assert.equal(calls.some(c => c[0] === 'merge-base'), scope === 'branch');
+  }
+});
+
+test('RepoMapService caches and dedupes per scope; inspectFile reads the requested scope snapshot', async () => {
+  const { inventory, calls } = scriptedInventory({ lsFiles: 'a.ts\0', grep: 'a.ts\x001\n', mergeBase: sha, nameStatus: 'D\0gone.ts\0' });
+  let statusCalls = 0;
+  const service = new RepoMapService({
+    git: { workspace: async id => ({ id, repoId: id, name: 'w', branch: 'b', path: '/repo', managed: false, previewUrl: '' }), status: async () => { statusCalls++; return branchStatus([]); } },
+    inventory, files: memoryFiles({ 'a.ts': 'hello\n' }),
+  });
+  const [branch, uncommitted] = await Promise.all([service.repoSnapshot('w'), service.repoSnapshot('w', 'uncommitted')]);
+  assert.equal(statusCalls, 2); assert.notEqual(branch, uncommitted);
+  assert.ok(branch.files.some(f => f.path === 'gone.ts')); assert.ok(!uncommitted.files.some(f => f.path === 'gone.ts'));
+  const gone = await service.inspectFile('w', 'gone.ts');
+  assert.equal(statusCalls, 2, 'cached branch snapshot');
+  assert.deepEqual(calls.filter(c => c[0] === 'show').map(c => c[1]), [`${sha}:gone.ts`]);
+  assert.equal(gone.source, 'origin/main');
+  await assert.rejects(service.inspectFile('w', 'gone.ts', 'uncommitted'), /inventory/);
+});

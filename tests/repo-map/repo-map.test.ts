@@ -381,12 +381,12 @@ test('staged deletion plus same-path untracked replacement preserves both diff s
 });
 
 test('snapshot reconciliation preserves file identity but not actual Git/count/error changes', () => {
-  const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, uncommitted: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, base: 'HEAD',
+  const base: RepoSnapshot = { branch: 'main', changes: [], lines: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, uncommitted: { kind: 'available', added: 0, deleted: 0, binaryFiles: 0 }, base: 'HEAD', scope: 'branch',
     files: [{ path: 'a', status: '', lines: { added: 0, removed: 0 }, size: { state: 'known', source: 'working tree', textLines: 2 } }] };
   const idle = structuredClone(base);
   assert.equal(reconcileSnapshot(base, idle), base);
   for (const change of [{ branch: 'other' }, { statsNotice: 'Git unavailable' },
-    { lines: { kind: 'unavailable' as const, message: 'unavailable' } }]) {
+    { lines: { kind: 'unavailable' as const, message: 'unavailable' } }, { scope: 'uncommitted' as const }, { baseCommit: 'a'.repeat(40) }]) {
     const next = reconcileSnapshot(base, { ...idle, ...change });
     assert.notEqual(next, base); assert.equal(next.files, base.files);
   }
@@ -394,6 +394,8 @@ test('snapshot reconciliation preserves file identity but not actual Git/count/e
   assert.notEqual(reconcileSnapshot(base, counted).files, base.files);
   const renamed = structuredClone(base); renamed.files[0].originalPath = 'old';
   assert.notEqual(reconcileSnapshot(base, renamed), base);
+  const committed = structuredClone(base); committed.files[0].committed = true;
+  assert.notEqual(reconcileSnapshot(base, committed).files, base.files);
 });
 
 test('sizes are isolated by workspace and does not alter index or source', async () => {
@@ -524,4 +526,72 @@ test('quantized layout weights stay stable for small line edits while totals sta
   assert.equal(tree(100).textLines, 100); assert.equal(tree(101).textLines, 101);
   assert.equal(tree(0).weight, 1);
   assert.deepEqual(treemap(tree(100).children, 600, 400).map(t => [t.x, t.y, t.width, t.height]), treemap(tree(101).children, 600, 400).map(t => [t.x, t.y, t.width, t.height]));
+});
+
+test('branch scope compares with the merge-base of origin/main like the sidebar; uncommitted scope keeps HEAD', async () => {
+  const f = await fixture();
+  const commit = (message: string) => git(f.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', message]);
+  try {
+    await writeFile(path.join(f.repo, 'gone.txt'), 'bye\n');
+    await writeFile(path.join(f.repo, 'moved.txt'), 'one\ntwo\nthree\nfour\n');
+    await writeFile(path.join(f.repo, 'other.txt'), 'other\n');
+    await git(f.repo, ['add', '.']); await commit('base');
+    await git(f.repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    const base = (await git(f.repo, ['rev-parse', 'HEAD'])).trim();
+    await git(f.repo, ['switch', '-q', '-c', 'feature']);
+    await writeFile(path.join(f.repo, 'existing.txt'), 'changed\n');
+    await writeFile(path.join(f.repo, 'committed.txt'), 'a\nb\n');
+    await git(f.repo, ['rm', '-q', 'gone.txt']); await git(f.repo, ['mv', 'moved.txt', 'renamed.txt']);
+    await git(f.repo, ['add', '.']); await commit('feature');
+    await writeFile(path.join(f.repo, 'other.txt'), 'edited\n');
+    await writeFile(path.join(f.repo, 'new.txt'), 'untracked\n');
+
+    const status = await f.service.status(f.id);
+    assert.equal(status.base, 'origin/main');
+    const map = await f.service.repoSnapshot(f.id);
+    const file = (name: string) => map.files.find(file => file.path === name);
+    assert.equal(map.scope, 'branch'); assert.equal(map.baseCommit, base);
+    assert.deepEqual(file('existing.txt'), { path: 'existing.txt', status: 'M ', committed: true, lines: { added: 1, removed: 1 }, size: { state: 'known', source: 'working tree', textLines: 1 } });
+    assert.deepEqual([file('committed.txt')?.status, file('committed.txt')?.committed, file('committed.txt')?.lines], ['A ', true, { added: 2, removed: 0 }]);
+    assert.deepEqual([file('gone.txt')?.status, file('gone.txt')?.committed, file('gone.txt')?.lines, file('gone.txt')?.size], ['D ', true, { added: 0, removed: 1 }, { state: 'known', source: 'origin/main', textLines: 1 }]);
+    assert.deepEqual([file('renamed.txt')?.status, file('renamed.txt')?.originalPath, file('renamed.txt')?.committed, file('renamed.txt')?.lines], ['R ', 'moved.txt', true, { added: 0, removed: 0 }]);
+    assert.equal(file('moved.txt'), undefined);
+    assert.deepEqual([file('other.txt')?.status, file('other.txt')?.committed, file('other.txt')?.lines], [' M', undefined, { added: 1, removed: 1 }]);
+    assert.deepEqual([file('new.txt')?.status, file('new.txt')?.lines], ['??', { added: 1, removed: 0 }]);
+    // Tracked root totals are the sidebar's number; untracked files are mapped but not counted there.
+    const tracked = buildRepoTree(map.files.filter(file => file.status !== '??'));
+    assert.deepEqual({ added: tracked.added, deleted: tracked.removed }, { added: 4, deleted: 3 });
+    assert.ok(status.lines.kind === 'available' && status.lines.added === tracked.added && status.lines.deleted === tracked.removed);
+
+    const edited = await f.service.inspectFile(f.id, 'existing.txt');
+    assert.match(edited.committed, /-original/); assert.match(edited.committed, /\+changed/);
+    assert.equal(edited.staged, ''); assert.equal(edited.unstaged, '');
+    const gone = await f.service.inspectFile(f.id, 'gone.txt');
+    assert.deepEqual([gone.content, gone.source], ['bye\n', 'origin/main']); assert.match(gone.committed, /-bye/);
+    assert.match((await f.service.inspectFile(f.id, 'renamed.txt')).committed, /moved\.txt/);
+    const uncommittedEdit = await f.service.inspectFile(f.id, 'other.txt');
+    assert.equal(uncommittedEdit.committed, ''); assert.match(uncommittedEdit.unstaged, /\+edited/);
+
+    const plain = await f.service.repoSnapshot(f.id, 'uncommitted');
+    const before = (name: string) => plain.files.find(file => file.path === name);
+    assert.equal(plain.scope, 'uncommitted'); assert.equal(plain.baseCommit, undefined);
+    assert.ok(plain.files.every(file => !file.committed));
+    assert.deepEqual([before('existing.txt')?.status, before('renamed.txt')?.status, before('gone.txt')], ['', '', undefined]);
+    assert.deepEqual([before('other.txt')?.status, before('other.txt')?.lines], [' M', { added: 1, removed: 1 }]);
+    assert.equal(buildRepoTree(plain.files.filter(file => file.status !== '??')).added, 1);
+    await assert.rejects(f.service.inspectFile(f.id, 'gone.txt', 'uncommitted'), /inventory/);
+    assert.equal((await f.service.inspectFile(f.id, 'existing.txt', 'uncommitted')).committed, '');
+    assert.equal(map, await f.service.repoSnapshot(f.id).then(next => reconcileSnapshot(map, next)));
+  } finally { await f.cleanup(); }
+});
+
+test('branch scope without a usable origin/main falls back to HEAD', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.repo, 'existing.txt'), 'changed\n');
+    const map = await f.service.repoSnapshot(f.id, 'branch');
+    assert.equal(map.base, 'HEAD'); assert.equal(map.baseCommit, undefined);
+    assert.deepEqual(map.files.find(file => file.path === 'existing.txt')?.status, ' M');
+    assert.ok(map.files.every(file => !file.committed));
+  } finally { await f.cleanup(); }
 });

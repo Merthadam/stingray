@@ -10,7 +10,7 @@ export function sameGitStatus(a: GitStatus, b: GitStatus) {
 }
 function sameFile(a: RepoFile, b: RepoFile) {
   const x = a.size, y = b.size;
-  return a.path === b.path && a.status === b.status && a.originalPath === b.originalPath &&
+  return a.path === b.path && a.status === b.status && a.originalPath === b.originalPath && a.committed === b.committed &&
     a.untrackedReplacement === b.untrackedReplacement && a.lineNotice === b.lineNotice &&
     a.lines?.added === b.lines?.added && a.lines?.removed === b.lines?.removed &&
     x?.state === y?.state && x?.source === y?.source &&
@@ -20,7 +20,8 @@ function sameFile(a: RepoFile, b: RepoFile) {
 export function reconcileSnapshot(previous: RepoSnapshot | null, next: RepoSnapshot): RepoSnapshot {
   if (!previous) return next;
   const files = previous.files.length === next.files.length && previous.files.every((file, i) => sameFile(file, next.files[i])) ? previous.files : next.files;
-  if (files === previous.files && sameGitStatus(previous, next) && previous.statsNotice === next.statsNotice) return previous;
+  if (files === previous.files && sameGitStatus(previous, next) && previous.statsNotice === next.statsNotice &&
+    previous.scope === next.scope && previous.baseCommit === next.baseCommit) return previous;
   return { ...next, files };
 }
 
