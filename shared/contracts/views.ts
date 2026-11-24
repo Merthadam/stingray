@@ -56,6 +56,9 @@ export interface DiagramNode {
   explanationReason?: string;  // why the status is stale/legacy/unstamped, e.g. "may be outdated: SessionStore::get_user changed"
   aliases?: string[];          // extra keys of a rule node (emit.node.aliases), e.g. for `explain:`; absent when none
   failures?: NodeFailure[];    // flowchart summary: guards folded into this step ("can fail" badge); absent when none
+  callPath?: string;           // flowchart call node: its stable call path ("finish>create_session", "audit#2"), see
+                               // FlowchartStep.expand; absent for other nodes
+  expandable?: boolean;        // flowchart call node whose callee can be drawn inline (api.view `expanded`); absent = no
   service?: InfraService;      // cloud service of a Terraform resource/data source or CDK construct/stack (builtin terraform
                                // and cdk sets); drawn as its official icon; absent for other nodes
 }
@@ -89,6 +92,7 @@ export interface DiagramGroup {
   explanationStatus?: ExplanationStatus;
   explanationReason?: string;  // as on DiagramNode
   symbol?: SymbolRef | null;   // flowchart expanded call: the callee
+  callPath?: string;           // flowchart expanded call: the call path, as on the call node it replaces
   provider?: InfraProvider;    // every service node in the group is of this cloud: drawn as that cloud's group box
 }
 
@@ -307,12 +311,15 @@ const nodeIds = (max: number) => z.array(z.string().min(1).max(300)).max(max);
 export const viewLocalStateSchema = z.strictObject({ hidden: nodeIds(2000), positions: positionsSchema, expanded: nodeIds(500) });
 
 const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
+const callPaths = z.array(z.string().min(1).max(300)).max(100);
 export const viewsContract = defineContract('views', {
   invoke: {
     views: [z.tuple([idSchema]), returns<ViewSummary[]>()],
     /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
-     * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it. */
-    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional() }).optional()]), returns<ViewResult>()],
+     * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it.
+     * `expanded`/`collapsed` (flowcharts): call paths drawn open/closed on top of the view's `flowchart.expand` and depth. */
+    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional(),
+      expanded: callPaths.optional(), collapsed: callPaths.optional() }).optional()]), returns<ViewResult>()],
     /** Local (app data) state of a view in a worktree; null when none saved yet. */
     viewState: [z.tuple([idSchema, viewIdSchema]), returns<ViewLocalState | null>()],
     saveViewState: [z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), returns<void>()],

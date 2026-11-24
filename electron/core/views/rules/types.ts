@@ -62,6 +62,9 @@ export interface FlowchartStep {
   exclude?: string[];
   hide?: string[];                            // calls drawn as nothing (no box, no expansion): callee names or dotted
                                               // paths ("log", "self.metrics.*"); '*' matches any run of characters
+  expand?: string[];                          // calls expanded beyond `depth`: a call path ("finish>create_session",
+                                              // "audit#2") or a callee name (any call of it inside an expanded frame)
+  collapse?: string[];                        // runtime only (Views tab): call paths drawn closed even within `depth`
 }
 
 export const LINK_SETS = ['http', 'auth', 'langgraph', 'events'] as const;

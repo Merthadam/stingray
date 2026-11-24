@@ -682,3 +682,35 @@ def helper(k):
   const ts = await run(files, [], { start: { symbol: 'go', file: 'n.ts' }, hide: ['metrics.*'] });
   assert.deepEqual(ts.nodes.filter(n => n.kind === 'action').map(n => n.label), ['parse', 'store']);
 });
+
+test('call paths: callee names from the entry joined by ">", "#n" for the n-th call of a name in one body; on call nodes and groups', async () => {
+  const flat = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0 });
+  assert.deepEqual(flat.nodes.filter(n => n.kind === 'call').map(n => [n.label, n.callPath, n.expandable]), [
+    ['load user', 'load_user', true], ['send reset email', 'send_reset_email', true], ['audit', 'audit', true], ['audit', 'audit#2', true],
+  ]);
+  const deep = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 2 });
+  assert.deepEqual(deep.groups.map(g => [g.label, g.callPath]), [
+    ['load_user', 'load_user'], ['db_get', 'load_user>db_get'], ['send_reset_email', 'send_reset_email'], ['audit', 'audit'], ['audit', 'audit#2'],
+  ]);
+  // `query` draws nothing (only `return None`): a call node that cannot be expanded.
+  const query = node(deep.nodes, 'query');
+  assert.deepEqual([query.callPath, query.expandable], ['load_user>db_get>query', undefined]);
+});
+
+test('flowchart.expand opens calls by callee name or exact path beyond the depth; collapse (exact paths) wins over depth', async () => {
+  const byName = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0, expand: ['audit', 'db_get'] });
+  // `db_get` is only reached inside load_user, which stays closed at depth 0.
+  assert.deepEqual(byName.groups.map(g => g.callPath), ['audit', 'audit#2']);
+  const byPath = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0, expand: ['audit#2', 'load_user', 'load_user>db_get'] });
+  assert.deepEqual(byPath.groups.map(g => g.callPath), ['load_user', 'load_user>db_get', 'audit#2']);
+  assert.equal(byPath.groups[1].parent, byPath.groups[0].id);
+  const collapsed = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 2, collapse: ['load_user>db_get', 'audit'], expand: ['audit'] });
+  assert.deepEqual(collapsed.groups.map(g => g.callPath), ['load_user', 'send_reset_email', 'audit#2']);
+  assert.deepEqual([node(collapsed.nodes, 'db get').callPath, node(collapsed.nodes, 'db get').expandable], ['load_user>db_get', true]);
+});
+
+test('a recursive call is not expandable, even when expand names it', async () => {
+  const out = await run(TS, ['go>go'], { start: { symbol: 'go' }, depth: 0, expand: ['go'] });
+  const self = out.nodes.find(n => n.kind === 'call')!;
+  assert.deepEqual([self.callPath, self.expandable, self.subtitle], ['go', undefined, 'recursive']);
+});

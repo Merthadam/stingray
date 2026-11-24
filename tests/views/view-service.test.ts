@@ -164,6 +164,21 @@ test('a depth override recomputes only flowchart views, keyed by depth, and code
   assert.notEqual(service.computeView('ws', root, 'chart', { depth: 2 }), pending);
 });
 
+test('expanded/collapsed call paths are part of the computation key and reach the flowchart step; the file layout is dropped', async t => {
+  const { root, host, service } = await setup(t);
+  await writeFile(path.join(root, '.stingray/views/chart.yaml'), 'version: 1\nname: Chart\nkind: flowchart\nflowchart:\n  start: { symbol: login }\n  depth: 0\n  expand: [audit]\nlayout:\n  positions:\n    start@1: { x: 5, y: 6 }\n');
+  const graph = host.open('ws', root) as FakeGraph;
+  graph.evaluate = async () => ({ groups: [], nodes: [], edges: [], warnings: [], truncated: false, stats: {},
+    diagnostics: { rules: [], graph: null, unresolved: [], limits: { filesScanned: 0, matches: 0, truncated: false }, ms: 0 } });
+  const opened = service.computeView('ws', root, 'chart', { expanded: ['b', 'audit', 'a>c'], collapsed: ['x'] });
+  assert.equal(service.computeView('ws', root, 'chart', { expanded: ['a>c', 'b', 'audit'], collapsed: ['x'] }), opened);
+  assert.notEqual(service.computeView('ws', root, 'chart', { expanded: ['a>c', 'b', 'audit'] }), opened);
+  assert.equal((await opened).layout, null);
+  const step = graph.evaluated.find(v => v.flowchart?.collapse?.length)!.flowchart!;
+  assert.deepEqual([step.expand, step.collapse], [['audit', 'b', 'a>c'], ['x']]);
+  assert.deepEqual((await service.computeView('ws', root, 'chart')).layout?.positions, { 'start@1': { x: 5, y: 6 } });
+});
+
 test('a depth override (0-6) recomputes sequence views and passes the result sequence through; flowchart depth is clamped to 4', async t => {
   const { root, host, events, service } = await setup(t);
   await writeFile(path.join(root, '.stingray/views/login.yaml'), 'version: 1\nname: Login\nkind: sequence\nsequence:\n  start: { symbol: login }\n');
