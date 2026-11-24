@@ -147,6 +147,13 @@ when it reads as words (`3 files`); a code-like one (a handler name, a path, `Co
 are in the inspector's Code section. The text form (`check`, "Show as text") keeps the raw labels. So: put intent into a
 docstring or `explain:` entry (shown under the title), not into `subtitle`/`detail`.
 
+Steps a reader needs described are marked when they have no docstring or `explain:` text (muted title, hollow dot), and
+`check` ends with them as `undescribed steps` with the key that names each: in graph and flow views every step backed by a
+symbol (graph steps, layers symbols, rule nodes with `symbol:`) and every flow step (keyed by its symbol name, else its node
+id); in flowcharts see below. Services, modules, files, cloud resources and tables are never listed. In the app the
+inspector's "Describe…" / "Edit description" works on every graph and flow card and, through its title, on every frame
+(see Explanations).
+
 ## Graph steps
 
 Follow the code graph (CodeGraph index of the worktree) from start symbols:
@@ -407,11 +414,12 @@ explain:
   An entry whose code cannot be fingerprinted (unreadable or too large file, no end line) warns with the reason.
   `diagnostics.explain` in `--json` has each entry's matches, `status`, current `pieces`, `skipped` callees, `changes`
   (changed, added, removed piece keys) and source files.
-- The Views tab writes entries too: "Describe…" / "Edit description" in a flowchart step's (or expanded call's)
-  inspector sets `explain.<key>` in the view file with the current fingerprint (comments kept; unstamped while the code
+- The Views tab writes entries too: "Describe…" / "Edit description" in a flowchart step's (or expanded call's), a
+  graph or flow card's or a frame's inspector sets `explain.<key>` in the view file with the current fingerprint (comments kept; unstamped while the code
   graph is not ready), and "Remove" deletes the entry so the docstring shows again. The key is the entry that explains
-  the step now, else the one `check` suggests (the function name or a code snippet), else the node id when that snippet
-  names several steps. Builtin views have no file: save them as a view first. Review these entries like your own.
+  the step now, else the one `check` suggests (the function name, a flowchart step's code snippet, else the node or group
+  id), else the node id when that key names several steps. Saving rewrites flow collections with padding (`[a]` →
+  `[ a ]`). Builtin views have no file: save them as a view first. Review these entries like your own.
 - CI: `stingray-views check <file> --strict` exits 1 (after printing `strict: N explanation(s) need review` to stderr)
   when any entry is stale, unstamped or legacy; it combines with `--json` but not with `--restamp`. Without a code
   graph only legacy and unstamped entries can be detected.
