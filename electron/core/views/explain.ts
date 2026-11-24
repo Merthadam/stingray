@@ -34,14 +34,21 @@ export function drawnFingerprint(t: Target, nodes: DiagramNode[] = [], groups: D
     (n.fields ?? []).map(f => [squash(f.label), squash(f.type), f.badges.map(squash)]), ...(members.length ? [members] : [])]));
 }
 
-/** Nodes/groups an `explain:` key names: node id, group id, alias (rule node aliases; a table's name or model class), then
- * symbol name (every node and group linked to it). The first kind that matches wins. */
+/** Flowchart steps an `explain:` key may name by a snippet of their code (a decision's condition, a statement). */
+const CODE_STEPS = new Set(['decision', 'loop', 'action', 'call', 'end', 'error']);
+const MIN_SNIPPET = 3;
+
+/** Nodes/groups an `explain:` key names: node id, group id, alias (rule node aliases; a table's name or model class),
+ * symbol name (every node and group linked to it), then a snippet of a flowchart step's code (every step whose code
+ * contains it, whitespace-insensitive). The first kind that matches wins. */
 export function explainTargets(key: string, nodes: DiagramNode[], groups: DiagramGroup[]): Target[] {
+  const snippet = squash(key);
   const tiers: (() => Target[])[] = [
     () => nodes.filter(n => n.id === key),
     () => groups.filter(g => g.id === key),
     () => nodes.filter(n => n.aliases?.includes(key) || (n.kind === 'table' && (n.label === key || n.subtitle === key))),
     () => [...nodes, ...groups].filter(t => t.symbol?.name === key),
+    () => snippet.length < MIN_SNIPPET ? [] : nodes.filter(n => CODE_STEPS.has(n.kind) && !!n.detail && squash(n.detail).includes(snippet)),
   ];
   for (const tier of tiers) { const found = tier(); if (found.length) return found; }
   return [];
@@ -104,6 +111,15 @@ export async function collectPieces(targets: Target[], nodes: DiagramNode[], gro
 }
 
 const NO_CHANGES: ExplainChanges = { changed: [], added: [], removed: [] };
+
+/** Flowchart steps the reader cannot understand without the code: decisions and loops, calls and actions with no
+ * explanation (docstring or `explain:`). `key` is an `explain:` key that names the step: the function name for a call,
+ * else its code (one line, at most 80 characters: a prefix still matches). Pure. */
+export function undescribedSteps(result: Pick<ViewResult, 'kind' | 'nodes'>): { node: DiagramNode; key: string }[] {
+  if (result.kind !== 'flowchart') return [];
+  return result.nodes.filter(n => !n.explanation && (n.kind === 'decision' || n.kind === 'loop' || n.kind === 'action' || n.kind === 'call'))
+    .map(n => ({ node: n, key: n.kind === 'call' && n.symbol ? n.symbol.name : squash(n.detail || n.label).slice(0, 80).trimEnd() }));
+}
 
 /** Status of a stored fingerprint against the current pieces: none → unstamped, a string → legacy (old format, own body
  * only), a map → view when equal, else stale with the changed, added and removed piece keys (sorted). Pure. */

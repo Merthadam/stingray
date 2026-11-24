@@ -2,7 +2,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import type { DiagramGroup, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, computeView } from '../../electron/app/wiring/views';
+import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, undescribedSteps, computeView } from '../../electron/app/wiring/views';
 import type { GraphSymbol } from '../../electron/core/views/rules/types';
 import { formatText } from '../../shared/views/views-text';
 
@@ -74,6 +74,28 @@ test('explainTargets: node id, then group id, then alias or table name/model, th
   assert.deepEqual(ids('call:py:verify'), ['call:py:verify']);
   assert.deepEqual(ids('verify'), ['call@3', 'call@9', 'call:py:verify']);
   assert.deepEqual(ids('nope'), []);
+});
+
+test('explainTargets: a snippet of a flowchart step\'s code names it, after every other kind of key', () => {
+  const nodes = [node('d@3', { kind: 'decision', label: 'has user?', detail: 'user  is None' }), node('a@5', { kind: 'action', label: 'log', detail: 'log(user)' }),
+    node('t', { kind: 'table', detail: 'user is None' }), node('user', { kind: 'step' })];
+  const ids = (key: string) => explainTargets(key, nodes, []).map(t => t.id);
+  assert.deepEqual(ids('user is   None'), ['d@3'], 'whitespace-insensitive, flowchart steps only');
+  assert.deepEqual(ids('user'), ['user'], 'a node id wins over a snippet');
+  assert.deepEqual(ids('(user)'), ['a@5']);
+  assert.deepEqual(ids('is'), [], 'too short to be a snippet');
+});
+
+test('undescribedSteps: flowchart decisions, loops, calls and actions without an explanation, with a key that names each', () => {
+  const verify = sym('verify');
+  const steps = [node('s', { kind: 'start', label: 'login' }), node('d', { kind: 'decision', label: 'has user?', detail: 'user is None' }),
+    node('c', { kind: 'call', label: 'verify', symbol: verify, detail: 'verify(t)' }), node('a', { kind: 'action', label: 'clock', detail: 'now = clock()' }),
+    node('x', { kind: 'call', label: 'finish', detail: 'finish()', explanation: 'Create the session.' })];
+  assert.deepEqual(undescribedSteps({ kind: 'flowchart', nodes: steps }).map(({ node: n, key }) => [n.id, key]),
+    [['d', 'user is None'], ['c', 'verify'], ['a', 'now = clock()']]);
+  assert.deepEqual(undescribedSteps({ kind: 'flow', nodes: steps }), []);
+  // every key printed names its step again
+  for (const { node: n, key } of undescribedSteps({ kind: 'flowchart', nodes: steps })) assert.ok(explainTargets(key, steps, []).some(t => t.id === n.id), key);
 });
 
 test('applyExplain overrides docstrings, flags stale and unstamped entries, lists unknown keys as unresolved', async () => {
