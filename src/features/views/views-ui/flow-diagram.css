@@ -1,14 +1,14 @@
 .flow-diagram .er-toolbar-extra{margin-left:auto}
 .flow-card{height:100%;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:10px 14px;border:1px solid #594333;border-radius:7px;background:#2b231d;box-shadow:0 4px 14px #0005;color:#efe4da;font-size:12px}
 .flow-card strong,.flow-card span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.flow-card span{font-size:10px;color:#b5a395;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flow-card span{font-size:10.5px;color:#b5a395}
 .flow-card.flow-pill{padding:0 10px;border-radius:20px;text-align:center;font-size:10px;letter-spacing:.6px;background:#29342d;border-color:#536a58;color:#c0d6c3}
 .flow-card.flow-pill.end{background:#382b29;border-color:#73544c;color:#ddc0b5}
 .flow-card .react-flow__handle{width:4px;height:4px;min-width:0;min-height:0;background:#94775f;border:0}
 .flow-diagram .react-flow__node.selected .flow-card{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .flow-diagram .react-flow__node:focus-visible .flow-card{outline:2px solid #fff1df;outline-offset:3px}
 .flow-frame{background:#201c1944;border:1px solid #4a3a30;border-radius:10px;pointer-events:none}
-.flow-frame-label{padding:12px 16px;color:#b9a28f;font-size:12px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-frame-label{padding:12px 16px;color:#b9a28f;font-size:12px;line-height:16px;font-weight:550;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .flow-edge .react-flow__edge-path{stroke:#a28b78;stroke-width:1.5}
 .flow-edge.dashed .react-flow__edge-path{stroke-dasharray:5 4}
 .flow-edge.selected .react-flow__edge-path,.flow-edge:focus-visible .react-flow__edge-path{stroke:var(--accent);stroke-width:2}
@@ -38,8 +38,8 @@
 .flow-explanation-stale.legacy{background:#3d322a;color:#cbb9aa;font-weight:500}
 .flow-inspector-explanation{margin:12px 14px 0;color:#e2d5ca;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.5}
 .flow-inspector-explanation-reason{margin:4px 14px 0;color:#c7b6a8;overflow-wrap:anywhere;font-size:11px;line-height:1.5}
-.flow-fields{margin:0;padding:0;list-style:none;font:10.5px/18px ui-monospace,SFMono-Regular,Menlo,monospace;color:#cbb9aa}
-.flow-fields li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-fields{margin:0;padding:0;list-style:none;font:11px/16px system-ui,-apple-system,sans-serif;color:#cbb9aa}
+.flow-fields li{overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .flow-fields li::before{content:'· ';color:#94775f}
 .flow-fields li.flow-fields-more{color:#94775f}
 .flow-fields li.flow-fields-more::before{content:none}
@@ -66,11 +66,11 @@
 .flow-card.flow-infra .react-flow__handle{opacity:0}
 /* Flowchart cards: labels wrap (3 lines in boxes, 2 in pills) instead of one ellipsed line; the selected card shows its
  * full label and explanation, growing over its neighbours. */
-.flow-card[class*="flow-chart-"] strong,.flow-card.flow-pill strong{white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-height:16px}
+.flow-card[class*="flow-chart-"] strong,.flow-card.flow-step strong,.flow-card.flow-pill strong{white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-height:16px}
 .flow-card.flow-pill strong{-webkit-line-clamp:2;line-height:12px}
 .flow-card[class*="flow-chart-"] span.flow-call-hint{white-space:normal}
-.flow-diagram .react-flow__node.selected .flow-card[class*="flow-chart-"],.flow-diagram .react-flow__node.selected .flow-card.flow-pill{height:auto;min-height:100%}
-.flow-diagram .react-flow__node.selected .flow-card strong,.flow-diagram .react-flow__node.selected .flow-card .flow-explanation,.flow-diagram .react-flow__node.selected .flow-diamond strong{-webkit-line-clamp:unset;overflow:visible}
+.flow-diagram .react-flow__node.selected .flow-card[class*="flow-chart-"],.flow-diagram .react-flow__node.selected .flow-card.flow-step,.flow-diagram .react-flow__node.selected .flow-card.flow-pill{height:auto;min-height:100%}
+.flow-diagram .react-flow__node.selected .flow-card strong,.flow-diagram .react-flow__node.selected .flow-card .flow-explanation,.flow-diagram .react-flow__node.selected .flow-fields li,.flow-diagram .react-flow__node.selected .flow-diamond strong{-webkit-line-clamp:unset;overflow:visible}
 .flow-diamond strong{-webkit-line-clamp:3;overflow-wrap:anywhere;line-height:16px}
 .flow-diagram .react-flow__node.selected .flow-diamond{min-height:100%;height:auto;padding:24px 38px}
 .flow-edge-label{white-space:normal;max-width:220px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;text-align:center}

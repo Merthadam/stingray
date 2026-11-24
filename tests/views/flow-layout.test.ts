@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines, chartLabel, undescribed } from '../../src/features/views/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, cardSubtitle, cardTitle, edgeLabel, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines, chartLabel, undescribed } from '../../src/features/views/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -120,8 +120,36 @@ test('flowchart layout nests expanded callees as frames inside their caller and 
 test('step cards grow by one row per field (graph views: collapsed helpers), explanation room on top', () => {
   const helper = (name: string) => ({ id: `helper:${name}`, label: name, type: null, badges: [], detail: 'helper', source: null });
   const handle = { ...node('handle', null), fields: [helper('clean'), helper('log')] };
-  assert.deepEqual(flowSize(handle), { width: 220, height: 100 });
-  assert.deepEqual(flowSize({ ...handle, explanation: 'Handle a request.' }), { width: 260, height: 148 });
+  assert.deepEqual(flowSize(handle), { width: 220, height: 85 });
+  assert.deepEqual(flowSize({ ...handle, explanation: 'Handle a request.' }), { width: 260, height: 133 });
+  assert.equal(flowSize({ ...handle, fields: [helper('normalize_the_incoming_request_payload_before_validation')] }).height, 85, 'a long field wraps to 2 lines');
+});
+
+test('step cards show words, never code: identifier titles in words, code-like subtitles and edge breakdowns off the canvas', () => {
+  const symbol = { id: 's', name: 'get_user', kind: 'function', file: 'a.py', line: 1 };
+  assert.equal(cardTitle({ ...node('get_user', null), symbol }), 'get user');
+  assert.equal(cardTitle({ ...node('planTrip', null), kind: 'step' }), 'plan trip', 'LangGraph steps');
+  assert.equal(cardTitle({ ...node('App service', null), kind: 'service' }), 'App service');
+  assert.equal(cardTitle({ ...node('models.py', null), kind: 'file' }), 'models.py');
+  assert.equal(cardTitle({ ...node('START', null, 'start'), kind: 'step' }), 'START', 'pills keep their label');
+  const sub = (subtitle: string, extra: Partial<DiagramNode> = {}) => cardSubtitle({ ...node('n', null), subtitle, ...extra });
+  assert.equal(sub('3 files'), '3 files');
+  for (const code of ['plan_trip', 'plan', 'ConversationNode(adapter)', 'services/auth', './modules/vpc', 's3.Bucket'])
+    assert.equal(sub(code), null, code);
+  assert.equal(sub('get user', { symbol: { ...symbol, name: 'get user' } }), null);
+  assert.equal(edgeLabel({ kind: 'depends', label: '141 · imports 44, calls 40' }), '141');
+  assert.equal(edgeLabel({ kind: 'branch', label: 'retry · later' }), 'retry · later');
+  const long = { ...node('store_the_encrypted_auth_record_and_return_the_random_token', null), kind: 'step' };
+  assert.deepEqual(flowSize(long), { width: 300, height: 64 }, 'a title over 2 lines widens the card');
+  assert.deepEqual(flowSize({ ...node('x', null), subtitle: '3 files' }), { width: 220, height: 67 }, 'a prose subtitle gets a line');
+});
+
+test('frame titles wrap to two lines and the frame grows upwards for the second', () => {
+  const frame = (label: string) => flowFrames({ ...result, groups: [{ id: 'g', label, source: null }], nodes: [node('a', 'g')], edges: [] } as ViewResult,
+    { a: { x: 0, y: 100 } })[0];
+  assert.deepEqual([frame('Agent').y, frame('Agent').head], [50, 50]);
+  const long = frame('a very long graph title that cannot fit on one line of this small frame');
+  assert.deepEqual([long.y, long.head, long.height], [34, 66, frame('Agent').height + 16]);
 });
 
 test('explained nodes and frames get room for the explanation; others keep their size', async () => {
@@ -131,7 +159,7 @@ test('explained nodes and frames get room for the explanation; others keep their
   assert.deepEqual(flowSize(chartNode('s', 'start', null, why), true), { width: 260, height: 84 });
   assert.deepEqual(flowSize(chartNode('d', 'decision', null, why), true), { width: 300, height: 104 }, 'diamonds show it as their title, not under it');
   assert.deepEqual(flowSize(chartNode('c', 'call', null), true), { width: 220, height: 56 });
-  assert.deepEqual(flowSize({ ...node('step', null), explanation: why }), { width: 260, height: 112 });
+  assert.deepEqual(flowSize({ ...node('step', null), explanation: why }), { width: 260, height: 96 });
   assert.deepEqual(flowSize({ ...node('start', null, 'start'), explanation: why }), { width: 88, height: 32 }, 'flow pills never show it');
   const chart = {
     kind: 'flowchart',
@@ -188,7 +216,7 @@ test('step cards list at most 8 fields plus a +N more row, and size for exactly 
   const card = (n: number) => ({ ...node('x', null), fields: fields(n) });
   assert.deepEqual(cardFields(card(8)), { fields: fields(8), more: 0 });
   assert.deepEqual(cardFields(card(20)), { fields: fields(8), more: 12 });
-  assert.equal(flowSize(card(8)).height + 18, flowSize(card(9)).height, '9 fields: 8 rows + the more row');
+  assert.equal(flowSize(card(8)).height + 16, flowSize(card(9)).height, '9 fields: 8 rows + the more row');
   assert.equal(flowSize(card(9)).height, flowSize(card(500)).height);
 });
 

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../../../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../../../../shared/views/infra/catalog';
 import { infraIconUrl } from '../infra/icons';
-import { cardFields, chartLabel, failureText, infraName, showsExplanation, undescribed } from './flow-layout';
+import { cardFields, cardSubtitle, cardTitle, chartLabel, failureText, infraName, showsExplanation, undescribed } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -27,7 +27,7 @@ export const explanationTitle = (text: string, status?: ExplanationStatus, reaso
 export const ExplanationReason = ({ status, reason }: { status?: ExplanationStatus; reason?: string }) =>
   reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; file?: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
   steps?: { all: boolean; toggle: () => void }; onCollapse?: () => void }>>) {
   const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
@@ -40,7 +40,7 @@ export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: I
         onClick={data.onCollapse}><ChevronDown size={13} /></button>}</div>}
     {data.provider && <img className="flow-frame-cloud-icon" src={infraIconUrl(INFRA_GROUP_ICONS[data.provider])} alt="" draggable={false} />}
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
-      : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
+      : <div className="flow-frame-label" title={data.file ? `${data.label}\n${data.file}` : data.label}>{data.label}</div>}
     {data.explanation && <button className="flow-frame-explanation nodrag" aria-label={`Explanation of ${data.label}${note ? ` (${note})` : ''}: ${data.explanation}`}
       title={explanationTitle(data.explanation, data.explanationStatus, data.explanationReason)} onClick={data.onExplain}><span className="flow-explanation"><StaleMark status={data.explanationStatus} />{data.explanation}</span></button>}
   </>;
@@ -102,13 +102,15 @@ const InfraCard = ({ node: n }: { node: DiagramNode }) => <div className={`flow-
   <Handle type="target" position={Position.Right} id="return-in" style={{ top: '30%' }} />
 </div>;
 
+/** Graph, flow and layers cards: the title in words (wrapped, 3 lines; the raw name on hover), a prose subtitle, fields and
+ * the explanation. No code: a code-like subtitle and `detail` are in the inspector. The selected card shows its full text. */
 export const FlowNode = memo(function FlowNode({ data }: NodeProps<FlowStepNode>) {
-  const n = data.node, { fields, more } = cardFields(n);
+  const n = data.node, { fields, more } = cardFields(n), sub = cardSubtitle(n);
   if (n.service) return <InfraCard node={n} />;
-  return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ''}`}>
+  return <div className={`flow-card${n.role ? ` flow-pill ${n.role}` : ' flow-step'}`}>
     <Handle type="target" position={Position.Top} id="in" />
-    <strong title={n.label}>{n.label}</strong>
-    {!n.role && (n.subtitle || n.detail) && <span title={n.subtitle || n.detail || undefined}>{n.subtitle || n.detail}</span>}
+    <strong title={n.label}>{cardTitle(n)}</strong>
+    {!n.role && sub && <span title={sub}>{sub}</span>}
     {!n.role && n.fields.length > 0 && <ul className="flow-fields" aria-label={`Fields of ${n.label}`}>
       {fields.map(f => <li key={f.id} title={f.detail ? `${f.label} · ${f.detail}` : f.label}>{f.label}</li>)}
       {more > 0 && <li className="flow-fields-more">+{more} more</li>}</ul>}
