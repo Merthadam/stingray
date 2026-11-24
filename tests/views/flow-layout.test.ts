@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramEdge, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines } from '../../src/features/views/views-ui/flow-layout';
+import { FRAME_EXPLANATION_HEIGHT, bandEntry, cardFields, flowFrames, flowGrid, frameIndex, flowGraph, flowPositions, flowSize, infraName, shortEdgeLabel, textLines, chartLabel, undescribed } from '../../src/features/views/views-ui/flow-layout';
 
 const node = (id: string, group: string | null, role: DiagramNode['role'] = null): DiagramNode => ({
   id, label: id, group, role, kind: 'step', subtitle: 'handler', detail: null, fields: [], source: null, symbol: null, order: null,
@@ -74,6 +74,17 @@ test('flowchart cards grow with their label instead of cutting it', () => {
   assert.equal(flowSize(card('error', 'HTTPException: invalid credentials for this user'), true).width, 300);
 });
 
+test('a decision\'s explanation titles its diamond; steps without one are undescribed', () => {
+  const card = (kind: string, explanation?: string): DiagramNode => ({ ...node('n', null), kind, label: "result get 'ChallengeName' is…", explanation });
+  const asked = card('decision', 'Cognito asks for a challenge (MFA, new password) before signing in?');
+  assert.equal(chartLabel(asked), asked.explanation);
+  assert.equal(chartLabel(card('call', 'Verify the password.')), "result get 'ChallengeName' is…", 'other cards show it under the label');
+  assert.deepEqual(flowSize(asked, true), { width: 300, height: 104 }, 'sized for the explanation');
+  assert.equal(undescribed(card('decision')), true);
+  assert.equal(undescribed(asked), false);
+  assert.equal(undescribed(card('end')), false);
+});
+
 test('branch targets are placed left to right in router condition order', async () => {
   const positions = await flowPositions(new ELK(), result);
   const xs = ['stays', 'flights', 'cars', 'trains'].map(id => positions[id].x);
@@ -118,7 +129,7 @@ test('explained nodes and frames get room for the explanation; others keep their
   const why = 'Accept a Cognito access token and return the signed-in user.';
   assert.deepEqual(flowSize(chartNode('c', 'call', null, why), true), { width: 260, height: 104 });
   assert.deepEqual(flowSize(chartNode('s', 'start', null, why), true), { width: 260, height: 84 });
-  assert.deepEqual(flowSize(chartNode('d', 'decision', null, why), true), { width: 220, height: 88 }, 'diamonds never show it');
+  assert.deepEqual(flowSize(chartNode('d', 'decision', null, why), true), { width: 300, height: 104 }, 'diamonds show it as their title, not under it');
   assert.deepEqual(flowSize(chartNode('c', 'call', null), true), { width: 220, height: 56 });
   assert.deepEqual(flowSize({ ...node('step', null), explanation: why }), { width: 260, height: 112 });
   assert.deepEqual(flowSize({ ...node('start', null, 'start'), explanation: why }), { width: 88, height: 32 }, 'flow pills never show it');

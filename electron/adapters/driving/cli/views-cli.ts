@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { DbSchemaResult } from '../../../../shared/contracts/db-schema';
 import type { ExplainDiagnostic, GraphStatus, ViewSummary, ViewWarning } from '../../../../shared/contracts/views';
 import { formatText } from '../../../../shared/views/views-text';
-import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS, calleesOf, computeView, explainPair, type Evaluate, type FileProvider, type GraphApi, type ViewFileEntry } from '../../../core/views';
+import { BUILTIN_SETS, EXTRACTOR_DESCRIPTIONS, TS_EXTRACTORS, calleesOf, computeView, explainPair, undescribedSteps, type Evaluate, type FileProvider, type GraphApi, type ViewFileEntry } from '../../../core/views';
 
 type LoadedView = ViewFileEntry;
 export interface OpenedGraph {
@@ -47,6 +47,7 @@ export const USAGE = `Usage:
   stingray-views help                         the full guide (view format, rules, workflow)
   stingray-views --version`;
 
+const MAX_TODO = 30; // undescribed steps listed by check
 const isInside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel); };
 const where = (w: ViewWarning, fallback: string | null = null) => {
   const file = w.file ?? fallback;
@@ -182,6 +183,14 @@ async function check(input: string, json: boolean, deps: CliDeps, depth: number 
     deps.out('warnings:');
     for (const w of result.warnings.slice(0, 50)) deps.out(`  ${where(w)}`);
     if (result.warnings.length > 50) deps.out(`  … ${result.warnings.length - 50} more`);
+  }
+  const todo = undescribedSteps(result);
+  if (todo.length) {
+    // The steps a reader cannot follow without the code: write an explain: entry for the unclear ones (the key as printed).
+    deps.out(`undescribed steps (${todo.length}; describe unclear ones with explain: <key>: { text: ... }):`);
+    const yamlKey = (k: string) => /^[A-Za-z_][\w.]*$/.test(k) ? k : `'${k.replace(/'/g, "''")}'`;
+    for (const { node: n, key } of todo.slice(0, MAX_TODO)) deps.out(`  ${n.kind} "${n.label}"${n.source ? ` L${n.source.line}` : ''}  key: ${yamlKey(key)}`);
+    if (todo.length > MAX_TODO) deps.out(`  … ${todo.length - MAX_TODO} more`);
   }
   deps.out(`scanned ${d.limits.filesScanned} files, ${d.limits.matches} matches${d.limits.truncated ? ' (truncated: a limit was hit)' : ''}`);
   deps.out('');

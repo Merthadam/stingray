@@ -15,7 +15,7 @@ export { MAX_VIEW_STATES, MAX_VIEW_STATE_BYTES } from './view-state';
 export { SEQUENCE_LIMITS } from './sequence/walk';
 export { YamlError, explainPair, parseRuleFileYaml, parseViewYaml } from './rules/schema';
 export type { ExplainEntry } from './rules/schema';
-export { applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets } from './explain';
+export { applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, undescribedSteps } from './explain';
 export { callLabel, caseLabel, decisionLabel, endLabel, errorLabel, loopLabel, splitWords, words } from './flowchart/labels';
 export { calleesOf } from './rules/callees';
 export { computeView } from './compute';

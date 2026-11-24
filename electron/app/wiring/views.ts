@@ -37,7 +37,7 @@ export { createFileProvider, MAX_FILES, MAX_SOURCE_BYTES } from '../../adapters/
 export { codegraphGrammarDir, initTreeSitter, GRAMMAR_FILES } from '../../adapters/driven/tree-sitter/grammars';
 export {
   MAX_VIEW_STATES, computeView, databaseView, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint,
-  explainTargets, MAX_EXPLANATION, docstringSummary, explanationOf, MAX_FLOWCHART_NODES, callLabel, caseLabel, decisionLabel, endLabel,
+  explainTargets, undescribedSteps, MAX_EXPLANATION, docstringSummary, explanationOf, MAX_FLOWCHART_NODES, callLabel, caseLabel, decisionLabel, endLabel,
   errorLabel, loopLabel, splitWords, words, withInfraServices, calleesOf, LIMITS, createEvaluate, evaluate, MAX_GRAPH_NODES, runGraphStep,
   runLayers, YamlError, parseRuleFileYaml, parseViewYaml, renderTemplate, templateCaptures, LINK_SETS, viewSlug, SEQUENCE_LIMITS,
   BUILTIN_SETS, TS_EXTRACTORS, EXTRACTOR_DESCRIPTIONS, MAX_VIEW_FILES, inScope, tablesView, fileImports, externalCall,

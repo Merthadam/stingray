@@ -74,3 +74,6 @@
 .flow-diamond strong{-webkit-line-clamp:3;overflow-wrap:anywhere;line-height:16px}
 .flow-diagram .react-flow__node.selected .flow-diamond{min-height:100%;height:auto;padding:24px 38px}
 .flow-edge-label{white-space:normal;max-width:220px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;text-align:center}
+/* A step without a description (docstring or explain: entry): a small hollow dot after its label, muted label. */
+.flow-undescribed{display:inline-block;width:6px;height:6px;margin-left:6px;vertical-align:2px;border:1px solid #b9a28f;border-radius:50%;opacity:.8}
+.flow-card.undescribed strong,.flow-diamond.undescribed strong{color:#cfc0b3;font-weight:500}
