@@ -36,8 +36,8 @@ await put('app/models.py', models);
 await put('agent/graph/builder.py', await readFile(fileURLToPath(new URL('../fixtures/views/langgraph/agent/graph/builder.py', import.meta.url)), 'utf8'));
 await put('.stingray/views/agent-flow.yaml', 'version: 1\nname: Agent flow\nkind: flow\nuse: [langgraph]\n');
 await put('.stingray/views/steps.yaml', 'version: 1\nname: Steps text\nkind: timeline\nrules:\n  - id: step\n    language: python\n    query: \'(call function: (attribute attribute: (identifier) @m (#eq? @m "add_node")) arguments: (argument_list . (string (string_content) @name)))\'\n    emit: { node: { id: "@name", label: "@name" } }\n');
-await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
-  + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    check_password(user, password)\n    return user\n');
+await put('app/auth.py', 'def check_password(user, password):\n    """Reject inactive users, then verify the password.\n\n    Raises ValueError.\n    """\n    user.refresh()\n    if not user.active:\n        raise ValueError("inactive")\n    return verify(password)\n\n\n'
+  + 'def login(email, password):\n    user = find_user(email)\n    if user is None:\n        return None\n    audit_login(email)\n    check_password(user, password)\n    return user\n');
 await put('app/handlers.py', 'def clean(value):\n    """Trim and lowercase a value."""\n    return value.strip().lower()\n\n\n'
   + 'def load(name):\n    """Load a record by its cleaned name."""\n    return clean(name)\n\n\n'
   + 'def handle(request):\n    """Handle a request end to end."""\n    record = load(request)\n    return clean(record)\n');
@@ -120,7 +120,7 @@ try {
   await chart.getByRole('button', { name: 'Select transition Yes' }).waitFor();
   check('flowchart draws pills, a decision diamond and a call box with its hidden steps',
     await chart.locator('.flow-diamond').count() === 1 && await chart.locator('.flow-pill').count() === 3
-    && (await chart.locator('.flow-chart-call').innerText()).includes('+3 steps'));
+    && (await chart.locator('.flow-chart-call').innerText()).includes('+4 steps'));
   check('a call box shows its callee docstring summary as a visible explanation',
     await chart.locator('.flow-chart-call .flow-explanation').innerText() === 'Reject inactive users, then verify the password.');
   const startExplanation = chart.locator('.flow-pill.start .flow-explanation');
@@ -131,23 +131,40 @@ try {
     && await chart.getByRole('button', { name: 'Select transition No' }).count() === 1);
   check('an explain: entry keyed by its condition titles the decision diamond',
     (await chart.locator('.flow-diamond').innerText()).trim() === 'Account found for this email?');
-  check('steps without a description are marked; described ones are not',
+  check('the summary hides undescribed library steps; a stored call result is no step at all',
+    await chart.getByRole('group', { name: 'action audit login' }).count() === 0 && await chart.locator('.flow-chart-action').count() === 0);
+  await chart.getByRole('button', { name: 'Show all steps' }).click();
+  await chart.getByRole('group', { name: 'action audit login' }).waitFor();
+  check('"All steps" shows them, marked as undescribed; described steps are not marked',
     await chart.locator('.flow-chart-action.undescribed .flow-undescribed').count() === 1 && await chart.locator('.flow-diamond.undescribed').count() === 0
-    && await chart.locator('.flow-chart-call.undescribed').count() === 0);
+    && await chart.locator('.flow-chart-call.undescribed').count() === 0 && await chart.getByRole('group', { name: 'action find user' }).count() === 0);
   const cardTexts = await chart.locator('.flow-card').allInnerTexts();
   check('flowchart cards show words, not code', cardTexts.length > 0 && !cardTexts.some(t => /[=_]|\w\(/.test(t)));
   if (process.env.FLOWCHART_SCREENSHOT) await page.screenshot({ path: process.env.FLOWCHART_SCREENSHOT });
-  await chart.getByRole('group', { name: 'action find user' }).click();
-  check('the inspector shows the step\'s code', (await page.getByRole('complementary', { name: 'Step find user' }).getByLabel('Code').innerText())
-    .includes('find_user(email)'));
+  await chart.getByRole('group', { name: 'action audit login' }).click();
+  check('the inspector shows the step\'s code', (await page.getByRole('complementary', { name: 'Step audit login' }).getByLabel('Code').innerText())
+    .includes('audit_login(email)'));
   await page.keyboard.press('Escape');
+  await chart.getByRole('button', { name: 'Show the summary' }).click();
+  await chart.getByRole('group', { name: 'action audit login' }).waitFor({ state: 'detached' });
   const depth = page.getByRole('slider', { name: 'Flowchart depth' });
   check('depth slider starts at the view file depth', await depth.inputValue() === '0');
   await depth.fill('1');
   const frame = chart.getByRole('button', { name: 'Open check_password in editor' });
   await frame.waitFor();
-  check('raising the depth expands the callee into a frame with its own steps', await chart.locator('.flow-diamond').count() === 2
-    && await chart.locator('.flow-pill.error').count() === 1 && await chart.locator('.flow-chart-call').count() === 0);
+  check('raising the depth expands the callee into a frame; its guard folds into a "can fail" badge on the step before it',
+    await chart.locator('.flow-diamond').count() === 1 && await chart.locator('.flow-pill.error').count() === 0 && await chart.locator('.flow-chart-call').count() === 0
+    && (await chart.getByRole('group', { name: 'action refresh' }).locator('.flow-can-fail').innerText()).includes('inactive'));
+  await chart.getByRole('group', { name: 'action refresh' }).click();
+  check('the inspector lists what the step can fail with', (await chart.getByRole('list', { name: 'Can fail' }).innerText()).includes('inactive'));
+  await page.keyboard.press('Escape');
+  await chart.getByRole('button', { name: 'Show all steps of check_password' }).click();
+  await chart.locator('.flow-pill.error').waitFor();
+  check('a frame\'s "all steps" switch shows that function\'s guard', await chart.locator('.flow-diamond').count() === 2
+    && await chart.locator('.flow-can-fail').count() === 0);
+  if (process.env.FLOWCHART_SCREENSHOT) await page.screenshot({ path: process.env.FLOWCHART_SCREENSHOT.replace(/\.png$/, '-depth1.png') });
+  await chart.getByRole('button', { name: 'Summarize check_password' }).click();
+  await chart.locator('.flow-pill.error').waitFor({ state: 'detached' });
   await chart.getByRole('button', { name: 'Explanation of check_password: Reject inactive users, then verify the password.' }).click();
   check('the frame explanation opens the full text in the inspector',
     (await chart.getByRole('complementary', { name: 'Function check_password' }).innerText()).includes('Reject inactive users, then verify the password.'));

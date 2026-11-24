@@ -58,8 +58,14 @@ function chartSize(node: DiagramNode) {
   const width = fits ? base.width : WIDE, lines = textLines(text, width - pad);
   return { width, height: base.height + Math.max(0, lines - (diamond ? 2 : 1)) * LINE };
 }
+/** Height of the "can fail" badge on a flowchart card with folded guards (node.failures). */
+export const FAILURE_HEIGHT = 20;
+/** Badge text: the first failure, "+N" for more. */
+export const failureText = (node: DiagramNode) =>
+  node.failures?.length ? `can fail: ${node.failures[0].label}${node.failures.length > 1 ? ` (+${node.failures.length - 1})` : ''}` : null;
 export const flowSize = (node: DiagramNode, flowchart = false) => {
-  const base = flowchart ? chartSize(node) : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
+  const sized = flowchart ? chartSize(node) : null;
+  const base = sized ? (node.failures?.length ? { ...sized, height: sized.height + FAILURE_HEIGHT } : sized) : node.service ? INFRA_SIZE : node.role ? { width: 88, height: 32 }
     : { width: 220, height: 64 + Math.min(node.fields.length, MAX_FIELDS + 1) * FIELD_HEIGHT };
   return showsExplanation(node, flowchart) ? { width: Math.max(base.width, EXPLAINED_WIDTH), height: base.height + EXPLANATION_HEIGHT } : base;
 };

@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import type { DiagramNode, ExplanationStatus } from '../../../../shared/contracts/views';
 import { INFRA_GROUP_ICONS, type InfraProvider } from '../../../../shared/views/infra/catalog';
 import { infraIconUrl } from '../infra/icons';
-import { cardFields, chartLabel, infraName, showsExplanation, undescribed } from './flow-layout';
+import { cardFields, chartLabel, failureText, infraName, showsExplanation, undescribed } from './flow-layout';
 
 /** Frame header; flowchart call frames open their function's source when clicked and show the function's explanation
  * under the title (clicking it opens the full text in the inspector). */
@@ -27,9 +27,14 @@ export const explanationTitle = (text: string, status?: ExplanationStatus, reaso
 export const ExplanationReason = ({ status, reason }: { status?: ExplanationStatus; reason?: string }) =>
   reason && (status === 'stale' || status === 'legacy') ? <p className="flow-inspector-explanation-reason">{reason}</p> : null;
 
-export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void }>>) {
+export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: InfraProvider; explanation?: string | null; explanationStatus?: ExplanationStatus; explanationReason?: string; onOpen?: () => void; onExplain?: () => void;
+  steps?: { all: boolean; toggle: () => void } }>>) {
   const note = explanationNote(data.explanationStatus, data.explanationReason);
   return <>
+    {data.steps && <button className="flow-frame-steps nodrag" aria-pressed={data.steps.all} onClick={data.steps.toggle}
+      aria-label={`${data.steps.all ? 'Summarize' : 'Show all steps of'} ${data.label}`}
+      title={data.steps.all ? 'Hide undescribed library steps and fold guards again' : 'Show the hidden library steps and guards of this function'}>
+      {data.steps.all ? 'summary' : 'all steps'}</button>}
     {data.provider && <img className="flow-frame-cloud-icon" src={infraIconUrl(INFRA_GROUP_ICONS[data.provider])} alt="" draggable={false} />}
     {data.onOpen ? <button className="flow-frame-label flow-frame-open nodrag" aria-label={`Open ${data.label} in editor`} title={`Open ${data.label} in editor`} onClick={data.onOpen}>{data.label}</button>
       : <div className="flow-frame-label" title={data.label}>{data.label}</div>}
@@ -42,6 +47,12 @@ export function FlowGroup({ data }: NodeProps<Node<{ label: string; provider?: I
 const Explanation = ({ node, chart }: { node: DiagramNode; chart?: boolean }) =>
   showsExplanation(node, chart) ? <p className="flow-explanation" title={explanationTitle(node.explanation!, node.explanationStatus, node.explanationReason)}>
     <StaleMark status={node.explanationStatus} />{node.explanation}</p> : null;
+
+/** "can fail: X" under a step a guard was folded into (flowchart summary); every failure on hover and in the inspector. */
+const CanFail = ({ node }: { node: DiagramNode }) => {
+  const text = failureText(node);
+  return text ? <span className="flow-can-fail" title={node.failures!.map(f => `${f.label}${f.condition ? ` — when ${f.condition}` : ''}`).join('\n')}>{text}</span> : null;
+};
 
 /** Marker on a step without a description (docstring or `explain:` entry): `stingray-views check` lists its key. */
 const UNDESCRIBED = 'No description yet: add a docstring or an explain: entry (stingray-views check lists the key)';
@@ -70,7 +81,7 @@ export const FlowchartNode = memo(function FlowchartNode({ data }: NodeProps<Flo
   return <div className={`flow-card flow-chart-${n.kind}${todo ? ' undescribed' : ''}`}>
     <strong title={n.detail || n.label}>{n.label}{n.kind === 'call' && <ChevronRight size={13} className="flow-call-chevron" aria-label="call" />}{todo}</strong>
     {sub && <span className={n.kind === 'call' ? 'flow-call-hint' : undefined} title={sub}>{sub}</span>}
-    <Explanation node={n} chart />{handles}</div>;
+    <Explanation node={n} chart /><CanFail node={n} />{handles}</div>;
 });
 
 /** A cloud resource drawn like an AWS/Azure architecture diagram: the service icon, the resource name, the service name. */

@@ -36,6 +36,8 @@ test('a guard after the start goes on the step after it; the error branch on No 
   assert.deepEqual(result.nodes.map(x => x.id), ['start', 'work', 'valid?', 'Bad', 'done']);
   assert.deepEqual(result.nodes[1].failures!.map(f => f.condition), ['ok? (No)']);
   assert.deepEqual(flow(result), ['start->work', 'work->valid?', 'valid?->done:Yes', 'valid?->Bad:No']);
+  const callee = chart(input.nodes.map(x => x.id === 'ok?' || x.id === 'Denied' ? { ...x, group: 'g' } : x), input.edges, [{ id: 'g', label: 'f', source: null }]);
+  assert.ok(summarizeFlowchart(callee).result.nodes.some(x => x.id === 'ok?'), 'no step of its own function: the guard stays');
 });
 
 test('decisions and loops left with one way out go; empty groups go; groups shown in full keep every step', () => {
@@ -51,6 +53,7 @@ test('decisions and loops left with one way out go; empty groups go; groups show
   assert.equal(result.edges[0].style, 'dashed', 'a bridge over an uncertain edge is dashed');
   assert.deepEqual(result.groups, []);
   assert.equal(hidden, 5);
+  assert.deepEqual(summarizeFlowchart(input).touched, ['g']);
   const full = summarizeFlowchart(input, { allStepsIn: ['g'] });
   assert.deepEqual([full.hidden, full.folded], [0, 0]);
   assert.equal(full.result, input);

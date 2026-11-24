@@ -77,3 +77,13 @@
 /* A step without a description (docstring or explain: entry): a small hollow dot after its label, muted label. */
 .flow-undescribed{display:inline-block;width:6px;height:6px;margin-left:6px;vertical-align:2px;border:1px solid #b9a28f;border-radius:50%;opacity:.8}
 .flow-card.undescribed strong,.flow-diamond.undescribed strong{color:#cfc0b3;font-weight:500}
+/* Flowchart summary: "can fail" badge (folded guards), per-frame "all steps" switch, inspector failure list. */
+.flow-can-fail{display:block;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10.5px/14px system-ui,-apple-system,sans-serif;letter-spacing:0;text-transform:none;color:#e59a8c}
+.flow-can-fail::before{content:"⚠ ";color:#d9705e}
+.flow-frame-steps{position:absolute;top:8px;right:10px;padding:2px 8px;border:1px solid #5a4a3e;border-radius:10px;background:#1c1714;color:#b9a28f;font-size:10.5px;cursor:pointer;pointer-events:all}
+.flow-frame-steps:hover,.flow-frame-steps[aria-pressed=true]{color:#efe4da;border-color:#8a735f}
+.flow-inspector-failures{margin:0;padding:0 14px 8px;list-style:none}
+.flow-inspector-failures li{padding:6px 0;border-bottom:1px solid #2c241f}
+.flow-inspector-failures li div{display:flex;align-items:center;gap:6px;color:#e59a8c}
+.flow-inspector-failures small{color:#a8968a}
+.flow-frame:has(.flow-frame-steps) .flow-frame-label{padding-right:84px}

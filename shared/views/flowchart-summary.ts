@@ -1,7 +1,7 @@
 // Summary of a flowchart (docs/flowchart-drilldown-plan.md, phase 3): what a reader who did not write the code needs.
 // Shared by the Views tab and the `stingray-views` CLI. Pure and deterministic.
 //  - guards fold: an undescribed decision whose one branch only ends in an error becomes a "can fail" badge on the step
-//    before it (else the step after it);
+//    before it (else the step after it), a step of the same function;
 //  - undescribed library steps (`action` nodes without an explanation) are dropped, their edges bridged;
 //  - decisions and loops left with a single way out (every branch reaches the same step) are dropped.
 // Nodes inside groups listed in `allStepsIn` (or below them) are kept as they are; `allSteps` returns the result unchanged.
@@ -9,12 +9,15 @@ import type { DiagramEdge, DiagramGroup, DiagramNode, NodeFailure, ViewKind } fr
 
 export interface SummaryInput { kind: ViewKind; nodes: DiagramNode[]; edges: DiagramEdge[]; groups: DiagramGroup[] }
 export interface SummaryOptions { allSteps?: boolean; allStepsIn?: Iterable<string> }
-export interface FlowchartSummary<T extends SummaryInput> { result: T; hidden: number; folded: number }
+export interface FlowchartSummary<T extends SummaryInput> {
+  result: T; hidden: number; folded: number;
+  touched: string[];          // groups (and their ancestors) where steps were hidden or folded: "show all steps" applies
+}
 
 const MAX_ROUNDS = 20;
 
 export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: SummaryOptions = {}): FlowchartSummary<T> {
-  if (input.kind !== 'flowchart' || opts.allSteps) return { result: input, hidden: 0, folded: 0 };
+  if (input.kind !== 'flowchart' || opts.allSteps) return { result: input, hidden: 0, folded: 0, touched: [] };
   const parents = new Map(input.groups.map(g => [g.id, g.parent ?? null]));
   const full = new Set(opts.allStepsIn ?? []);
   const inFull = (group: string | null): boolean => {
@@ -29,6 +32,8 @@ export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: Summa
   const into = (id: string) => edges.filter(e => e.to === id);
   const out = (id: string) => edges.filter(e => e.from === id);
   let hidden = 0, folded = 0;
+  const touched = new Set<string>();
+  const touch = (group: string | null) => { for (let g = group, guard = 0; g !== null && guard < 50; g = parents.get(g) ?? null, guard++) touched.add(g); };
 
   /** Drop `id`, joining each incoming edge to each target: the incoming edge's kind and label; dashed if either was. */
   const bridge = (id: string, targets: DiagramEdge[]) => {
@@ -40,6 +45,7 @@ export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: Summa
       if (edges.some(e => e.from === a.from && e.to === b.to && e.kind === kind && e.label === a.label)) continue;
       edges.push({ ...a, id: uniqueId(`${kind}:${a.from}->${b.to}`), to: b.to, kind, certain, style: certain ? a.style : 'dashed' });
     }
+    touch(nodes.get(id)?.group ?? null);
     nodes.delete(id);
   };
 
@@ -56,11 +62,14 @@ export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: Summa
       const err = nodes.get(toError.to)!, ins = into(d.id);
       const pred = ins.length === 1 ? nodes.get(ins[0].from) : undefined;
       const next = nodes.get(onward.to)!;
-      const host = pred && (pred.kind === 'action' || pred.kind === 'call') ? pred : next.kind === 'action' || next.kind === 'call' ? next : null;
+      // The badge stays in the guard's function: a guard first in an expanded callee does not go on the caller's step.
+      const hosts = (x: DiagramNode | undefined): x is DiagramNode => !!x && (x.kind === 'action' || x.kind === 'call') && x.group === d.group;
+      const host = hosts(pred) ? pred : hosts(next) ? next : null;
       if (!host) continue;
       const failure: NodeFailure = { label: err.label, condition: toError.label && toError.label !== 'Yes' ? `${d.label} (${toError.label})` : d.label, source: err.source };
       host.failures = [...host.failures ?? [], failure];
       edges = edges.filter(e => e !== toError);
+      touch(err.group);
       nodes.delete(err.id);
       bridge(d.id, [onward]);
       folded++; changed = true;
@@ -80,7 +89,7 @@ export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: Summa
       hidden++; changed = true;
     }
   }
-  if (!hidden && !folded) return { result: input, hidden, folded };
+  if (!hidden && !folded) return { result: input, hidden, folded, touched: [] };
 
   // Groups left without nodes (in them or below them) go too.
   const used = new Set<string>();
@@ -90,6 +99,6 @@ export function summarizeFlowchart<T extends SummaryInput>(input: T, opts: Summa
   edges.sort((a, b) => (rank.get(a.from)! - rank.get(b.from)!) || ((order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9)));
   return {
     result: { ...input, nodes: input.nodes.filter(n => nodes.has(n.id)).map(n => nodes.get(n.id)!), edges, groups: input.groups.filter(g => used.has(g.id)) },
-    hidden, folded,
+    hidden, folded, touched: input.groups.map(g => g.id).filter(g => touched.has(g)),
   };
 }
