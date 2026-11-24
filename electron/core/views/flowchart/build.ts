@@ -331,7 +331,7 @@ export class FlowchartBuilder {
             this.catching.forEach((t, i) => t.caught.forEach((x, j) => { x.length = caught[i][j]; }));
           } else {
             if (!fits) this.truncated = true;
-            subtitle = `+${steps} steps (increase depth)`;
+            subtitle = `+${steps} steps${fits ? '' : ' (too big to open here)'}`;
           }
         }
       }

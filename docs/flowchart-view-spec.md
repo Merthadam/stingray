@@ -72,7 +72,7 @@ Every node has `source` (file:line) so clicking jumps to the code.
    node with a "recursive" badge.
 5. **Collapse**: chains of consecutive `action` nodes with no branches between them may fold into one box with a
    "steps" field list (keeps charts readable). Decisions with both branches empty are dropped.
-6. **Limits**: ≤ 150 nodes; when hit, stop expanding and mark unexpanded `call` nodes "+N steps (increase depth)".
+6. **Limits**: ≤ 150 nodes; when hit, stop expanding and mark unexpanded `call` nodes "+N steps".
    Per-function parse budget reuses the 200 ms rule limit.
 
 ### Language support (v1)

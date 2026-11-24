@@ -105,7 +105,7 @@ test('python: if/elif/else, early return, raise, loop with continue/break, calls
     '        (error) ValueError: no name · L6',
     '      Yes:',
     '        → db get',
-    '    [call] db get — +1 steps (increase depth) · L7 (expand: load_user>db_get)',
+    '    [call] db get — +1 steps · L7 (expand: load_user>db_get)',
     '  <?> has user? · L17',
     '    No:',
     '      (end) done · L18',
@@ -163,7 +163,7 @@ test('python: depth 0 draws call nodes, depth 2 expands nested calls in nested g
   const flat = await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' }, depth: 0 });
   assert.deepEqual(flat.groups, []);
   assert.deepEqual(flat.nodes.filter(n => n.kind === 'call').map(n => [n.label, n.subtitle]), [
-    ['load user', '+3 steps (increase depth)'], ['send reset email', '+1 steps (increase depth)'], ['audit', '+1 steps (increase depth)'], ['audit', '+1 steps (increase depth)'],
+    ['load user', '+3 steps'], ['send reset email', '+1 steps'], ['audit', '+1 steps'], ['audit', '+1 steps'],
   ]);
   assert.equal(flat.diagnostics.flowchart!.functions, 1);
   // The condition's call `check(...)` is not drawn separately when not expanded: the decision names it.
@@ -193,7 +193,7 @@ test('docstring summaries explain the start node, expanded-call groups and call 
   assert.ok(!('explanation' in out.groups.find(g => g.label === 'audit')!));
   assert.ok(out.nodes.filter(n => n.kind !== 'start' && n.kind !== 'call').every(n => !('explanation' in n)));
   assert.deepEqual(out.text.slice(0, 3), ['  (start) login · L15 — Sign a user in.', '  » load_user — Find the user by name.', '    <?> name? · L5']);
-  assert.ok(out.text.includes('    [call] db get — +1 steps (increase depth) · L7 — Read one row. (expand: load_user>db_get)'), out.text.join('\n'));
+  assert.ok(out.text.includes('    [call] db get — +1 steps · L7 — Read one row. (expand: load_user>db_get)'), out.text.join('\n'));
   assert.deepEqual((await run(AUTH, AUTH_CALLS, { start: { symbol: 'login' } })).text, out.text.map(l => l.replace(/ — (Sign|Find|Read) [^.]*\./, '')));
 });
 
@@ -319,7 +319,7 @@ test('typescript: throw, for-of, switch with fallthrough labels and break, terna
     '      → has s?',
     '    case other:',
     '      » fallback',
-    '        [call] helper — +2 steps (increase depth) · L25 (expand: fallback>helper)',
+    '        [call] helper — +2 steps · L25 (expand: fallback>helper)',
     '      (end) fallback mode · L14',
     '  » helper',
     '    <?> has s? · L2',
@@ -367,7 +367,7 @@ test('node cap: stops expanding, marks unexpanded calls and reports truncation',
   const out = await run(files, ['main>a', 'main>b', 'main>c'], { start: { symbol: 'main' } });
   assert.ok(out.nodes.length <= MAX_FLOWCHART_NODES);
   assert.deepEqual(out.groups.map(g => g.label), ['a', 'b']);
-  assert.equal(node(out.nodes, 'c').subtitle, '+60 steps (increase depth)');
+  assert.equal(node(out.nodes, 'c').subtitle, '+60 steps (too big to open here)');
   assert.equal(out.truncated, true);
   assert.equal(out.diagnostics.flowchart!.truncated, true);
   assert.ok(out.warnings.some(w => /Flowchart stopped/.test(w.message)));

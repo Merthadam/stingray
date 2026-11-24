@@ -183,7 +183,7 @@ flowchart:
 - Node kinds: `start`, `end` (a `return`; label = returned value or "done"), `error` (`raise`/`throw`), `action` (a
   call the code graph does not know, e.g. a library), `decision` (`if`/`elif`/`else`, ternary, `match`/`switch`, `try`
   as "succeeds?"), `loop` (`for`/`while`, "more items?"), `call` (a known function that is not expanded: depth reached
-  — subtitle "+N steps (increase depth)" —, outside `include`, or "recursive").
+  — subtitle "+N steps" —, outside `include`, or "recursive").
 - Edge kinds: `next`, `yes`/`no` (labels Yes/No), `case` (label = pattern, "other" = default/no match), `except`
   (label = exception type), `loop` (back-edges, `continue`). Heuristically resolved calls are dashed (in the text
   tree: `(uncertain)` after the call node or the expanded callee's `» name`).
