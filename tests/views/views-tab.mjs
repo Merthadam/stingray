@@ -192,6 +192,28 @@ try {
   await chart.getByRole('button', { name: 'Collapse check_password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
   await chart.locator('.flow-chart-call').waitFor();
   check('the frame\'s collapse button closes it into the call card again', await frame.count() === 0 && await saveAs.isEnabled());
+  // "Describe…" writes the step's explain: entry into the view file; Remove deletes it and the docstring shows again.
+  const loginFile = path.join(repo, '.stingray/views/login.yaml'), loginYaml = await readFile(loginFile, 'utf8');
+  const callExplanation = chart.locator('.flow-chart-call .flow-explanation');
+  const waitText = async (want) => { for (let i = 0; i < 100 && await callExplanation.innerText() !== want; i++) await page.waitForTimeout(100); return callExplanation.innerText(); };
+  await chart.getByRole('group', { name: 'call check password' }).dispatchEvent('click'); // the minimap can cover it in small CI windows
+  const stepInspector = chart.getByRole('complementary', { name: 'Step check password' });
+  await stepInspector.getByRole('button', { name: 'Edit description' }).click();
+  const description = stepInspector.getByRole('textbox', { name: 'Description' });
+  check('describing a step opens its docstring text with a hint that the view overrides it',
+    await description.inputValue() === 'Reject inactive users, then verify the password.' && (await stepInspector.innerText()).includes('Overrides the docstring in this view')
+    && await stepInspector.getByRole('button', { name: 'Remove' }).count() === 0);
+  await description.fill("Verify the user's password");
+  if (process.env.FLOWCHART_SCREENSHOT) await page.screenshot({ path: process.env.FLOWCHART_SCREENSHOT.replace(/\.png$/, '-describe.png') });
+  await stepInspector.getByRole('button', { name: 'Save' }).click();
+  check('saving a description shows it on the card, fingerprinted (not marked outdated)', await waitText("Verify the user's password") === "Verify the user's password"
+    && await chart.locator('.flow-chart-call .flow-explanation-stale').count() === 0
+    && /check_password:\n {4}text: Verify the user's password\n {4}fingerprint:\n {6}app\/auth\.py::check_password: \w{12}\n$/.test(await readFile(loginFile, 'utf8')));
+  await stepInspector.getByRole('button', { name: 'Edit description' }).click();
+  await stepInspector.getByRole('button', { name: 'Remove' }).click();
+  check('removing it brings the docstring back and restores the view file',
+    await waitText('Reject inactive users, then verify the password.') === 'Reject inactive users, then verify the password.' && await readFile(loginFile, 'utf8') === loginYaml);
+  await page.keyboard.press('Escape');
 
   // The builtin Services view: stinggraph layers from .stinggraph/layers.yaml, drilled down with the depth slider.
   await list.getByRole('button', { name: 'Services' }).click();

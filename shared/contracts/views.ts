@@ -313,14 +313,14 @@ export const viewLocalStateSchema = z.strictObject({ hidden: nodeIds(2000), posi
 
 const viewIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
 const callPaths = z.array(z.string().min(1).max(300)).max(100);
+const viewOptions = z.strictObject({ depth: z.number().int().min(0).max(6).optional(), expanded: callPaths.optional(), collapsed: callPaths.optional() });
 export const viewsContract = defineContract('views', {
   invoke: {
     views: [z.tuple([idSchema]), returns<ViewSummary[]>()],
     /** `depth` overrides a flowchart view's `flowchart.depth` (0-4), a layers view's `layers.depth` (1-4) or a sequence view's
      * `sequence.depth` (0-6) for this computation (clamped to the kind's range); others ignore it.
      * `expanded`/`collapsed` (flowcharts): call paths drawn open/closed on top of the view's `flowchart.expand` and depth. */
-    view: [z.tuple([idSchema, viewIdSchema, z.strictObject({ depth: z.number().int().min(0).max(6).optional(),
-      expanded: callPaths.optional(), collapsed: callPaths.optional() }).optional()]), returns<ViewResult>()],
+    view: [z.tuple([idSchema, viewIdSchema, viewOptions.optional()]), returns<ViewResult>()],
     /** Local (app data) state of a view in a worktree; null when none saved yet. */
     viewState: [z.tuple([idSchema, viewIdSchema]), returns<ViewLocalState | null>()],
     saveViewState: [z.tuple([idSchema, viewIdSchema, viewLocalStateSchema]), returns<void>()],
@@ -329,6 +329,11 @@ export const viewsContract = defineContract('views', {
       name: z.string().max(200), basedOn: viewIdSchema, exclude: z.array(z.string().max(300)).max(2000),
       layout: z.strictObject({ positions: positionsSchema }).nullable(), expand: callPaths.optional(),
     })]), returns<SaveViewResult>()],
+    /** "Describe…": writes the `explain:` entry of a node or group (`target`: its id in the view computed with `options`, the
+     * ones the tab shows) into the repo view file, fingerprinted; empty `text` removes the entry. Builtin views reject it.
+     * The view's views-changed event follows. */
+    saveExplanation: [z.tuple([idSchema, viewIdSchema, z.strictObject({ target: z.string().min(1).max(300), text: z.string().trim().max(500),
+      options: viewOptions.optional() })]), returns<void>()],
     /** Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs. */
     openServiceDocs: [z.tuple([z.string().max(100)]), returns<void>()],
   },

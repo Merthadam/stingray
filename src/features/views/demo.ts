@@ -136,6 +136,7 @@ export function createViewsDemo(ctx: DemoContext): Invoke<typeof viewsContract> 
       savedViews.set(slug, { summary: { ...base, id: slug, name: input.name, builtin: false, file, description: `Based on ${base.name}` }, input: structuredClone(input) });
       return { id: slug, file };
     },
+    saveExplanation: async (_id, viewId) => { if (viewId === DATABASE_VIEW.id) throw new Error('Builtin views have no view file: use Save as view… first.'); },
     openServiceDocs: async serviceId => { console.info('Demo: would open the docs of', serviceId); },
     onViewsChanged: () => () => {},
   };

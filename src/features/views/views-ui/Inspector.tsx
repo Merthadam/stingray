@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink, X } from 'lucide-react';
 import type { DiagramEdge, DiagramNode, SourceRef } from '../../../../shared/contracts/views';
 import { infraIconUrl } from '../infra/icons';
 import { ExplanationReason, StaleMark } from './FlowNode';
+import { DescribeEditor } from './DescribeEditor';
 
 interface Props {
   node: DiagramNode;
@@ -14,6 +15,8 @@ interface Props {
   onOpenSource(file: string, line: number | null): void;
   onOpenServiceDocs?(serviceId: string): void;
   onExpand?(): void;           // flowchart call that can be opened in place
+  /** Flowchart steps that can be described: save writes the view file's `explain:` entry; absent save, `disabled` says why. */
+  describe?: { onSave?(text: string): Promise<void>; disabled?: string };
 }
 
 function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label: string; onOpenSource: Props['onOpenSource'] }) {
@@ -23,7 +26,7 @@ function OpenButton({ source, label, onOpenSource }: { source: SourceRef; label:
 
 const fieldLabel = (node: DiagramNode | undefined, id: string | null) => id === null ? null : node?.fields.find(f => f.id === id)?.label ?? id;
 
-export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, onOpenServiceDocs, onExpand, variant = 'tables' }: Props) {
+export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource, onOpenServiceDocs, onExpand, describe, variant = 'tables' }: Props) {
   const relations = edges.filter(e => e.from === node.id || e.to === node.id);
   return <aside className="er-inspector" aria-label={`${variant === 'tables' ? 'Table' : 'Step'} ${node.label}`}>
     <header>
@@ -43,6 +46,7 @@ export function Inspector({ node, nodes, edges, onSelect, onClose, onOpenSource,
     </div>}
     {node.explanation && <p className="flow-inspector-explanation"><StaleMark status={node.explanationStatus} />{node.explanation}</p>}
     {node.explanation && <ExplanationReason status={node.explanationStatus} reason={node.explanationReason} />}
+    {describe && <DescribeEditor key={node.id} target={node} decision={node.kind === 'decision'} {...describe} />}
     {onExpand && <div className="flow-inspector-actions"><button title="Show this call's steps here" onClick={onExpand}>
       <ChevronRight size={12} />Expand here</button></div>}
     {node.failures?.length ? <><h4>Can fail <span>{node.failures.length}</span></h4>

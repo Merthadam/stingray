@@ -98,3 +98,11 @@
 .flow-call-expand:hover,.flow-frame-collapse:hover{color:#efe4da;border-color:#8a735f}
 .flow-inspector-actions{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)}
 .flow-inspector-actions button{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:4px 7px;border:1px solid #3a3029;color:#d3c8bf}
+/* "Describe…": the step's explain: text, edited in the inspector. */
+.flow-describe{display:flex;flex-direction:column;gap:6px;padding:8px 14px;border-bottom:1px solid var(--border)}
+.flow-describe textarea{width:100%;box-sizing:border-box;resize:vertical;font:inherit;font-size:12px;line-height:1.5;color:#e2d5ca;background:#1a1512;border:1px solid #3a3029;border-radius:5px;padding:6px 8px}
+.flow-describe small{color:#a8968a;font-size:10.5px}
+.flow-describe .inline-error{margin:0}
+.flow-describe-actions{display:flex;gap:8px}
+.flow-describe-actions button{font-size:10px;padding:4px 9px;border:1px solid #3a3029;color:#d3c8bf}
+.flow-describe-actions button[type=submit]{border-color:#94775f;color:#efe4da}

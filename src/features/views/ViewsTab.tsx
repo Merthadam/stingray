@@ -24,6 +24,12 @@ const write = (key: string, value: string) => { try { localStorage.setItem(key, 
 type Loaded = { id: string; result: ViewResult | null; error: string; loading: boolean };
 type CallPaths = { expanded: string[]; collapsed: string[] }; // flowchart calls opened/closed by hand (DiagramNode.callPath)
 
+/** The session's depth override and opened/closed calls of a view: what api.view draws. */
+function viewOptions(depth: number | undefined, { expanded = [], collapsed = [] }: Partial<CallPaths> = {}) {
+  const options = { ...depth !== undefined ? { depth } : {}, ...expanded.length ? { expanded } : {}, ...collapsed.length ? { collapsed } : {} };
+  return Object.keys(options).length ? options : undefined;
+}
+
 export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onOpenInMap: (file: string, line: number | null) => void }) {
   const ws = workspace.id;
   const active = useRef(false);
@@ -64,9 +70,8 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     const request = ++viewSequence.current;
     setView(v => v?.id === id ? { ...v, loading: true } : { id, result: null, error: '', loading: true });
     try {
-      const depth = depthsRef.current[id], { expanded = [], collapsed = [] } = callsRef.current[id] ?? {};
-      const options = { ...depth !== undefined ? { depth } : {}, ...expanded.length ? { expanded } : {}, ...collapsed.length ? { collapsed } : {} };
-      const result = await api.view(ws, id, Object.keys(options).length ? options : undefined);
+      const depth = depthsRef.current[id], options = viewOptions(depth, callsRef.current[id]);
+      const result = await api.view(ws, id, options);
       const used = computedDepth(result);
       if (depth === undefined && used !== undefined) fileDepths.current[id] = used;
       if (request === viewSequence.current) setView({ id, result, error: '', loading: false });
@@ -155,6 +160,11 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
     callsRef.current = next.expanded.length || next.collapsed.length ? { ...others, [id]: next } : others;
     setCalls(callsRef.current); void loadView(id);
   }, [loadView]);
+  // The node ids are the ones of the shown result, so the service computes the view the same way to find the step.
+  const onSaveExplanation = useCallback((target: string, text: string) => {
+    const id = currentRef.current;
+    return id ? api.saveExplanation(ws, id, { target, text, options: viewOptions(depthsRef.current[id], callsRef.current[id]) }) : Promise.reject(new Error('No view selected.'));
+  }, [ws]);
   const toggleText = !!current && !!result && (result.kind === 'graph' && isFlowDiagram(result) || isSequenceDiagram(result)); // too-big graphs are text only
   const showText = toggleText && !!asText[current!];
   const tools = <>
@@ -199,6 +209,7 @@ export function ViewsTab({ workspace, onOpenInMap }: { workspace: Workspace; onO
           <Diagram key={`${ws}:${current}:${computedDepth(result) ?? ''}`} result={result}
             initialState={depths[current!] === undefined && !calls[current!] ? local.state : { ...local.state, positions: {} }} onStateChange={onStateChange}
             onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} onToggleCall={onToggleCall} toolbarExtra={tools}
+            onSaveExplanation={summary.builtin ? undefined : onSaveExplanation} saveExplanationDisabled="Builtin views have no view file: use Save as view… first"
             onSaveAs={depths[current!] === undefined && !calls[current!]?.collapsed.length ? setSaveAs : undefined}
             saveAsDisabled={depths[current!] === undefined ? 'Collapsed calls can’t be saved: expand them again to save the view' : undefined} /></div>
         : <div className="views-empty" role="status"><RefreshCw size={22} className="spin" /></div>}

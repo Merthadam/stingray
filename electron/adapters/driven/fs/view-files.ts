@@ -1,7 +1,7 @@
 // Real worktree files behind the views core's ViewFiles port: defensive reads (no symlinks, regular files, size-capped)
-// and the exclusive create used by "Save as view…".
+// the exclusive create used by "Save as view…" and the replace used by "Describe…".
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { MAX_VIEW_FILE_BYTES, type ViewFiles } from '../../../core/views';
 
@@ -18,6 +18,15 @@ export const nodeViewFiles: ViewFiles = {
       throw error;
     }
     await handle.close();
+  },
+  async replace(root, rel, text) {
+    const file = path.join(root, rel);
+    const stat = await lstat(file);
+    if (!stat.isFile()) throw new Error(`${rel} must be a regular file (symlinks are not followed)`);
+    const temp = `${file}.${process.pid}.tmp`; // not *.yaml: never listed as a view
+    await unlink(temp).catch(() => {}); // left over from a crash
+    await nodeViewFiles.createExclusive(root, path.relative(root, temp), text);
+    try { await chmod(temp, stat.mode & 0o7777); await rename(temp, file); } catch (error) { await unlink(temp).catch(() => {}); throw error; }
   },
   relative: (root, relFile) => path.relative(root, path.resolve(root, relFile)).split(path.sep).join('/'),
 };

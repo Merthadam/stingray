@@ -2,7 +2,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import type { DiagramGroup, DiagramNode, ViewResult } from '../../shared/contracts/views';
-import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, undescribedSteps, computeView } from '../../electron/app/wiring/views';
+import { YamlError, parseViewYaml, applyExplain, bodyFingerprint, collectPieces, compareFingerprint, describeChanges, drawnFingerprint, explainTargets, explanationKey, undescribedSteps, withExplanation, computeView } from '../../electron/app/wiring/views';
 import type { GraphSymbol } from '../../electron/core/views/rules/types';
 import { formatText } from '../../shared/views/views-text';
 
@@ -96,6 +96,49 @@ test('undescribedSteps: flowchart decisions, loops, calls and actions without an
   assert.deepEqual(undescribedSteps({ kind: 'flow', nodes: steps }), []);
   // every key printed names its step again
   for (const { node: n, key } of undescribedSteps({ kind: 'flowchart', nodes: steps })) assert.ok(explainTargets(key, steps, []).some(t => t.id === n.id), key);
+});
+
+test('explanationKey: reuses the entry that explains the target, else the suggested key, else the id when that is ambiguous', async () => {
+  const verify = sym('verify'), login = sym('login', 10, 20);
+  const steps = [node('start@10', { kind: 'start', label: 'login', symbol: login }), node('decision@12', { kind: 'decision', label: 'has user?', detail: 'if user is None' }),
+    node('call@14', { kind: 'call', label: 'verify', symbol: verify, detail: 'verify(t)', explanation: 'Docstring.' }),
+    node('decision@16', { kind: 'decision', label: 'has user?', detail: 'if user is None' }), node('action@18', { kind: 'action', label: 'log', detail: 'log(user)' })];
+  const groups: DiagramGroup[] = [{ id: 'call:py:verify', label: 'verify', source: null, symbol: verify }];
+  const plain = { ...result(steps, groups), kind: 'flowchart' as const };
+  assert.equal(explanationKey(plain, 'call@14'), 'verify', 'a docstring is no entry: the function name');
+  assert.equal(explanationKey(plain, 'call:py:verify'), 'verify', 'a group: its function name (also names the call card)');
+  assert.equal(explanationKey(plain, 'start@10'), 'login');
+  assert.equal(explanationKey(plain, 'action@18'), 'log(user)', 'a step without a symbol: its code');
+  assert.equal(explanationKey(plain, 'decision@12'), 'decision@12', 'code that two decisions share: the node id');
+  assert.equal(explanationKey(plain, 'nope'), null);
+  // An existing entry keeps its key, also a shorter snippet; the last matching entry wins (as in applyExplain).
+  const explained = await applyExplain(plain, [{ key: 'user is None', text: 'First', fingerprint: null, line: 5 },
+    { key: 'decision@12', text: 'Account found?', fingerprint: null, line: 6 }, { key: '(user)', text: 'Log it', fingerprint: null, line: 7 }], { verify: false });
+  assert.equal(explanationKey(explained, 'decision@12'), 'decision@12');
+  assert.equal(explanationKey(explained, 'decision@16'), 'user is None');
+  assert.equal(explanationKey(explained, 'action@18'), '(user)');
+  for (const id of ['call@14', 'call:py:verify', 'start@10', 'action@18', 'decision@12']) {
+    const key = explanationKey(plain, id)!;
+    assert.ok(explainTargets(key, steps, groups).some(t => t.id === id), `${key} names ${id} again`);
+  }
+});
+
+test('withExplanation adds, replaces and removes explain: entries, keeping comments; the result must be a valid view', () => {
+  const file = 'version: 1 # v1\nname: Login\nkind: flowchart\nflowchart:\n  start: { symbol: login } # entry\n';
+  const added = withExplanation(file, F, 'check_password', { text: 'Verify the password', fingerprint: { 'app/auth.py::check_password': '0123456789ab' } });
+  assert.equal(added, `${file}explain:\n  check_password:\n    text: Verify the password\n    fingerprint:\n      app/auth.py::check_password: 0123456789ab\n`);
+  assert.deepEqual(parseViewYaml(added, F).explain.map(e => [e.key, e.text, e.fingerprint]), [['check_password', 'Verify the password', { 'app/auth.py::check_password': '0123456789ab' }]]);
+  const existing = `${file}explain:\n  # why\n  login: { text: Old, fingerprint: { app/auth.py::login: "000000000000" } }\n  'user is None': { text: Account found? }\n`;
+  const replaced = withExplanation(existing, F, 'login', { text: 'Sign in: "quoted" text', fingerprint: null });
+  assert.equal(replaced, `${file}explain:\n  # why\n  login: { text: 'Sign in: "quoted" text' }\n  'user is None': { text: Account found? }\n`, 'no graph: the stale stamp goes (unstamped)');
+  const stamped = withExplanation(existing, F, 'user is None', { text: 'Account found?', fingerprint: { 'drawn:decision@3': '0123456789ab' } });
+  assert.deepEqual(parseViewYaml(stamped, F).explain.find(e => e.key === 'user is None')!.fingerprint, { 'drawn:decision@3': '0123456789ab' });
+  assert.match(stamped, /# v1\n.*# entry\n.*# why\n/s);
+  const removed = withExplanation(existing, F, 'login', null);
+  assert.equal(removed, `${file}explain:\n  # why\n  'user is None': { text: Account found? }\n`);
+  assert.equal(withExplanation(removed, F, 'user is None', null), file, 'the last entry takes explain: with it');
+  assert.equal(withExplanation(file, F, 'nothing', null), file);
+  assert.throws(() => withExplanation(file, F, 'x', { text: 'y'.repeat(501), fingerprint: null }), YamlError);
 });
 
 test('applyExplain overrides docstrings, flags stale and unstamped entries, lists unknown keys as unresolved', async () => {

@@ -13,6 +13,7 @@ export function viewsHandlers(d: { views: ViewService; viewState: ViewStateRepos
     view: async (id, viewId, options) => d.views.computeView(id, (await d.git.workspace(id)).path, viewId, options),
     viewState: (id, viewId) => d.viewState.get(id, viewId),
     saveViewState: (id, viewId, state) => d.viewState.set(id, viewId, state),
+    saveExplanation: async (id, viewId, input) => d.views.saveExplanation(id, (await d.git.workspace(id)).path, viewId, input),
     saveViewAs: async (id, input) => d.saveViewAs((await d.git.workspace(id)).path, input),
     // Only catalog ids are accepted, so the renderer can open nothing but the catalog's fixed documentation URLs.
     openServiceDocs: serviceId => {

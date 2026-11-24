@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ViewService } from '../../electron/app/wiring/views';
@@ -372,4 +372,37 @@ test('the builtin layers view evaluates layers: at depth 1, or at an overridden 
   await service.computeView('ws', root, 'layers', { depth: 3 });
   assert.deepEqual([plain.name, plain.kind, plain.builtin], ['Services', 'graph', true]);
   assert.deepEqual(graph.evaluated.map(v => v.layers?.depth), [1, 3]);
+});
+
+test('saveExplanation writes a fingerprinted explain: entry into the view file, removes it on empty text and refuses builtin views', async t => {
+  const { root, host, events, service } = await setup(t);
+  await mkdir(path.join(root, 'app'), { recursive: true });
+  await writeFile(path.join(root, 'app/auth.py'), 'def check_password(user, password):\n    """Verify it."""\n    return verify(password)\n');
+  const chart = '.stingray/views/chart.yaml', original = 'version: 1\nname: Chart\nkind: flowchart # summary\nflowchart:\n  start: { symbol: login }\n  depth: 0\n';
+  await writeFile(path.join(root, chart), original);
+  const graph = host.open('ws', root) as FakeGraph;
+  graph.setStatus('ready');
+  const check: SymbolRef = { id: 'py:check_password', name: 'check_password', kind: 'function', file: 'app/auth.py', line: 1, endLine: 3 };
+  graph.evaluate = async () => output({ nodes: [node('call@4', { kind: 'call', label: 'check password', symbol: check, explanation: 'Verify it.' })] });
+  const read = () => readFile(path.join(root, chart), 'utf8');
+  await settle(100); events.length = 0; // the status change's own event
+
+  await service.saveExplanation('ws', root, 'chart', { target: 'call@4', text: '  Verify the password  ' });
+  assert.match(await read(), /^version: 1\nname: Chart\nkind: flowchart # summary\n[^]*explain:\n  check_password:\n    text: Verify the password\n    fingerprint:\n      app\/auth\.py::check_password: [0-9a-f]{12}\n$/);
+  await settle(50, events);
+  assert.deepEqual(events[0], { workspaceId: 'ws', viewIds: ['chart'], listChanged: false }, 'the view recomputes without waiting for the watcher');
+  const shown = (await service.computeView('ws', root, 'chart')).nodes[0];
+  assert.deepEqual([shown.explanation, shown.explanationStatus], ['Verify the password', 'view']);
+
+  await service.saveExplanation('ws', root, 'chart', { target: 'call@4', text: 'Check the password' });
+  assert.match(await read(), /text: Check the password\n/);
+  await service.saveExplanation('ws', root, 'chart', { target: 'call@4', text: ' ' });
+  assert.equal(await read(), original);
+
+  graph.setStatus('indexing'); // no code graph: written unstamped
+  await service.saveExplanation('ws', root, 'chart', { target: 'call@4', text: 'Verify' });
+  assert.equal(await read(), `${original}explain:\n  check_password:\n    text: Verify\n`);
+
+  await assert.rejects(service.saveExplanation('ws', root, 'chart', { target: 'gone@9', text: 'x' }), /no longer in the view/);
+  for (const id of ['database', 'layers']) await assert.rejects(service.saveExplanation('ws', root, id, { target: 'users', text: 'x' }), /Builtin views/);
 });

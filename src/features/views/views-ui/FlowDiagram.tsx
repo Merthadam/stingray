@@ -13,11 +13,13 @@ import { bandEntry, flowFrames, flowGrid, frameIndex, flowPositions, flowSize } 
 import { FlowGroup, FlowNode, FlowchartNode, StaleMark, ExplanationReason } from './FlowNode';
 import { FlowEdge, type FlowTransition } from './FlowEdge';
 import { Inspector } from './Inspector';
+import { DescribeEditor } from './DescribeEditor';
 
 const nodeTypes = { step: FlowNode, chart: FlowchartNode, frame: FlowGroup };
 const edgeTypes = { transition: FlowEdge };
 const EDGE_COLOR = '#a28b78';
 type Selection = { kind: 'node' | 'edge' | 'group'; id: string } | null;
+const DESCRIBABLE = new Set(['decision', 'loop', 'call', 'action', 'start']); // flowchart steps "Describe…" offers
 
 export function FlowDiagram(props: ErDiagramProps) {
   return <ReactFlowProvider><Diagram {...props} /></ReactFlowProvider>;
@@ -25,7 +27,7 @@ export function FlowDiagram(props: ErDiagramProps) {
 
 type Point = { x: number; y: number };
 
-function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOpenServiceDocs, onSaveAs, saveAsDisabled, onToggleCall, toolbarExtra }: ErDiagramProps) {
+function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOpenServiceDocs, onSaveAs, saveAsDisabled, onToggleCall, onSaveExplanation, saveExplanationDisabled, toolbarExtra }: ErDiagramProps) {
   const flow = useReactFlow();
   const chart = full.kind === 'flowchart';
   // Flowcharts open as a summary (shared/views/flowchart-summary.ts): undescribed library steps hidden, guards folded into
@@ -147,6 +149,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
     const p = positions[id], n = byId.get(id);
     if (p && n) void flow.setCenter(p.x + size(n).width / 2, p.y + size(n).height / 2, { zoom: Math.max(flow.getZoom(), 0.8), duration: 250 });
   };
+  const describe = (id: string) => ({ onSave: onSaveExplanation && ((text: string) => onSaveExplanation(id, text)), disabled: saveExplanationDisabled });
   const node = selected?.kind === 'node' ? byId.get(selected.id) : undefined;
   const edge = selected?.kind === 'edge' ? result.edges.find(e => e.id === selected.id) : undefined;
   const group = selected?.kind === 'group' ? result.groups.find(g => g.id === selected.id) : undefined;
@@ -176,7 +179,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
           </ReactFlow>}
       </div>
       {node && <Inspector variant="flow" node={node} nodes={byId} edges={result.edges} onSelect={focusNode} onExpand={expandCall(node)}
-        onClose={() => setSelected(null)} onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} />}
+        describe={chart && DESCRIBABLE.has(node.kind) ? describe(node.id) : undefined} onClose={() => setSelected(null)} onOpenSource={onOpenSource} onOpenServiceDocs={onOpenServiceDocs} />}
       {edge && <aside className="er-inspector" aria-label="Transition details">
         <header><div><strong>{byId.get(edge.from)?.label} → {byId.get(edge.to)?.label}</strong>
           <span>{edge.kind}{!edge.certain && ' · uncertain'}</span></div>
@@ -194,6 +197,7 @@ function Diagram({ result: full, initialState, onStateChange, onOpenSource, onOp
           <button aria-label="Open function in editor" onClick={() => onOpenSource(group.source!.file, group.source!.line)}><ExternalLink size={12} />Open in editor</button></div>}
         {group.explanation && <p className="flow-inspector-explanation"><StaleMark status={group.explanationStatus} />{group.explanation}</p>}
         {group.explanation && <ExplanationReason status={group.explanationStatus} reason={group.explanationReason} />}
+        {chart && <DescribeEditor key={group.id} target={group} decision={false} {...describe(group.id)} />}
         {collapseCall(group) && <div className="flow-inspector-actions"><button title="Close this call back into one step" onClick={collapseCall(group)}>
           <ChevronDown size={12} />Collapse</button></div>}
       </aside>}

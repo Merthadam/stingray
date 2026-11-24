@@ -10,7 +10,7 @@ import type { DbSchemaResult } from '../../../shared/contracts/db-schema';
 import type { DiagramEdge, DiagramNode, GraphStatus, ViewResult, ViewWarning } from '../../../shared/contracts/views';
 import type { SymbolQuery } from './graph';
 import { databaseView } from './database';
-import { applyExplain, type ReadSource } from './explain';
+import { applyExplain, collectPieces, explainTargets, type ReadSource } from './explain';
 import { TS_EXTRACTORS } from './sets';
 import type { EvaluateOutput, GraphSymbol, ResolvedView } from './rules/types';
 import { explanationOf, symbolRef } from './explanation';
@@ -62,15 +62,24 @@ export async function computeView(entry: ViewFileEntry & { view: ResolvedView },
   };
   const linked = await linkSymbols(result, deps.findSymbols);
   if (!entry.explain?.length) return linked;
-  // Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
-  const verify = !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
-  const explained = await applyExplain(linked, entry.explain, { verify, readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
+  const explained = await applyExplain(linked, entry.explain, { verify: canVerify(deps), readSource: deps.readSource, callees: deps.callees, fileSymbols: deps.fileSymbols });
   // Participants mirror their nodes: `explain:` entries reach them through the nodes.
   const sequence = explained.sequence && { ...explained.sequence, participants: explained.sequence.participants.map(p => {
     const n = explained.nodes.find(x => x.id === p.id);
     return n?.explanation ? { ...p, explanation: n.explanation } : p;
   }) };
   return { ...explained, warnings: explained.warnings.slice(0, MAX_WARNINGS), ...(sequence ? { sequence } : {}) };
+}
+
+// Fingerprints need complete symbol links: without the code graph a symbol node would be hashed as drawn and look stale.
+const canVerify = (deps: ComputeDeps) => !!deps.readSource && (deps.graph.state === 'ready' || deps.graph.state === 'read-only');
+
+/** The fingerprint of an `explain:` key in a view computed with these deps, as computeView checks it and `--restamp`
+ * writes it; null when it cannot be computed (no code graph, unreadable source, nothing matches). */
+export async function explainFingerprint(result: ViewResult, key: string, deps: ComputeDeps): Promise<Record<string, string> | null> {
+  const targets = explainTargets(key, result.nodes, result.groups);
+  if (!canVerify(deps) || !targets.length) return null;
+  return (await collectPieces(targets, result.nodes, result.groups, { read: deps.readSource!, callees: deps.callees, fileSymbols: deps.fileSymbols })).pieces;
 }
 
 /** Merge narrowed sqlalchemy tables into engine output (see the header for the key semantics). Pure. */
