@@ -12,6 +12,7 @@ const syntax: CallSyntax = {
   callee: n => n.childForFieldName('function') ?? n.childForFieldName('constructor'),
   awaits: new Set(['await_expression']),
   nested: new Set([...FUNCTIONS, 'class_declaration', 'class', 'abstract_class_declaration']),
+  callback: fn => fn.type === 'arrow_function' || fn.type === 'function_expression' || fn.type === 'function' ? typescript.constructs(fn) : null,
 };
 const calls = (n: Node | null) => collectCalls(n, syntax);
 const statements = (nodes: (Node | null)[]): Construct[] => nodes.filter((n): n is Node => n !== null).flatMap(statement);

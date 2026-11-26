@@ -1,0 +1,10 @@
+version: 1
+name: Create a worktree
+description: What happens behind the scenes when you click "Create worktree" — renderer, IPC, then GitService in the main process.
+kind: sequence
+scope: { include: ["src/**", "electron/**", "shared/**"], exclude: ["**/*.test.ts"] }
+sequence:
+  start: { ipc: git.createWorkspace }
+  trigger: "click Create worktree"
+  participants: service
+  externals: { this.runner: Git CLI, this.files: Filesystem }

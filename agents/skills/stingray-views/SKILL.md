@@ -264,15 +264,16 @@ name: Login
 kind: sequence                          # requires sequence:
 scope: { include: ["frontend/**", "services/**"], exclude: ["**/tests/**"] }
 sequence:
-  start: { symbol: submit, file: frontend/src/AccountApp.jsx }  # exactly one of symbol | route; file optional if unique
+  start: { symbol: submit, file: frontend/src/AccountApp.jsx }  # exactly one of symbol | route | ipc; file optional if unique
   # start: { route: "POST /auth/sign-in" }   # an HTTP route of the code graph ("METHOD /path"); its handler is the entry
+  # start: { ipc: git.createWorkspace }      # an IPC contract route (channel, or the member/renderer name); its handler is the entry
   trigger: click Sign in   # optional: a first arrow actor -> entry with this label
   actor: User              # default User; drawn only with trigger
   depth: 2                 # 0-6, default 3: call levels followed (CLI --depth / Views tab slider override)
   participants: auto       # auto (default) | service | module | file | class
   internal: collapse       # collapse (default) | show: calls that stay inside one participant
   returns: true            # default true: dashed return arrows
-  links: [http, auth, langgraph, events]   # link sets, default all; [] = plain calls only
+  links: [http, auth, langgraph, events, ipc]   # link sets, default all; [] = plain calls only
   externals: { self.client: Cognito }      # extra external systems: import/call prefix -> lifeline label (max 50)
   include: ["services/**"] # files whose functions are followed (default: the view scope)
   exclude: []
@@ -291,12 +292,21 @@ sequence:
   `langchain*`, `fetch`/`axios`/`requests`/`httpx` → External HTTP. A prefix matches the module and its submodules
   (`.` or `/`); `*` = any suffix; `externals:` win over the builtins, longest prefix first. One arrow per system and
   statement, labelled with the outer call (`conn.execute(text(…))` → "execute"); no return arrows from externals.
-  Other unresolved calls (stdlib, untracked helpers) are not drawn. Relative imports are never external.
+  Other unresolved calls (stdlib, untracked helpers) are not drawn. Relative imports are never external. A call whose
+  text starts with one of the view's own `externals:` (`this.runner: Git CLI`, `this.files: Filesystem`) is drawn to
+  that external even when the code graph resolves it (an injected port: a field typed by an interface or function
+  type); it is labelled with that call itself.
 - **Messages**, top to bottom: each function's call sites in source order, depth-first (a callee's messages come right
   after the call that entered it). In the text: `A -> B: label` = call, `B --> A: label` = return, indent = call level.
+  TS/JS function expressions passed as arguments (`this.serial(async () => {…})`, `items.map(x => save(x))`) are
+  walked where they are passed, as the enclosing function's calls, right after the call receiving them (Python lambdas
+  are not). TypeScript calls the code graph leaves unresolved are resolved through explicit type annotations:
+  `this.f.m()` (a class field or constructor parameter property `f: SomeClass`), `p.m()` / `p.f.m()` (a parameter of the
+  function or an enclosing one typed by a class or an object type literal, `Pick<…>`/`Readonly<…>` unwrapped); the
+  method is looked up in the class, then its `extends` chain. No inference (untyped locals), no interfaces.
   - call: label = callee in words ("get_user" → "get user"); `(recursive)` = already on the stack, not followed.
   - http (`POST /auth/sign-in`): a client call the code graph matched to a route; continues in the route's handler.
-  - link (`[link auth]`, `[link langgraph]`, `[link events]`, `[link rule:<id>]`): a hop from a link set or rule.
+  - link (`[link auth]`, `[link langgraph]`, `[link events]`, `[link ipc]`, `[link rule:<id>]`): a hop from a link set or rule.
   - return: after a followed call whose callee is on another lifeline; label `response` for http, else empty (never the
     returned code).
   - self: a call inside one participant, only with `internal: show`; with `collapse` the arrow is left out but the
@@ -306,7 +316,8 @@ sequence:
 - **Fragments** around call sites: `alt` (if/elif/else, match/switch: one arm per branch, "else" arms; the first case
   is labelled `subject: case`), `opt` (an if, or an alt with one arm left), `loop` ("for each x", "while cond"), `try`
   (arms "try", `except E` in Python, `catch` in TS/JS). Conditions are tidied like flowchart labels. Fragments
-  without a message and arms without a message or note are dropped; nesting is kept.
+  without a message and arms without a message or note are dropped; nesting is kept. So a guard holding only a raise
+  (`if (exists) throw …`) shows its note but not its condition.
 - **Notes**: `raise`/`throw` in the entry or in a function whose call is drawn becomes `note <participant>: can fail:
   <type in words>` (`HTTPException` → "can fail: http exception", `can fail: re-raise` for a bare `raise`; the raw type
   is the note's `detail`, on hover in the app) after the message before it, inside its fragment arm. Raises of
@@ -330,6 +341,7 @@ sequence:
 | `http` | client calls the code graph matched to a repo route (`fetch`/`axios`/… with a literal path): drawn as `METHOD /path` (certain), then the route's handler; a second call to the same URL in one function by its literal path | URLs the code graph did not match (built at runtime, other repos); unmatched clients go to External HTTP |
 | `auth` | before a handler's body, in the handler's file: FastAPI `Depends`/`Security` in parameters (also `Annotated[…]` aliases, even imported ones), the route decorator's and the router's `dependencies=[…]`, decorators resolving to repo functions (`@login_required`); Express middleware before the handler and earlier `router.use(mw)` of the same router; top-level wrappers (`export default withAuth(handler)`). Dependencies of dependencies follow | class dependencies (`Depends(SomeClass)`), library decorators, `include_router(…, dependencies=)`, middleware registered in other files (Next.js `middleware.ts`, app-wide ASGI middleware) |
 | `langgraph` | Python `x.invoke/ainvoke/stream/astream(…)` on a compiled StateGraph (`x = flow.compile()` in the file or imported, `build_graph().invoke`, else the only StateGraph in the followable files when the receiver reads like a graph — not `chain` —, uncertain): START → nodes in edge order, conditional edges as `alt` (path-map key or router return), END stops, a node already on the path once as `name (loop)` (not followed); node classes run `__call__`. Max 60 node visits | LangGraph JS, `Send`/`Command(goto=)` routing, graphs built in loops or from data, subgraphs as nodes |
+| `ipc` | typed IPC contracts: `defineContract('git', { invoke: { createWorkspace: [args, returns], x: [args, returns, { renderer: 'flatName' }] } })` (channel `git.createWorkspace`, renderer name = member or `renderer`); handlers = properties of an object typed `Handlers<typeof gitContract>` (a function's return type or a variable's type) or passed to `registerContract(…, gitContract, { … } \| factory(…))`. A call `x.<renderer name>(…)` that does not resolve into the repo (not on `this`/`self`) hops to the handler, labelled with the channel (certain). A handler that only forwards (`(id, b) => d.git.createWorkspace(id, b)`) is skipped: the hop enters the method it calls (typed members or the code graph); other handler arrows are walked as functions. Contracts and handlers are read from the followable files | other IPC styles (`ipcMain.handle('x', …)`, `ipcRenderer.invoke('x')`), contracts not assigned to a variable, handler objects built dynamically, renderer names shared by unrelated unresolved calls (all hop) |
 | `events` | literal names: `emit/publish/send/send_task/enqueue("name", …)` (`send` only on bus/queue-like receivers, not `res.send`) → handlers of `on/once/subscribe("name", h)`, `@x.on("name")`, `@app.task(name="name")`; `task.delay/apply_async(…)` → the `@app.task`/`@shared_task` function (named or not); RQ `queue.enqueue(fn, …)` → fn. Always uncertain; registrations are text-matched in the followable files | names from variables/constants, handlers outside the followable files, calls that resolve into the repo (an own `publish` method stays a call) |
 
 **Link rules** teach the view its own dispatchers (RPC, job queues, DI). `rules:` of a sequence view may only emit
@@ -365,16 +377,21 @@ literal `@`); the hop is then drawn when that function is entered, before its bo
   `explanation`.
 - Limits: 400 messages, 30 participants, 150 distinct functions followed, then the sequence is marked truncated
   ("lower the depth or exclude files").
-- Errors (exit 1): start symbol/route not found or ambiguous (add `file:`), start is not a function, route without a
-  handler, language not supported or function not found in its file, `kind: sequence` without `sequence:` (or the reverse), `use`/`graph`/`flowchart`/
-  `layers` in a sequence view, a rule emitting anything but a `kind: link` edge, `start` with both or neither of
-  `symbol`/`route`. Without a code graph the sequence is skipped with an error diagnostic.
+- Errors (exit 1): start symbol/route/ipc not found or ambiguous (add `file:`; for ipc the channel), start is not a
+  function, route without a handler, language not supported or function not found in its file, `kind: sequence` without `sequence:` (or the reverse), `use`/`graph`/`flowchart`/
+  `layers` in a sequence view, a rule emitting anything but a `kind: link` edge, `start` with not exactly one
+  of `symbol`/`route`/`ipc`. Without a code graph the sequence is skipped with an error diagnostic.
 - Tips:
   - Start with `depth: 2`-`3`; deeper levels mostly add helpers and DB calls. Raise it with `--depth` only for a
     branch you need.
   - A frontend handler (`start: { symbol: submit, file: … }` + `trigger: click …`) shows the requests it makes and,
     through `http`, what each route does. For one backend flow, start at the route
     (`start: { route: "POST /auth/sign-in" }`) with `participants: file`: one service would otherwise be one lifeline.
+  - A renderer action handled in a desktop app's main process via IPC contracts: `start: { ipc: git.createWorkspace }`
+    with `trigger: click Create worktree` draws actor → the renderer's call site (the function around the first
+    `x.createWorkspace(…)` call in the followable files outside handler files, else its file) → the handler
+    (`[link ipc]`) → the main-process work. Inline JSX handlers need no named function. Exclude tests in `scope:` so
+    their calls are not taken as the renderer's.
   - Clients injected into objects are not imports: name them, e.g. `externals: { self.client: Cognito }`; SDKs with
     unusual names likewise (`externals: { claude_agent_sdk: Claude }`).
   - Many `(unassigned)` or helper lifelines: narrow `sequence.include` (they stay drawn but are not followed) or drop
