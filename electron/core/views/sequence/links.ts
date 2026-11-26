@@ -42,7 +42,7 @@ export interface LinkProvider {
 }
 
 /** Tree-sitter node of a function symbol; null when its language is not supported or it is not found. */
-export async function functionNode(fn: GraphSymbol, ctx: LinkContext): Promise<Node | null> {
+export async function functionNode(fn: GraphSymbol, ctx: Pick<LinkContext, 'tree'>): Promise<Node | null> {
   const language = LANGUAGES[path.extname(fn.file).toLowerCase()];
   const tree = language ? await ctx.tree(fn.file) : null;
   return tree ? language.adapter.findFunction(tree.rootNode, fn.name, fn.line) : null;
@@ -57,9 +57,10 @@ export function importBase(module: string, from: string): string | null {
   return dots ? path.join(dir, ...Array<string>(dots - 1).fill('..'), rest) : rest;
 }
 
-/** The repo symbol `name` means in `from`: defined in that file, else imported from a repo file, else the only one in the
- * repo. Null when it is ambiguous or imported from a library. */
-export async function symbolNamed(name: string, from: string, ctx: LinkContext, kinds: Set<string> = FUNCTION_KINDS): Promise<GraphSymbol | null> {
+/** The repo symbol `name` means in `from`: defined in that file, else imported from a repo file (or the only one below an
+ * imported directory: a barrel `index` re-exporting it), else the only one in the repo. Null when it is ambiguous or
+ * imported from a library. */
+export async function symbolNamed(name: string, from: string, ctx: Pick<LinkContext, 'graph' | 'imports'>, kinds: Set<string> = FUNCTION_KINDS): Promise<GraphSymbol | null> {
   const all = ctx.graph.findSymbols(name).filter(s => kinds.has(s.kind));
   if (!all.length) return null;
   const local = all.find(s => s.file === from);
@@ -72,6 +73,8 @@ export async function symbolNamed(name: string, from: string, ctx: LinkContext, 
     const strip = (f: string) => f.replace(/\.[^./]+$/, '');
     const hit = base === null ? undefined : all.find(s => [base, `${base}/index`, `${base}/__init__`].includes(strip(s.file)));
     if (hit) return hit;
+    const below = base === null ? [] : all.filter(s => s.file.startsWith(base + '/'));
+    if (below.length === 1) return below[0];
     // From a library (neither relative nor a top-level directory of the repo): not ours.
     if (!imported.startsWith('.') && !all.some(s => s.file.startsWith(imported.split(/[./]/)[0] + '/'))) return null;
   }

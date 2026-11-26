@@ -67,13 +67,13 @@ export interface FlowchartStep {
   collapse?: string[];                        // runtime only (Views tab): call paths drawn closed even within `depth`
 }
 
-export const LINK_SETS = ['http', 'auth', 'langgraph', 'events'] as const;
+export const LINK_SETS = ['http', 'auth', 'langgraph', 'events', 'ipc'] as const;
 export type LinkSet = typeof LINK_SETS[number];
 export const SEQUENCE_PARTICIPANTS = ['auto', 'service', 'module', 'file', 'class'] as const;
 
 /** `sequence:` of a `kind: sequence` view (see docs/sequence-view-spec.md). */
 export interface SequenceStep {
-  start: { symbol?: string; route?: string; file?: string }; // exactly one of symbol | route (schema-checked)
+  start: { symbol?: string; route?: string; ipc?: string; file?: string }; // exactly one of symbol | route | ipc (schema-checked)
   trigger?: string;                           // first arrow from the actor (label); no actor without it
   actor: string;                              // default "User"
   depth: number;                              // 0-6, default 3: call levels followed

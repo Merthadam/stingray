@@ -10,7 +10,8 @@ import { resolveCall, type LoadFunction } from '../flowchart/build';
 import { FUNCTION_KINDS } from '../flowchart';
 import { callLabel, caseLabel, splitWords, truncate, words } from '../flowchart/labels';
 import { explanationOf, symbolRef } from '../explanation';
-import { externalCall } from './externals';
+import { externalCall, viewExternal } from './externals';
+import { typedMember } from './members';
 import type { Hop, HopStep, LinkContext, LinkProvider } from './links';
 
 // `events` bounds the walk, not `messages`: most walked calls are same-lifeline calls folded away afterwards, and which
@@ -58,12 +59,13 @@ export class SequenceWalker {
   private messages = 0;
   private cache = new Map<string, GraphSymbol>();
   private imports = new Map<string, Promise<Map<string, string>>>();
-  private memo = new Map<string, unknown>();
   private outgoing = new Map<string, GraphRelation[]>(); // `calls` relations by symbol id
+  private typedMembers = new Map<string, GraphSymbol | null>(); // typedMember by file:line:path
+  private typedCalls = new WeakMap<Call, GraphSymbol>();
 
   constructor(private step: SequenceStep, private graph: GraphApi, private load: LoadFunction, private links: LinkProvider[],
     private followable: (file: string) => boolean, private importsOf: (file: string) => Promise<Map<string, string>>,
-    private env: { tree: (file: string) => Promise<Tree | null>; files: FileProvider; halted: () => boolean }) {}
+    private env: { tree: (file: string) => Promise<Tree | null>; files: FileProvider; halted: () => boolean; memo: Map<string, unknown> }) {}
 
   private get stopped() { return this.events.length >= SEQUENCE_LIMITS.events || this.env.halted(); }
 
@@ -74,13 +76,20 @@ export class SequenceWalker {
 
   get functions() { return this.parsed.size; }
 
-  async entry(symbol: GraphSymbol, constructs: Construct[]) {
+  /** Walk the entry. `caller`: the function that reaches it through a link (an IPC call site in the renderer for
+   * `start: { ipc }`): the trigger goes to the caller, then the link message enters the entry. */
+  async entry(symbol: GraphSymbol, constructs: Construct[], caller?: { symbol: GraphSymbol; label: string; link: string; source: SourceRef }) {
     this.parsed.add(symbol.id);
-    if (this.step.trigger) this.push({ t: 'msg', id: this.messages++, from: { actor: true }, to: { symbol }, kind: 'call', label: this.step.trigger,
-      detail: null, level: 0, certain: true, link: null, source: null, symbol: symbolRef(symbol) });
+    const first = caller?.symbol ?? symbol;
+    if (this.step.trigger) this.push({ t: 'msg', id: this.messages++, from: { actor: true }, to: { symbol: first }, kind: 'call', label: this.step.trigger,
+      detail: null, level: 0, certain: true, link: null, source: null, symbol: symbolRef(first) });
+    const linked = caller ? this.messages++ : null;
+    if (caller) this.push({ t: 'msg', id: linked!, from: { symbol: caller.symbol }, to: { symbol }, kind: 'link', label: caller.label, detail: null, level: 0,
+      certain: true, link: caller.link, source: caller.source, symbol: symbolRef(symbol), ...explanationOf(symbol) });
     const f = this.frame(symbol, 0, [symbol.id], null);
     await this.before(f);
     await this.body(constructs, f);
+    if (caller && this.step.returns) this.push({ t: 'ret', call: linked!, from: { symbol }, to: { symbol: caller.symbol }, label: '', level: 0, source: null });
   }
 
   /** Hops entered before a function's body (auth dependencies, link rules on the function). */
@@ -120,8 +129,8 @@ export class SequenceWalker {
     return new Map(ids.flatMap(id => { const s = this.cache.get(id); return s ? [[id, s] as const] : []; }));
   };
   private context(f: Frame, statement = ''): LinkContext {
-    return { graph: this.graph, outgoing: f.outgoing, statement, symbols: this.symbols, resolve: call => resolveCall(call, f.outgoing, this.graph, this.cache)?.symbol ?? null,
-      tree: this.env.tree, imports: file => this.importsOfFile(file), files: this.env.files, followable: this.followable, memo: this.memo, halted: this.env.halted };
+    return { graph: this.graph, outgoing: f.outgoing, statement, symbols: this.symbols, resolve: call => resolveCall(call, f.outgoing, this.graph, this.cache)?.symbol ?? this.typedCalls.get(call) ?? null,
+      tree: this.env.tree, imports: file => this.importsOfFile(file), files: this.env.files, followable: this.followable, memo: this.env.memo, halted: this.env.halted };
   }
 
   /** Constructs in source order; a return/raise/break/continue ends its block (the rest is unreachable). */
@@ -197,23 +206,40 @@ export class SequenceWalker {
     const externals = new Set<string>(); // one message per external system and statement
     for (const [i, call] of calls.entries()) {
       if (this.stopped) { this.truncated = true; return; }
-      const source = { file: f.symbol.file, line: call.line };
-      const hops = await this.hops(f, call, code.text);
-      if (hops.length) { await this.steps(hops, f, code.text, source); continue; }
-      const target = resolveCall(call, f.outgoing, this.graph, this.cache);
-      if (target) {
-        await this.enter(target.symbol, { kind: 'call', label: callLabel(call.callee), link: null, certain: target.certain }, f, code.text, source);
-        continue;
-      }
-      const external = externalCall(call, await this.importsOfFile(f.symbol.file), this.step.externals);
-      if (!external || externals.has(external)) continue; // stdlib, local helpers, unresolved: not drawn
-      externals.add(external);
-      // `conn.execute(text("…"))`: the call taking the library value names the step (calls come arguments first).
-      const named = call.outer ? call : calls.slice(i + 1).find(c => c.outer) ?? call;
-      // An external's result is unknown: no return arrow.
-      this.push({ t: 'msg', id: this.messages++, from: { symbol: f.symbol }, to: { external }, kind: 'call', label: callLabel(named.callee), detail: code.text,
-        level: f.level, certain: true, link: null, source, symbol: null });
+      await this.call(call, f, code, externals, () => call.outer ? call : calls.slice(i + 1).find(c => c.outer) ?? call);
+      // Function expressions passed as arguments (`serial(async () => {…})`) are drawn as this function's calls, after the call receiving them.
+      for (const body of call.callbacks ?? []) await this.body(body, f);
     }
+  }
+
+  private async call(call: Call, f: Frame, code: Code, externals: Set<string>, outer: () => Call) {
+    const source = { file: f.symbol.file, line: call.line };
+    const own = viewExternal(call, this.step.externals);
+    if (!own) {
+      const resolved = resolveCall(call, f.outgoing, this.graph, this.cache);
+      if (!resolved) await this.typed(call, f);
+      const hops = await this.hops(f, call, code.text);
+      if (hops.length) return this.steps(hops, f, code.text, source);
+      const typed = this.typedCalls.get(call);
+      const target = resolved ?? (typed && { symbol: typed, certain: true });
+      if (target) return this.enter(target.symbol, { kind: 'call', label: callLabel(call.callee), link: null, certain: target.certain }, f, code.text, source);
+    }
+    const external = own ?? externalCall(call, await this.importsOfFile(f.symbol.file), this.step.externals);
+    if (!external || externals.has(external)) return; // stdlib, local helpers, unresolved: not drawn
+    externals.add(external);
+    // `conn.execute(text("…"))`: the call taking the library value names the step (calls come arguments first); a call the
+    // view names (`this.files.realpath`) is the step itself. An external's result is unknown: no return arrow.
+    const named = own ? call : outer();
+    this.push({ t: 'msg', id: this.messages++, from: { symbol: f.symbol }, to: { external }, kind: 'call', label: callLabel(named.callee), detail: code.text,
+      level: f.level, certain: true, link: null, source, symbol: null });
+  }
+
+  /** A call the code graph left unresolved, resolved through type annotations (members.ts); kept for the link providers. */
+  private async typed(call: Call, f: Frame) {
+    const key = `${f.symbol.file}:${call.line}:${call.path}`;
+    let hit = this.typedMembers.get(key);
+    if (hit === undefined) this.typedMembers.set(key, hit = await typedMember(call, f.symbol.file, { graph: this.graph, tree: this.env.tree, imports: file => this.importsOfFile(file) }));
+    if (hit) this.typedCalls.set(call, hit);
   }
 
   private importsOfFile(file: string) {

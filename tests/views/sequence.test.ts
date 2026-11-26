@@ -270,7 +270,7 @@ const parseError = (text: string) => {
 test('sequence schema: defaults, kind <-> section, exclusive sections, start, depth, links, link rules', () => {
   const v = parseViewYaml(YAML('sequence:\n  start: { symbol: submit, file: web/a.tsx }\n  externals: { stripe: Stripe }\n'), 'v.yaml');
   assert.deepEqual(v.sequence, { start: { symbol: 'submit', file: 'web/a.tsx' }, actor: 'User', depth: 3, participants: 'auto', internal: 'collapse', returns: true,
-    links: ['http', 'auth', 'langgraph', 'events'], externals: { stripe: 'Stripe' } });
+    links: ['http', 'auth', 'langgraph', 'events', 'ipc'], externals: { stripe: 'Stripe' } });
   assert.deepEqual(parseViewYaml(YAML('sequence:\n  start: { route: "POST /x" }\n  links: [http, http]\n'), 'v.yaml').sequence!.links, ['http']);
   const rule = 'rules:\n  - id: rpc\n    language: python\n    query: "(call) @c"\n    emit: { edge: { from: "@c", to: handler, kind: link } }\n';
   assert.equal(parseViewYaml(YAML(`sequence:\n  start: { symbol: f }\n${rule}`), 'v.yaml').rules.length, 1);
@@ -279,8 +279,10 @@ test('sequence schema: defaults, kind <-> section, exclusive sections, start, de
   for (const key of ['use: [x]', 'graph:\n  start: [{ symbol: f }]\n  follow: [calls]', 'flowchart:\n  start: { symbol: f }', 'layers: {}']) {
     assert.match(parseError(YAML(`sequence:\n  start: { symbol: f }\n${key}\n`)), /cannot be combined with kind: sequence|needs kind: (flowchart|graph)/, key);
   }
-  assert.match(parseError(YAML('sequence:\n  start: { symbol: f, route: "GET /" }\n')), /start needs exactly one of symbol or route/);
-  assert.match(parseError(YAML('sequence:\n  start: { file: a.py }\n')), /start needs exactly one of symbol or route/);
+  assert.match(parseError(YAML('sequence:\n  start: { symbol: f, route: "GET /" }\n')), /start needs exactly one of symbol, route or ipc/);
+  assert.match(parseError(YAML('sequence:\n  start: { route: "GET /", ipc: git.x }\n')), /start needs exactly one of symbol, route or ipc/);
+  assert.match(parseError(YAML('sequence:\n  start: { file: a.py }\n')), /start needs exactly one of symbol, route or ipc/);
+  assert.equal(parseViewYaml(YAML('sequence:\n  start: { ipc: git.createWorkspace }\n'), 'v.yaml').sequence!.start.ipc, 'git.createWorkspace');
   assert.match(parseError(YAML('sequence:\n  start: { symbol: f }\n  depth: 7\n')), /depth/);
   assert.match(parseError(YAML('sequence:\n  start: { symbol: f }\n  links: [grpc]\n')), /links/);
   assert.match(parseError(YAML('sequence:\n  start: { symbol: f }\n  participants: team\n')), /participants/);

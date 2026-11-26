@@ -20,13 +20,18 @@ const matches = (module: string, prefix: string) => prefix.endsWith('*') ? modul
 
 /** Label of the external system `module` belongs to; the view's `externals:` win over the builtin prefixes. */
 export function externalOf(module: string, extra: Record<string, string>): string | null {
-  for (const table of [extra, BUILTIN_EXTERNALS]) {
-    // Longest prefix first, so `@aws-sdk/client-cognito` can be told apart from `@aws-sdk` by a view.
-    const hit = Object.keys(table).sort((a, b) => b.length - a.length).find(p => matches(module, p));
-    if (hit) return table[hit];
-  }
-  return null;
+  return lookup(module, extra) ?? lookup(module, BUILTIN_EXTERNALS);
 }
+
+/** Longest prefix first, so `@aws-sdk/client-cognito` can be told apart from `@aws-sdk` by a view. */
+function lookup(module: string, table: Record<string, string>): string | null {
+  const hit = Object.keys(table).sort((a, b) => b.length - a.length).find(p => matches(module, p));
+  return hit ? table[hit] : null;
+}
+
+/** The view's own `externals:` entry for the call text (`this.runner: Git CLI`): wins over the code graph's resolution,
+ * so an injected port (a field typed by an interface or function type) can be drawn as the system behind it. */
+export const viewExternal = (call: Call, extra: Record<string, string>): string | null => lookup(call.path, extra);
 
 /** External system a call leaves to, or null. Relative imports are repo code, never external. */
 export function externalCall(call: Call, imports: Map<string, string>, extra: Record<string, string>): string | null {

@@ -11,6 +11,7 @@ export interface Call {
   outer: boolean;             // not an argument of another call of the same statement
   chained: boolean;           // called on another call's result (`(await run()).trim()`): that call names the step
   path: string;               // callee expression without whitespace, capped ("self.mail.send_reset_email", "boto3.client")
+  callbacks?: Construct[][];  // bodies of function expressions passed as arguments (`serial(async () => {…})`); sequence walks only
 }
 /** A try handler; `types` are the caught exception names, null when it catches everything. */
 export interface Handler { label: string; line: number; types: string[] | null; body: Construct[] }
@@ -41,6 +42,7 @@ export interface CallSyntax {
   callee: (call: Node) => Node | null;
   awaits: Set<string>;
   nested: Set<string>;        // function/class definitions whose calls do not run here
+  callback?: (fn: Node) => Construct[] | null; // body of a function expression passed as an argument (Call.callbacks)
 }
 
 /** Name of the called function: identifier / property / attribute name, else the last identifier of the callee text. */
@@ -62,8 +64,10 @@ export function collectCalls(node: Node | null, syntax: CallSyntax): Call[] {
       visit(child, inCall || (isCall && child.id !== fn?.id));
       if (fn && child.id === fn.id) chained = out.length > before;
     }
-    if (fn) out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall, chained,
-      path: fn.text.replace(/\s+/g, '').slice(0, 120) });
+    if (!fn) return;
+    const callbacks = syntax.callback ? named(n.childForFieldName('arguments')).flatMap(a => { const c = syntax.callback!(a); return c?.length ? [c] : []; }) : [];
+    out.push({ callee: calleeName(fn), line: n.startPosition.row + 1, awaited: !!n.parent && syntax.awaits.has(n.parent.type), outer: !inCall, chained,
+      path: fn.text.replace(/\s+/g, '').slice(0, 120), ...callbacks.length ? { callbacks } : {} });
   };
   if (node) visit(node, false);
   return out;

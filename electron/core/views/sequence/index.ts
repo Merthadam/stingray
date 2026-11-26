@@ -3,17 +3,21 @@
 import * as path from '../../shared/posix-path';
 import { matchesGlob } from '../../shared/ports';
 import type { DiagramNode, SequenceData, SequenceDiagnostic, SequenceFragment, SequenceMessage, SequenceNote, SequenceParticipant, ViewWarning } from '../../../../shared/contracts/views';
+import type { Node } from 'web-tree-sitter';
 import type { FileProvider, GraphApi, GraphLayers, GraphSymbol, LinkSet, SequenceStep } from '../rules/types';
 import { FUNCTION_KINDS, at, createLoader, type ParseText } from '../flowchart';
+import { named } from '../flowchart/cfg';
 import { explanationOf, symbolRef } from '../explanation';
 import { fileImports } from './externals';
 import { authLinks } from './auth-links';
 import { eventLinks } from './event-links';
+import { ipcLinks, ipcRoutes, type IpcRoute } from './ipc-links';
 import { langgraphLinks } from './langgraph-links';
+import { typedMember } from './members';
 import { httpLinks, ruleLinks, type LinkProvider, type RuleLink } from './links';
 import { SEQUENCE_LIMITS, SequenceWalker, type End, type TraceEvent } from './walk';
 
-const LINK_PROVIDERS: Record<LinkSet, LinkProvider> = { http: httpLinks, auth: authLinks, langgraph: langgraphLinks, events: eventLinks };
+const LINK_PROVIDERS: Record<LinkSet, LinkProvider> = { http: httpLinks, auth: authLinks, langgraph: langgraphLinks, events: eventLinks, ipc: ipcLinks };
 
 export interface SequenceOutput {
   sequence: SequenceData;
@@ -34,23 +38,24 @@ export async function runSequence(step: SequenceStep, graph: GraphApi, files: Fi
   const fail = (error: string): SequenceOutput =>
     ({ sequence: { participants: [], messages: [], fragments: [], notes: [] }, nodes: [], warnings, diagnostic: { ...diagnostic, error }, truncated: false });
 
-  const entry = resolveStart(step, graph);
-  if ('error' in entry) return fail(entry.error);
-  diagnostic.start = entry.start;
-
   const loader = createLoader(files, parse, 'sequence');
   try {
+    const matches = (globs: string[], file: string) => globs.some(g => matchesGlob(file, g));
+    const followable = (file: string) => (step.include ? matches(step.include, file) : inScope(file)) && !matches(step.exclude ?? [], file);
+    const importsOf = async (file: string) => { const t = await loader.tree(file); return t ? fileImports(t.rootNode) : new Map<string, string>(); };
+    const env = { graph, tree: loader.tree, imports: importsOf, files, followable, memo: new Map<string, unknown>(), halted };
+    const entry = step.start.ipc !== undefined ? await resolveIpc(step, env) : resolveStart(step, graph);
+    if ('error' in entry) return fail(entry.error);
+    diagnostic.start = entry.start;
+
     const body = await loader.load(entry.symbol);
     if ('error' in body) {
       warnings.push({ file: entry.symbol.file, line: entry.symbol.line, message: body.error });
       return fail(body.error);
     }
-    const matches = (globs: string[], file: string) => globs.some(g => matchesGlob(file, g));
-    const followable = (file: string) => (step.include ? matches(step.include, file) : inScope(file)) && !matches(step.exclude ?? [], file);
-    const importsOf = async (file: string) => { const t = await loader.tree(file); return t ? fileImports(t.rootNode) : new Map<string, string>(); };
     const providers = [...step.links.map(l => LINK_PROVIDERS[l]), ...ruleLinks(rules)];
-    const walker = new SequenceWalker(step, graph, loader.load, providers, followable, importsOf, { tree: loader.tree, files, halted });
-    await walker.entry(entry.symbol, body.constructs);
+    const walker = new SequenceWalker(step, graph, loader.load, providers, followable, importsOf, { tree: loader.tree, files, halted, memo: env.memo });
+    await walker.entry(entry.symbol, body.constructs, entry.caller);
 
     const lifelines = new Lifelines(step, graph, walker.events);
     const out = finalize(walker.events, lifelines, step, new Set(exclude));
@@ -69,8 +74,56 @@ export async function runSequence(step: SequenceStep, graph: GraphApi, files: Fi
   } finally { loader.dispose(); }
 }
 
+type IpcEnv = Parameters<typeof ipcRoutes>[0];
+type Caller = { symbol: GraphSymbol; label: string; link: string; source: { file: string; line: number } };
+
+/** `start.ipc` ("createWorkspace" = renderer or member name, or "git.createWorkspace" = channel): the main-side handler is the
+ * entry; with a trigger, the first renderer call site is the caller the trigger reaches. */
+async function resolveIpc(step: SequenceStep, env: IpcEnv): Promise<{ symbol: GraphSymbol; start: string; caller?: Caller } | { error: string }> {
+  const wanted = step.start.ipc!.trim(), file = step.start.file, where = file ? ` in ${file}` : '';
+  const found = (await ipcRoutes(env)).filter(r => (r.channel === wanted || r.renderer === wanted || r.channel.endsWith('.' + wanted)) && (!file || r.file === file || r.handler.file === file));
+  if (!found.length) return { error: `start ipc not found: ${wanted}${where}` };
+  if (found.length > 1) return { error: `ambiguous start ipc ${wanted}: ${file ? 'several in that file' : 'add a file or use the channel'} (${found.map(r => `${r.channel} ${at(r.handler)}`).join(', ')})` };
+  const route = found[0], handler = route.handler, start = `${route.channel} -> ${handler.name} (${at(handler)})`;
+  if (!step.trigger) return { symbol: handler, start };
+  const sites = await rendererCalls(route, env);
+  if (!sites.length) return { symbol: handler, start };
+  const more = sites.length > 1 ? ` (+${sites.length - 1} more)` : '';
+  return { symbol: handler, start: `${start} from ${sites[0].symbol.name} (${sites[0].source.file}:${sites[0].source.line})${more}`, caller: sites[0] };
+}
+
+/** Renderer call sites of a route: `x.<renderer>(…)` in the followable files outside handler files, not on `this`/`self`, and
+ * not resolving into the repo (code graph, then type annotations). The caller is the innermost function around the call,
+ * else the file. */
+async function rendererCalls(route: IpcRoute, env: IpcEnv): Promise<Caller[]> {
+  const handlerFiles = new Set((await ipcRoutes(env)).map(r => r.file));
+  const { files } = await env.files.list(f => /\.[cm]?[jt]sx?$/.test(f) && env.followable(f) && !handlerFiles.has(f));
+  const out: Caller[] = [];
+  for (const file of files) {
+    if (env.halted()) break;
+    if (!(await env.files.read(file))?.includes(route.renderer)) continue;
+    const tree = await env.tree(file);
+    const sites: Node[] = [];
+    const visit = (n: Node) => {
+      const fn = n.type === 'call_expression' ? n.childForFieldName('function') : null;
+      if (fn?.type === 'member_expression' && fn.childForFieldName('property')?.text === route.renderer && !/^(?:this|self)$/.test(fn.childForFieldName('object')?.text ?? '')) sites.push(n);
+      named(n).forEach(visit);
+    };
+    if (tree) visit(tree.rootNode);
+    for (const site of sites) {
+      const line = site.startPosition.row + 1, callee = site.childForFieldName('function')!.text.replace(/\s+/g, '');
+      const around = env.graph.fileSymbols(file).filter(s => FUNCTION_KINDS.has(s.kind) && s.line <= line && line <= (s.endLine ?? s.line)).sort((a, b) => b.line - a.line)[0];
+      if (around && [...env.graph.symbols(env.graph.outgoing([around.id], ['calls']).filter(r => r.line === line).map(r => r.to)).values()].some(s => s.name === route.renderer)) continue;
+      if (await typedMember({ callee: route.renderer, line, awaited: false, outer: true, chained: false, path: callee }, file, env)) continue;
+      const symbol = around ?? { id: `file:${file}`, name: path.basename(file), kind: 'file', file, line: 1 };
+      out.push({ symbol, label: route.channel, link: 'ipc', source: { file, line } });
+    }
+  }
+  return out;
+}
+
 /** The entry function: `start.symbol` (optionally in `start.file`) or the handler of `start.route` ("POST /auth/login"). */
-function resolveStart(step: SequenceStep, graph: GraphApi): { symbol: GraphSymbol; start: string } | { error: string } {
+function resolveStart(step: SequenceStep, graph: GraphApi): { symbol: GraphSymbol; start: string; caller?: Caller } | { error: string } {
   const { symbol: name, route, file } = step.start;
   const where = file ? ` in ${file}` : '';
   if (route !== undefined) {

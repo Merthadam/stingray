@@ -82,8 +82,9 @@ const flowchartSchema = z.strictObject({
 });
 
 const sequenceSchema = z.strictObject({
-  start: z.strictObject({ symbol: z.string().min(1).max(200).optional(), route: z.string().min(1).max(300).optional(), file: z.string().min(1).max(500).optional() })
-    .refine(s => (s.symbol === undefined) !== (s.route === undefined), { error: 'start needs exactly one of symbol or route' }),
+  start: z.strictObject({ symbol: z.string().min(1).max(200).optional(), route: z.string().min(1).max(300).optional(), ipc: z.string().min(1).max(200).optional(),
+    file: z.string().min(1).max(500).optional() })
+    .refine(s => [s.symbol, s.route, s.ipc].filter(x => x !== undefined).length === 1, { error: 'start needs exactly one of symbol, route or ipc' }),
   trigger: z.string().min(1).max(200).optional(),
   actor: z.string().min(1).max(80).default('User'),
   depth: z.int().min(0).max(6).default(3),
